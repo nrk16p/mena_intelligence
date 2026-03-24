@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { BarChart3, Calculator, Fuel } from "lucide-react"
+import { BarChart3, Calculator, Fuel, Truck } from "lucide-react"
 
 export function Sidebar() {
   return (
@@ -26,7 +26,14 @@ export function Sidebar() {
           Fuel Management
         </Link>
 
-
+        {/* ✅ NEW */}
+        <Link
+          href="/truck-distance"
+          className="flex items-center gap-3 text-sm font-medium hover:text-primary"
+        >
+          <BarChart3 size={18} />
+          Truck Distance
+        </Link>
 
       </nav>
     </div>
