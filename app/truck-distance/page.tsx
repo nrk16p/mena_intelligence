@@ -172,11 +172,12 @@ export default function TruckDistancePage() {
                 tickFormatter={(v) => v.toLocaleString()}
               />
 
-              <Tooltip
-                formatter={(v: number) =>
-                  `${v.toLocaleString()} km`
-                }
-              />
+                <Tooltip
+                formatter={(value) => {
+                    const v = Number(value ?? 0);
+                    return `${v.toLocaleString()} km`;
+                }}
+                />
 
               <defs>
                 <linearGradient id="colorBar" x1="0" y1="0" x2="0" y2="1">
