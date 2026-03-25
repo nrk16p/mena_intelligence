@@ -160,51 +160,57 @@ export default function TruckDistancePage() {
           </p>
 
           <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+  <BarChart data={chartData}>
+    <CartesianGrid strokeDasharray="3 3" vertical={false} />
 
-              <XAxis
-                dataKey="month"
-                tickFormatter={(m) => m.slice(5)}
-              />
+    {/* X */}
+    <XAxis
+      dataKey="month"
+      tickFormatter={(m: any) => String(m).slice(5)}
+    />
 
-              <YAxis
-                tickFormatter={(v) => v.toLocaleString()}
-              />
+    {/* Y */}
+    <YAxis
+      tickFormatter={(v: any) => Number(v || 0).toLocaleString()}
+    />
 
-                <Tooltip
-                formatter={(value) => {
-                    const v = Number(value ?? 0);
-                    return `${v.toLocaleString()} km`;
-                }}
-                />
+    {/* Tooltip ✅ FIX */}
+    <Tooltip
+      formatter={(value: any) => {
+        const v = Number(value || 0);
+        return `${v.toLocaleString()} km`;
+      }}
+    />
 
-              <defs>
-                <linearGradient id="colorBar" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#3b82f6" />
-                  <stop offset="100%" stopColor="#60a5fa" />
-                </linearGradient>
-              </defs>
+    {/* Gradient */}
+    <defs>
+      <linearGradient id="colorBar" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stopColor="#3b82f6" />
+        <stop offset="100%" stopColor="#60a5fa" />
+      </linearGradient>
+    </defs>
 
-              <Bar
-                dataKey="total"
-                fill="url(#colorBar)"
-                radius={[6, 6, 0, 0]}
-                animationDuration={800}
-              >
-                <LabelList
-                  dataKey="total"
-                  position="top"
-                  formatter={(v: number) =>
-                    v >= 1000
-                      ? `${(v / 1000).toFixed(1)}k`
-                      : v
-                  }
-                  style={{ fontSize: 10 }}
-                />
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+    {/* Bar */}
+    <Bar
+      dataKey="total"
+      fill="url(#colorBar)"
+      radius={[6, 6, 0, 0]}
+      animationDuration={800}
+    >
+      {/* ✅ LabelList FIX */}
+      <LabelList
+        dataKey="total"
+        position="top"
+        formatter={(value: any) => {
+          const v = Number(value || 0);
+          return v >= 1000
+            ? `${(v / 1000).toFixed(1)}k`
+            : v.toString();
+        }}
+      />
+    </Bar>
+  </BarChart>
+</ResponsiveContainer>
         </div>
       )}
 
