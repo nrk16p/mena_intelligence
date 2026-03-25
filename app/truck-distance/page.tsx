@@ -113,26 +113,48 @@ export default function TruckDistancePage() {
       </div>
 
       {/* FILTER */}
-      <div className="flex gap-4 items-end flex-wrap">
-        <PlateCombobox
-          plates={plates}
-          value={plate}
-          onChange={setPlate}
-        />
+      <div className="space-y-2">
 
-        <input
-          type="month"
-          value={start}
-          onChange={(e) => setStart(e.target.value)}
-          className="border px-3 py-2 rounded-md"
-        />
+        {/* Title */}
+        <div className="text-sm font-medium text-muted-foreground">
+          Filter
+        </div>
 
-        <input
-          type="month"
-          value={end}
-          onChange={(e) => setEnd(e.target.value)}
-          className="border px-3 py-2 rounded-md"
-        />
+        <div className="flex gap-4 items-end flex-wrap">
+
+          {/* Plate */}
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted-foreground">Plate</label>
+            <PlateCombobox
+              plates={plates}
+              value={plate}
+              onChange={setPlate}
+            />
+          </div>
+
+          {/* Start */}
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted-foreground">Start Month</label>
+            <input
+              type="month"
+              value={start}
+              onChange={(e) => setStart(e.target.value)}
+              className="border px-3 py-2 rounded-md"
+            />
+          </div>
+
+          {/* End */}
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted-foreground">End Month</label>
+            <input
+              type="month"
+              value={end}
+              onChange={(e) => setEnd(e.target.value)}
+              className="border px-3 py-2 rounded-md"
+            />
+          </div>
+
+        </div>
       </div>
 
       {/* SELECTED */}
