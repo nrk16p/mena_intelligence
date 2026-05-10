@@ -1527,7 +1527,7 @@ export default function LadkrabangBudgetDashboardPage() {
               Which Category Makes Over Budget?
             </h2>
             <p className="text-sm text-muted-foreground">
-              เรียงจากหมวดที่เกินงบมากที่สุด เพื่อเห็นตัวที่ทำให้บริษัท Over Budget
+              เรียงจากหมวดที่เกินงบมากที่สุด เพื่อเห็นสาเหตุที่ทำให้บริษัท Over Budget
             </p>
           </div>
 
