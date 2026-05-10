@@ -1761,12 +1761,7 @@ export default function LadkrabangBudgetDashboardPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <ParetoChart
-          data={paretoByCategory}
-          title="Pareto by จุดประสงค์การเบิก"
-        />
-      </div>
+
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         {filteredRows.map((row) => (
