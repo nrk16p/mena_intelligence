@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import * as XLSX from "xlsx"
 import { saveAs } from "file-saver"
 import {
@@ -136,6 +136,7 @@ type CategoryBudgetChartRow = {
 
 const YEAR = 2026
 const WAREHOUSE = "ลาดกระบัง"
+const PAGE_SIZE = 10
 
 const MONTHS = [
   { key: "2026-01", label: "Jan" },
@@ -566,11 +567,63 @@ function buildPareto(rows: CompareRow[], key: keyof CompareRow): ParetoItem[] {
     })
 }
 
+function PaginationControl({
+  page,
+  totalPages,
+  onChange,
+}: {
+  page: number
+  totalPages: number
+  onChange: (page: number) => void
+}) {
+  return (
+    <div className="flex flex-col gap-3 border-t bg-gray-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <p className="text-center text-xs text-muted-foreground sm:text-left">
+        Page {page} of {totalPages}
+      </p>
+
+      <div className="grid grid-cols-2 gap-2 sm:flex">
+        <button
+          onClick={() => onChange(Math.max(1, page - 1))}
+          disabled={page <= 1}
+          className="rounded-md border bg-white px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Previous
+        </button>
+
+        <button
+          onClick={() => onChange(Math.min(totalPages, page + 1))}
+          disabled={page >= totalPages}
+          className="rounded-md border bg-white px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Next
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function ChartScrollContainer({
+  children,
+  minWidth = 720,
+  height = 360,
+}: {
+  children: React.ReactNode
+  minWidth?: number
+  height?: number
+}) {
+  return (
+    <div className="w-full overflow-x-auto pb-2">
+      <div style={{ minWidth, height }}>{children}</div>
+    </div>
+  )
+}
+
 function ParetoChart({ data, title }: { data: ParetoItem[]; title: string }) {
   return (
-    <div className="rounded-xl border bg-white p-4">
+    <div className="rounded-xl border bg-white p-3 md:p-4">
       <div className="mb-4">
-        <h2 className="text-lg font-semibold">{title}</h2>
+        <h2 className="text-base font-semibold md:text-lg">{title}</h2>
         <p className="text-sm text-muted-foreground">
           ใช้ดูว่า Cost หลักมาจากหมวดไหน เพื่อโฟกัสการคุมงบก่อน
         </p>
@@ -581,13 +634,14 @@ function ParetoChart({ data, title }: { data: ParetoItem[]; title: string }) {
           No data
         </div>
       ) : (
-        <div className="h-[360px]">
+        <ChartScrollContainer minWidth={760} height={360}>
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart
               data={data}
               margin={{ top: 20, right: 20, bottom: 90, left: 20 }}
             >
               <CartesianGrid strokeDasharray="3 3" />
+
               <XAxis
                 dataKey="name"
                 angle={-45}
@@ -596,11 +650,13 @@ function ParetoChart({ data, title }: { data: ParetoItem[]; title: string }) {
                 height={100}
                 tick={{ fontSize: 11 }}
               />
+
               <YAxis
                 yAxisId="left"
                 tickFormatter={(v) => Number(v).toLocaleString()}
                 tick={{ fontSize: 11 }}
               />
+
               <YAxis
                 yAxisId="right"
                 orientation="right"
@@ -608,17 +664,21 @@ function ParetoChart({ data, title }: { data: ParetoItem[]; title: string }) {
                 tickFormatter={(v) => `${v}%`}
                 tick={{ fontSize: 11 }}
               />
+
               <Tooltip
                 formatter={(value: any, name: any) => {
                   if (name === "total_cost") {
                     return [formatNumber(Number(value)), "Actual Cost"]
                   }
+
                   if (name === "cumulative") {
                     return [`${Number(value).toFixed(1)}%`, "Cumulative %"]
                   }
+
                   return [value, name]
                 }}
               />
+
               <Bar yAxisId="left" dataKey="total_cost" radius={[6, 6, 0, 0]}>
                 {data.map((entry, index) => (
                   <Cell
@@ -627,6 +687,7 @@ function ParetoChart({ data, title }: { data: ParetoItem[]; title: string }) {
                   />
                 ))}
               </Bar>
+
               <Line
                 yAxisId="right"
                 type="monotone"
@@ -635,6 +696,7 @@ function ParetoChart({ data, title }: { data: ParetoItem[]; title: string }) {
                 strokeWidth={3}
                 dot={{ r: 4 }}
               />
+
               <Line
                 yAxisId="right"
                 type="monotone"
@@ -645,13 +707,15 @@ function ParetoChart({ data, title }: { data: ParetoItem[]; title: string }) {
               />
             </ComposedChart>
           </ResponsiveContainer>
-        </div>
+        </ChartScrollContainer>
       )}
     </div>
   )
 }
 
 export default function LadkrabangBudgetDashboardPage() {
+  const detailSectionRef = useRef<HTMLDivElement | null>(null)
+
   const [actualData, setActualData] = useState<ActualRow[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
@@ -671,11 +735,33 @@ export default function LadkrabangBudgetDashboardPage() {
     Record<string, boolean>
   >({})
 
+  const [summaryPage, setSummaryPage] = useState(1)
+  const [transactionPage, setTransactionPage] = useState(1)
+  const [openTransactions, setOpenTransactions] = useState<Record<string, boolean>>(
+    {}
+  )
+
   function toggleBreakdown(cardId: string) {
     setOpenBreakdownCards((prev) => ({
       ...prev,
       [cardId]: !prev[cardId],
     }))
+  }
+
+  function toggleTransaction(transactionKey: string) {
+    setOpenTransactions((prev) => ({
+      ...prev,
+      [transactionKey]: !prev[transactionKey],
+    }))
+  }
+
+  function scrollToDetailSection() {
+    setTimeout(() => {
+      detailSectionRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      })
+    }, 150)
   }
 
   async function fetchActualData() {
@@ -711,7 +797,7 @@ export default function LadkrabangBudgetDashboardPage() {
     fetchActualData()
   }, [])
 
-  const compareRows = useMemo<CompareRow[]>((() => {
+  const compareRows = useMemo<CompareRow[]>(() => {
     const rows: CompareRow[] = []
 
     BUDGET_DATA.forEach((budget) => {
@@ -764,7 +850,7 @@ export default function LadkrabangBudgetDashboardPage() {
     })
 
     return rows
-  }) as () => CompareRow[], [actualData])
+  }, [actualData])
 
   const filteredRows = useMemo(() => {
     return compareRows
@@ -915,7 +1001,6 @@ export default function LadkrabangBudgetDashboardPage() {
         if (b.overBudgetAmount !== a.overBudgetAmount) {
           return b.overBudgetAmount - a.overBudgetAmount
         }
-
         return b.actualCost - a.actualCost
       })
   }, [filteredRows])
@@ -954,6 +1039,26 @@ export default function LadkrabangBudgetDashboardPage() {
     return buildProductCodeSummary(selectedDetailRows)
   }, [selectedDetailRows])
 
+  const summaryTotalPages = Math.max(
+    1,
+    Math.ceil(productCodeSummary.length / PAGE_SIZE)
+  )
+
+  const paginatedProductCodeSummary = useMemo(() => {
+    const start = (summaryPage - 1) * PAGE_SIZE
+    return productCodeSummary.slice(start, start + PAGE_SIZE)
+  }, [productCodeSummary, summaryPage])
+
+  const transactionTotalPages = Math.max(
+    1,
+    Math.ceil(selectedDetailRows.length / PAGE_SIZE)
+  )
+
+  const paginatedTransactions = useMemo(() => {
+    const start = (transactionPage - 1) * PAGE_SIZE
+    return selectedDetailRows.slice(start, start + PAGE_SIZE)
+  }, [selectedDetailRows, transactionPage])
+
   const vehicleOptions = useMemo(() => {
     return Array.from(
       new Set(BUDGET_DATA.map((row) => row.ประเภทยานพาหนะ))
@@ -979,6 +1084,11 @@ export default function LadkrabangBudgetDashboardPage() {
       setDetailError("")
       setSelectedDetailTitle(`${row.AccName} / ${item.กลุ่มสินค้า}`)
       setSelectedDetailRows([])
+      setSummaryPage(1)
+      setTransactionPage(1)
+      setOpenTransactions({})
+
+      scrollToDetailSection()
 
       const monthNumber = Number(row.month.split("-")[1])
 
@@ -1014,9 +1124,11 @@ export default function LadkrabangBudgetDashboardPage() {
       )
 
       setSelectedDetailRows(buildProductTransactionBreakdown(matchedRows))
+      scrollToDetailSection()
     } catch (err: any) {
       setDetailError(err.message || "Something went wrong")
       setSelectedDetailRows([])
+      scrollToDetailSection()
     } finally {
       setDetailLoading(false)
     }
@@ -1139,27 +1251,27 @@ export default function LadkrabangBudgetDashboardPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 pb-8 md:space-y-6">
       <div className="flex flex-col justify-between gap-3 md:flex-row md:items-end">
         <div>
-          <h1 className="text-2xl font-bold">
+          <h1 className="text-xl font-bold md:text-2xl">
             Ladkrabang Procurement Cost Control 2026
           </h1>
           <p className="text-sm text-muted-foreground">
-            คลังสินค้า: {WAREHOUSE} | หลักการ: ยิ่งใช้ต่ำกว่า Budget ยิ่งดี และเป้าหมายสูงสุดคือประหยัดให้ได้ 15%
+            คลังสินค้า: {WAREHOUSE} | ยิ่งใช้ต่ำกว่า Budget ยิ่งดี และเป้าหมายสูงสุดคือประหยัดให้ได้ 15%
           </p>
         </div>
 
         <button
           onClick={fetchActualData}
           disabled={loading}
-          className="rounded-md bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
+          className="w-full rounded-md bg-black px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50 md:w-auto"
         >
           {loading ? "Loading..." : "Refresh"}
         </button>
       </div>
 
-      <div className="rounded-xl border bg-white p-4">
+      <div className="rounded-xl border bg-white p-3 md:p-4">
         <h2 className="font-semibold">วิธีอ่าน Dashboard</h2>
 
         <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -1186,13 +1298,13 @@ export default function LadkrabangBudgetDashboardPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 rounded-xl border bg-white p-4 md:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 rounded-xl border bg-white p-3 md:grid-cols-4 md:gap-4 md:p-4">
         <div className="space-y-1">
           <label className="text-sm font-medium">Month</label>
           <select
             value={selectedMonth}
             onChange={(e) => setSelectedMonth(e.target.value)}
-            className="w-full rounded-md border px-3 py-2 text-sm"
+            className="w-full rounded-md border px-3 py-2.5 text-sm"
           >
             {MONTHS.map((month) => (
               <option key={month.key} value={month.key}>
@@ -1207,7 +1319,7 @@ export default function LadkrabangBudgetDashboardPage() {
           <select
             value={selectedVehicle}
             onChange={(e) => setSelectedVehicle(e.target.value)}
-            className="w-full rounded-md border px-3 py-2 text-sm"
+            className="w-full rounded-md border px-3 py-2.5 text-sm"
           >
             <option value="">ทั้งหมด</option>
             {vehicleOptions.map((item) => (
@@ -1223,7 +1335,7 @@ export default function LadkrabangBudgetDashboardPage() {
           <select
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
-            className="w-full rounded-md border px-3 py-2 text-sm"
+            className="w-full rounded-md border px-3 py-2.5 text-sm"
           >
             <option value="">ทั้งหมด</option>
             {categoryOptions.map((item) => (
@@ -1237,7 +1349,7 @@ export default function LadkrabangBudgetDashboardPage() {
         <div className="flex items-end">
           <button
             onClick={downloadExcel}
-            className="w-full rounded-md bg-green-600 px-4 py-2 text-sm text-white"
+            className="w-full rounded-md bg-green-600 px-4 py-2.5 text-sm font-medium text-white"
           >
             Download Excel
           </button>
@@ -1250,32 +1362,36 @@ export default function LadkrabangBudgetDashboardPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
-        <div className="rounded-xl border bg-white p-4">
-          <p className="text-sm text-muted-foreground">Budget</p>
-          <p className="text-2xl font-bold">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-5 md:gap-4">
+        <div className="rounded-xl border bg-white p-3 md:p-4">
+          <p className="text-xs text-muted-foreground md:text-sm">Budget</p>
+          <p className="text-xl font-bold md:text-2xl">
             {formatNumber(selectedMonthSummary.budget)}
           </p>
         </div>
 
-        <div className="rounded-xl border bg-white p-4">
-          <p className="text-sm text-muted-foreground">Target Cost หลังลด 15%</p>
-          <p className="text-2xl font-bold">
+        <div className="rounded-xl border bg-white p-3 md:p-4">
+          <p className="text-xs text-muted-foreground md:text-sm">
+            Target Cost หลังลด 15%
+          </p>
+          <p className="text-xl font-bold md:text-2xl">
             {formatNumber(selectedMonthSummary.targetCost)}
           </p>
         </div>
 
-        <div className="rounded-xl border bg-white p-4">
-          <p className="text-sm text-muted-foreground">Actual Cost</p>
-          <p className="text-2xl font-bold">
+        <div className="rounded-xl border bg-white p-3 md:p-4">
+          <p className="text-xs text-muted-foreground md:text-sm">Actual Cost</p>
+          <p className="text-xl font-bold md:text-2xl">
             {formatNumber(selectedMonthSummary.actualCost)}
           </p>
         </div>
 
-        <div className="rounded-xl border bg-white p-4">
-          <p className="text-sm text-muted-foreground">ประหยัดจาก Budget</p>
+        <div className="rounded-xl border bg-white p-3 md:p-4">
+          <p className="text-xs text-muted-foreground md:text-sm">
+            ประหยัดจาก Budget
+          </p>
           <p
-            className={`text-2xl font-bold ${
+            className={`text-xl font-bold md:text-2xl ${
               selectedMonthSummary.savingFromBudget >= 0
                 ? "text-green-700"
                 : "text-red-700"
@@ -1296,22 +1412,26 @@ export default function LadkrabangBudgetDashboardPage() {
         </div>
 
         <div
-          className={`rounded-xl border p-4 ${getStatusClass(
+          className={`col-span-2 rounded-xl border p-3 md:col-span-1 md:p-4 ${getStatusClass(
             selectedMonthSummary.status
           )}`}
         >
-          <p className="text-sm text-muted-foreground">Budget Control Status</p>
-          <p className="text-2xl font-bold">
+          <p className="text-xs text-muted-foreground md:text-sm">
+            Budget Control Status
+          </p>
+          <p className="text-xl font-bold md:text-2xl">
             {getStatusShortLabel(selectedMonthSummary.status)}
           </p>
           <p className="text-xs">{getStatusLabel(selectedMonthSummary.status)}</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
-        <div className="rounded-xl border bg-white p-4 md:col-span-2">
-          <p className="text-sm text-muted-foreground">Year to Month Budget</p>
-          <p className="text-2xl font-bold">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-5 md:gap-4">
+        <div className="col-span-2 rounded-xl border bg-white p-3 md:col-span-2 md:p-4">
+          <p className="text-xs text-muted-foreground md:text-sm">
+            Year to Month Budget
+          </p>
+          <p className="text-xl font-bold md:text-2xl">
             {formatNumber(yearToMonthSummary.budget)}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -1322,9 +1442,11 @@ export default function LadkrabangBudgetDashboardPage() {
           </p>
         </div>
 
-        <div className="rounded-xl border bg-white p-4 md:col-span-2">
-          <p className="text-sm text-muted-foreground">Year to Month Actual Cost</p>
-          <p className="text-2xl font-bold">
+        <div className="col-span-2 rounded-xl border bg-white p-3 md:col-span-2 md:p-4">
+          <p className="text-xs text-muted-foreground md:text-sm">
+            Year to Month Actual Cost
+          </p>
+          <p className="text-xl font-bold md:text-2xl">
             {formatNumber(yearToMonthSummary.actualCost)}
           </p>
           <p
@@ -1344,12 +1466,14 @@ export default function LadkrabangBudgetDashboardPage() {
         </div>
 
         <div
-          className={`rounded-xl border p-4 ${getStatusClass(
+          className={`col-span-2 rounded-xl border p-3 md:col-span-1 md:p-4 ${getStatusClass(
             yearToMonthSummary.status
           )}`}
         >
-          <p className="text-sm text-muted-foreground">YTM Budget Control</p>
-          <p className="text-2xl font-bold">
+          <p className="text-xs text-muted-foreground md:text-sm">
+            YTM Budget Control
+          </p>
+          <p className="text-xl font-bold md:text-2xl">
             {getStatusShortLabel(yearToMonthSummary.status)}
           </p>
           <p className="mt-1 text-xs">{getStatusLabel(yearToMonthSummary.status)}</p>
@@ -1357,15 +1481,17 @@ export default function LadkrabangBudgetDashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <div className="rounded-xl border bg-white p-4">
+        <div className="rounded-xl border bg-white p-3 md:p-4">
           <div className="mb-4">
-            <h2 className="text-lg font-semibold">Overall Budget vs Actual</h2>
+            <h2 className="text-base font-semibold md:text-lg">
+              Overall Budget vs Actual
+            </h2>
             <p className="text-sm text-muted-foreground">
               ดูภาพรวมเดือนที่เลือก ว่า Actual เกิน Budget หรือยังอยู่ในงบ
             </p>
           </div>
 
-          <div className="h-[360px]">
+          <ChartScrollContainer minWidth={520} height={320}>
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart
                 data={overallBudgetChartData}
@@ -1392,39 +1518,21 @@ export default function LadkrabangBudgetDashboardPage() {
                 />
               </ComposedChart>
             </ResponsiveContainer>
-          </div>
-
-          <div className="mt-3 rounded-lg border bg-gray-50 p-3 text-sm">
-            {selectedMonthSummary.actualCost > selectedMonthSummary.budget ? (
-              <p className="text-red-700">
-                ภาพรวมเดือนนี้เกินงบ{" "}
-                <span className="font-bold">
-                  {formatNumber(selectedMonthSummary.overBudgetAmount)}
-                </span>{" "}
-                ต้องดูหมวดที่เกินงบด้านขวา
-              </p>
-            ) : selectedMonthSummary.actualCost <= selectedMonthSummary.targetCost ? (
-              <p className="text-green-700">
-                ภาพรวมเดือนนี้ดีมาก Actual ต่ำกว่า Target Cost หลังลด 15%
-              </p>
-            ) : (
-              <p className="text-yellow-700">
-                ภาพรวมเดือนนี้ยังอยู่ใน Budget แต่ยังลด Cost ไม่ถึงเป้า 15%
-              </p>
-            )}
-          </div>
+          </ChartScrollContainer>
         </div>
 
-        <div className="rounded-xl border bg-white p-4">
+        <div className="rounded-xl border bg-white p-3 md:p-4">
           <div className="mb-4">
-            <h2 className="text-lg font-semibold">Which Category Makes Over Budget?</h2>
+            <h2 className="text-base font-semibold md:text-lg">
+              Which Category Makes Over Budget?
+            </h2>
             <p className="text-sm text-muted-foreground">
               เรียงจากหมวดที่เกินงบมากที่สุด เพื่อเห็นตัวที่ทำให้บริษัท Over Budget
             </p>
           </div>
 
           {overBudgetRanking.length === 0 ? (
-            <div className="flex h-[360px] items-center justify-center rounded-lg border bg-green-50 text-sm text-green-700">
+            <div className="flex h-[320px] items-center justify-center rounded-lg border bg-green-50 text-sm text-green-700 md:h-[360px]">
               ไม่มีหมวดที่เกิน Budget ในเดือนนี้
             </div>
           ) : (
@@ -1434,7 +1542,7 @@ export default function LadkrabangBudgetDashboardPage() {
                   key={`${row.name}-${index}`}
                   className="rounded-lg border border-red-200 bg-red-50 p-3"
                 >
-                  <div className="mb-2 flex items-start justify-between gap-3">
+                  <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                     <div>
                       <p className="text-sm font-semibold text-red-700">
                         #{index + 1} {row.name}
@@ -1474,15 +1582,17 @@ export default function LadkrabangBudgetDashboardPage() {
         </div>
       </div>
 
-      <div className="rounded-xl border bg-white p-4">
+      <div className="rounded-xl border bg-white p-3 md:p-4">
         <div className="mb-4">
-          <h2 className="text-lg font-semibold">Budget vs Actual by รายหมวด</h2>
+          <h2 className="text-base font-semibold md:text-lg">
+            Budget vs Actual by รายหมวด
+          </h2>
           <p className="text-sm text-muted-foreground">
             เปรียบเทียบ Budget, Target Cost และ Actual Cost ของแต่ละหมวด
           </p>
         </div>
 
-        <div className="h-[520px]">
+        <ChartScrollContainer minWidth={900} height={520}>
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart
               data={categoryBudgetChartData}
@@ -1525,18 +1635,20 @@ export default function LadkrabangBudgetDashboardPage() {
               />
             </ComposedChart>
           </ResponsiveContainer>
-        </div>
+        </ChartScrollContainer>
       </div>
 
-      <div className="rounded-xl border bg-white p-4">
+      <div className="rounded-xl border bg-white p-3 md:p-4">
         <div className="mb-4">
-          <h2 className="text-lg font-semibold">Over Budget Amount by รายหมวด</h2>
+          <h2 className="text-base font-semibold md:text-lg">
+            Over Budget Amount by รายหมวด
+          </h2>
           <p className="text-sm text-muted-foreground">
             ยิ่งแท่งสูง แปลว่าหมวดนั้นเป็นตัวทำให้บริษัทเกินงบมากที่สุด
           </p>
         </div>
 
-        <div className="h-[420px]">
+        <ChartScrollContainer minWidth={900} height={420}>
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart
               data={categoryBudgetChartData}
@@ -1576,34 +1688,38 @@ export default function LadkrabangBudgetDashboardPage() {
               </Bar>
             </ComposedChart>
           </ResponsiveContainer>
-        </div>
+        </ChartScrollContainer>
       </div>
 
-      <div className="rounded-xl border bg-white p-4">
+      <div className="rounded-xl border bg-white p-3 md:p-4">
         <div className="mb-4">
-          <h2 className="text-lg font-semibold">Card Pass / Not Pass Analysis</h2>
+          <h2 className="text-base font-semibold md:text-lg">
+            Card Pass / Not Pass Analysis
+          </h2>
           <p className="text-sm text-muted-foreground">
             วิเคราะห์จาก Card รายหมวดว่าอันไหนคุมงบได้ และอันไหนต้องรีบแก้ไข
           </p>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-          <div className="rounded-lg border bg-gray-50 p-4">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
+          <div className="rounded-lg border bg-gray-50 p-3 md:p-4">
             <p className="text-sm text-muted-foreground">Total Cards</p>
-            <p className="text-2xl font-bold">{cardAnalysis.totalCards}</p>
+            <p className="text-xl font-bold md:text-2xl">
+              {cardAnalysis.totalCards}
+            </p>
           </div>
 
-          <div className="rounded-lg border border-green-200 bg-green-50 p-4">
+          <div className="rounded-lg border border-green-200 bg-green-50 p-3 md:p-4">
             <p className="text-sm text-green-700">ดีมาก</p>
-            <p className="text-2xl font-bold text-green-700">
+            <p className="text-xl font-bold text-green-700 md:text-2xl">
               {cardAnalysis.excellentRows.length}
             </p>
             <p className="text-xs text-green-700">ลดได้ตามเป้า 15%</p>
           </div>
 
-          <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4">
+          <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 md:p-4">
             <p className="text-sm text-yellow-700">อยู่ในงบ</p>
-            <p className="text-2xl font-bold text-yellow-700">
+            <p className="text-xl font-bold text-yellow-700 md:text-2xl">
               {cardAnalysis.withinBudgetRows.length}
             </p>
             <p className="text-xs text-yellow-700">
@@ -1611,9 +1727,9 @@ export default function LadkrabangBudgetDashboardPage() {
             </p>
           </div>
 
-          <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+          <div className="rounded-lg border border-red-200 bg-red-50 p-3 md:p-4">
             <p className="text-sm text-red-700">เกินงบ</p>
-            <p className="text-2xl font-bold text-red-700">
+            <p className="text-xl font-bold text-red-700 md:text-2xl">
               {cardAnalysis.overBudgetRows.length}
             </p>
             <p className="text-xs text-red-700">
@@ -1622,7 +1738,7 @@ export default function LadkrabangBudgetDashboardPage() {
           </div>
         </div>
 
-        <div className="mt-4 rounded-lg border bg-white p-4">
+        <div className="mt-4 rounded-lg border bg-white p-3 md:p-4">
           <div className="mb-2 flex items-center justify-between">
             <p className="text-sm font-medium">Pass Rate</p>
             <p className="text-sm font-bold">
@@ -1645,13 +1761,18 @@ export default function LadkrabangBudgetDashboardPage() {
         </div>
       </div>
 
-
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <ParetoChart
+          data={paretoByCategory}
+          title="Pareto by จุดประสงค์การเบิก"
+        />
+      </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         {filteredRows.map((row) => (
           <div
             key={row.id}
-            className={`rounded-xl border bg-white p-4 ${
+            className={`rounded-xl border bg-white p-3 md:p-4 ${
               row.status === "excellent"
                 ? "border-green-200"
                 : row.status === "within_budget"
@@ -1659,19 +1780,19 @@ export default function LadkrabangBudgetDashboardPage() {
                   : "border-red-200"
             }`}
           >
-            <div className="mb-3 flex items-start justify-between gap-4">
+            <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">
                   {row.จุดประสงค์การเบิก}
                 </p>
-                <h3 className="text-lg font-bold">{row.AccName}</h3>
+                <h3 className="text-base font-bold md:text-lg">{row.AccName}</h3>
                 <p className="text-sm text-muted-foreground">
                   {row.ประเภทรถร่วม} | {row.ประเภทยานพาหนะ}
                 </p>
               </div>
 
               <span
-                className={`rounded-full px-3 py-1 text-xs font-medium ${getBadgeClass(
+                className={`w-fit rounded-full px-3 py-1 text-xs font-medium ${getBadgeClass(
                   row.status
                 )}`}
               >
@@ -1679,26 +1800,32 @@ export default function LadkrabangBudgetDashboardPage() {
               </span>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <div className="grid grid-cols-2 gap-2 md:grid-cols-4 md:gap-3">
               <div className="rounded-lg bg-gray-50 p-3">
                 <p className="text-xs text-muted-foreground">Budget</p>
-                <p className="font-bold">{formatNumber(row.budget)}</p>
+                <p className="text-sm font-bold md:text-base">
+                  {formatNumber(row.budget)}
+                </p>
               </div>
 
               <div className="rounded-lg bg-gray-50 p-3">
                 <p className="text-xs text-muted-foreground">Target Cost</p>
-                <p className="font-bold">{formatNumber(row.targetCost)}</p>
+                <p className="text-sm font-bold md:text-base">
+                  {formatNumber(row.targetCost)}
+                </p>
               </div>
 
               <div className="rounded-lg bg-gray-50 p-3">
                 <p className="text-xs text-muted-foreground">Actual</p>
-                <p className="font-bold">{formatNumber(row.actualCost)}</p>
+                <p className="text-sm font-bold md:text-base">
+                  {formatNumber(row.actualCost)}
+                </p>
               </div>
 
               <div className="rounded-lg bg-gray-50 p-3">
                 <p className="text-xs text-muted-foreground">Saving / Over</p>
                 <p
-                  className={`font-bold ${
+                  className={`text-sm font-bold md:text-base ${
                     row.savingFromBudget >= 0 ? "text-green-700" : "text-red-700"
                   }`}
                 >
@@ -1732,7 +1859,7 @@ export default function LadkrabangBudgetDashboardPage() {
             </div>
 
             <div className="mt-5 rounded-lg border bg-gray-50 p-3">
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="text-sm font-semibold">Breakdown by กลุ่มสินค้า</p>
                   <p className="text-xs text-muted-foreground">
@@ -1742,7 +1869,7 @@ export default function LadkrabangBudgetDashboardPage() {
 
                 <button
                   onClick={() => toggleBreakdown(row.id)}
-                  className="rounded-md border bg-white px-3 py-2 text-xs font-medium hover:bg-gray-100"
+                  className="w-full rounded-md border bg-white px-3 py-2 text-xs font-medium hover:bg-gray-100 sm:w-auto"
                 >
                   {openBreakdownCards[row.id] ? "Hide" : "View Breakdown"}
                 </button>
@@ -1762,7 +1889,7 @@ export default function LadkrabangBudgetDashboardPage() {
                           onClick={() => openProductGroupDetail(row, item)}
                           className="w-full rounded-md border bg-white p-3 text-left transition hover:border-black hover:shadow-sm"
                         >
-                          <div className="flex items-start justify-between gap-4">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                             <div className="min-w-0">
                               <p className="line-clamp-2 text-sm font-medium">
                                 {item.กลุ่มสินค้า}
@@ -1800,10 +1927,15 @@ export default function LadkrabangBudgetDashboardPage() {
       </div>
 
       {(selectedDetailTitle || detailLoading || detailError) && (
-        <div className="rounded-xl border bg-white p-4">
+        <div
+          ref={detailSectionRef}
+          className="scroll-mt-4 rounded-xl border bg-white p-3 md:scroll-mt-6 md:p-4"
+        >
           <div className="mb-4 flex flex-col justify-between gap-3 md:flex-row md:items-start">
             <div>
-              <h2 className="text-lg font-semibold">Product Detail Breakdown</h2>
+              <h2 className="text-base font-semibold md:text-lg">
+                Product Detail Breakdown
+              </h2>
               <p className="text-sm text-muted-foreground">
                 {selectedDetailTitle || "Select product group"}
               </p>
@@ -1812,11 +1944,11 @@ export default function LadkrabangBudgetDashboardPage() {
               </p>
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
               {selectedDetailRows.length > 0 && (
                 <button
                   onClick={downloadProductDetailExcel}
-                  className="rounded-md bg-green-600 px-3 py-2 text-sm text-white"
+                  className="w-full rounded-md bg-green-600 px-3 py-2 text-sm text-white sm:w-auto"
                 >
                   Download Detail
                 </button>
@@ -1828,7 +1960,7 @@ export default function LadkrabangBudgetDashboardPage() {
                   setSelectedDetailRows([])
                   setDetailError("")
                 }}
-                className="rounded-md border px-3 py-2 text-sm"
+                className="w-full rounded-md border px-3 py-2 text-sm sm:w-auto"
               >
                 Clear Detail
               </button>
@@ -1853,39 +1985,35 @@ export default function LadkrabangBudgetDashboardPage() {
 
           {!detailLoading && selectedDetailRows.length > 0 && (
             <div className="space-y-6">
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-                <div className="rounded-lg border bg-gray-50 p-4">
-                  <p className="text-sm text-muted-foreground">
-                    Unique ทะเบียน
-                  </p>
-                  <p className="text-2xl font-bold">
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
+                <div className="rounded-lg border bg-gray-50 p-3 md:p-4">
+                  <p className="text-sm text-muted-foreground">Unique ทะเบียน</p>
+                  <p className="text-xl font-bold md:text-2xl">
                     {detailStats.uniquePlateCount.toLocaleString()}
                   </p>
                 </div>
 
-                <div className="rounded-lg border bg-gray-50 p-4">
+                <div className="rounded-lg border bg-gray-50 p-3 md:p-4">
                   <p className="text-sm text-muted-foreground">
                     Unique รหัสสินค้า
                   </p>
-                  <p className="text-2xl font-bold">
+                  <p className="text-xl font-bold md:text-2xl">
                     {detailStats.uniqueProductCodeCount.toLocaleString()}
                   </p>
                 </div>
 
-                <div className="rounded-lg border bg-gray-50 p-4">
+                <div className="rounded-lg border bg-gray-50 p-3 md:p-4">
                   <p className="text-sm text-muted-foreground">
                     Count รหัสสินค้า
                   </p>
-                  <p className="text-2xl font-bold">
+                  <p className="text-xl font-bold md:text-2xl">
                     {detailStats.productCodeCount.toLocaleString()}
                   </p>
                 </div>
 
-                <div className="rounded-lg border bg-gray-50 p-4">
-                  <p className="text-sm text-muted-foreground">
-                    Total Cost
-                  </p>
-                  <p className="text-2xl font-bold">
+                <div className="rounded-lg border bg-gray-50 p-3 md:p-4">
+                  <p className="text-sm text-muted-foreground">Total Cost</p>
+                  <p className="text-xl font-bold md:text-2xl">
                     {formatNumber(detailStats.totalCost)}
                   </p>
                 </div>
@@ -1893,16 +2021,14 @@ export default function LadkrabangBudgetDashboardPage() {
 
               <div className="overflow-hidden rounded-lg border bg-white">
                 <div className="border-b bg-gray-50 p-4">
-                  <h3 className="font-semibold">
-                    Summary by รหัสสินค้า
-                  </h3>
+                  <h3 className="font-semibold">Summary by รหัสสินค้า</h3>
                   <p className="text-sm text-muted-foreground">
-                    รวม total_cost และจำนวนครั้งของแต่ละรหัสสินค้า
+                    รวม total_cost และจำนวนครั้งของแต่ละรหัสสินค้า แสดงหน้า ละ 10 รายการ
                   </p>
                 </div>
 
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
+                <div className="-mx-3 overflow-x-auto md:mx-0">
+                  <table className="min-w-[760px] w-full text-sm">
                     <thead className="bg-white">
                       <tr className="border-b">
                         <th className="whitespace-nowrap px-4 py-3 text-left">
@@ -1930,7 +2056,7 @@ export default function LadkrabangBudgetDashboardPage() {
                     </thead>
 
                     <tbody>
-                      {productCodeSummary.map((item, index) => (
+                      {paginatedProductCodeSummary.map((item, index) => (
                         <tr
                           key={`${item.รหัสสินค้า}-${item.ชื่อสินค้า}-${index}`}
                           className="border-b hover:bg-gray-50"
@@ -1938,9 +2064,7 @@ export default function LadkrabangBudgetDashboardPage() {
                           <td className="whitespace-nowrap px-4 py-3">
                             {item.รหัสสินค้า}
                           </td>
-                          <td className="px-4 py-3">
-                            {item.ชื่อสินค้า}
-                          </td>
+                          <td className="px-4 py-3">{item.ชื่อสินค้า}</td>
                           <td className="whitespace-nowrap px-4 py-3 text-right">
                             {item.count_product_code.toLocaleString()}
                           </td>
@@ -1961,123 +2085,167 @@ export default function LadkrabangBudgetDashboardPage() {
                     </tbody>
                   </table>
                 </div>
+
+                <PaginationControl
+                  page={summaryPage}
+                  totalPages={summaryTotalPages}
+                  onChange={setSummaryPage}
+                />
               </div>
 
-              <div className="space-y-4">
-                {selectedDetailRows.map((transaction, transactionIndex) => {
-                  const items = transaction.items || []
+              <div className="overflow-hidden rounded-lg border bg-white">
+                <div className="flex items-center justify-between border-b bg-gray-50 p-4">
+                  <div>
+                    <h3 className="font-semibold">Transaction Detail</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Group by วันที่ + ทะเบียน แสดงหน้า ละ 10 transaction
+                    </p>
+                  </div>
+                </div>
 
-                  return (
-                    <div
-                      key={`${transaction.วันที่}-${transaction.ทะเบียน}-${transactionIndex}`}
-                      className="overflow-hidden rounded-lg border bg-white"
-                    >
-                      <div className="flex flex-col justify-between gap-3 border-b bg-gray-50 p-4 md:flex-row md:items-center">
-                        <div>
-                          <p className="text-sm text-muted-foreground">
-                            Transaction
-                          </p>
-                          <h3 className="text-base font-bold">
-                            {transaction.วันที่} | {transaction.ทะเบียน}
-                          </h3>
-                        </div>
+                <div className="space-y-3 p-3 md:p-4">
+                  {paginatedTransactions.map((transaction, transactionIndex) => {
+                    const items = transaction.items || []
+                    const transactionKey = `${transaction.วันที่}-${transaction.ทะเบียน}-${transactionPage}-${transactionIndex}`
+                    const isOpen = !!openTransactions[transactionKey]
 
-                        <div className="grid grid-cols-2 gap-3 text-right md:grid-cols-4">
-                          <div>
-                            <p className="text-xs text-muted-foreground">
-                              Total Cost
-                            </p>
-                            <p className="font-bold">
-                              {formatNumber(transaction.total_cost)}
-                            </p>
+                    return (
+                      <div
+                        key={transactionKey}
+                        className="overflow-hidden rounded-lg border bg-white"
+                      >
+                        <button
+                          onClick={() => toggleTransaction(transactionKey)}
+                          className="w-full border-b bg-gray-50 p-4 text-left transition hover:bg-gray-100"
+                        >
+                          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                            <div>
+                              <p className="text-sm text-muted-foreground">
+                                Transaction
+                              </p>
+                              <h3 className="text-base font-bold">
+                                {transaction.วันที่} | {transaction.ทะเบียน}
+                              </h3>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {isOpen ? "Hide items" : "View items"}
+                              </p>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2 text-left sm:text-right md:grid-cols-4 md:gap-3">
+                              <div>
+                                <p className="text-xs text-muted-foreground">
+                                  Total Cost
+                                </p>
+                                <p className="font-bold">
+                                  {formatNumber(transaction.total_cost)}
+                                </p>
+                              </div>
+
+                              <div>
+                                <p className="text-xs text-muted-foreground">
+                                  Actual Issue
+                                </p>
+                                <p className="font-bold">
+                                  {formatNumber(transaction.actual_issue)}
+                                </p>
+                              </div>
+
+                              <div>
+                                <p className="text-xs text-muted-foreground">
+                                  Rows
+                                </p>
+                                <p className="font-bold">
+                                  {transaction.row_count.toLocaleString()}
+                                </p>
+                              </div>
+
+                              <div>
+                                <p className="text-xs text-muted-foreground">
+                                  % of Group
+                                </p>
+                                <p className="font-bold">
+                                  {transaction.percentage.toFixed(1)}%
+                                </p>
+                              </div>
+                            </div>
                           </div>
+                        </button>
 
-                          <div>
-                            <p className="text-xs text-muted-foreground">
-                              Actual Issue
-                            </p>
-                            <p className="font-bold">
-                              {formatNumber(transaction.actual_issue)}
-                            </p>
-                          </div>
+                        {isOpen && (
+                          <>
+                            {items.length === 0 ? (
+                              <div className="p-4 text-center text-sm text-muted-foreground">
+                                No items in this transaction
+                              </div>
+                            ) : (
+                              <div className="-mx-3 overflow-x-auto md:mx-0">
+                                <table className="min-w-[760px] w-full text-sm">
+                                  <thead className="bg-white">
+                                    <tr className="border-b">
+                                      <th className="whitespace-nowrap px-4 py-3 text-left">
+                                        รหัสสินค้า
+                                      </th>
+                                      <th className="whitespace-nowrap px-4 py-3 text-left">
+                                        ชื่อสินค้า
+                                      </th>
+                                      <th className="whitespace-nowrap px-4 py-3 text-right">
+                                        actual_issue
+                                      </th>
+                                      <th className="whitespace-nowrap px-4 py-3 text-right">
+                                        total_cost
+                                      </th>
+                                      <th className="whitespace-nowrap px-4 py-3 text-right">
+                                        จำนวนรายการ
+                                      </th>
+                                    </tr>
+                                  </thead>
 
-                          <div>
-                            <p className="text-xs text-muted-foreground">Rows</p>
-                            <p className="font-bold">
-                              {transaction.row_count.toLocaleString()}
-                            </p>
-                          </div>
+                                  <tbody>
+                                    {items.map((item, itemIndex) => (
+                                      <tr
+                                        key={`${transactionKey}-${item.รหัสสินค้า}-${item.ชื่อสินค้า}-${itemIndex}`}
+                                        className="border-b hover:bg-gray-50"
+                                      >
+                                        <td className="whitespace-nowrap px-4 py-3">
+                                          {item.รหัสสินค้า}
+                                        </td>
 
-                          <div>
-                            <p className="text-xs text-muted-foreground">
-                              % of Group
-                            </p>
-                            <p className="font-bold">
-                              {transaction.percentage.toFixed(1)}%
-                            </p>
-                          </div>
-                        </div>
+                                        <td className="px-4 py-3">
+                                          {item.ชื่อสินค้า}
+                                        </td>
+
+                                        <td className="whitespace-nowrap px-4 py-3 text-right">
+                                          {formatNumber(item.actual_issue)}
+                                        </td>
+
+                                        <td className="whitespace-nowrap px-4 py-3 text-right font-bold">
+                                          {formatNumber(item.total_cost)}
+                                        </td>
+
+                                        <td className="whitespace-nowrap px-4 py-3 text-right">
+                                          {item.row_count.toLocaleString()}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
+                          </>
+                        )}
                       </div>
+                    )
+                  })}
+                </div>
 
-                      {items.length === 0 ? (
-                        <div className="p-4 text-center text-sm text-muted-foreground">
-                          No items in this transaction
-                        </div>
-                      ) : (
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-sm">
-                            <thead className="bg-white">
-                              <tr className="border-b">
-                                <th className="whitespace-nowrap px-4 py-3 text-left">
-                                  รหัสสินค้า
-                                </th>
-                                <th className="whitespace-nowrap px-4 py-3 text-left">
-                                  ชื่อสินค้า
-                                </th>
-                                <th className="whitespace-nowrap px-4 py-3 text-right">
-                                  actual_issue
-                                </th>
-                                <th className="whitespace-nowrap px-4 py-3 text-right">
-                                  total_cost
-                                </th>
-                                <th className="whitespace-nowrap px-4 py-3 text-right">
-                                  จำนวนรายการ
-                                </th>
-                              </tr>
-                            </thead>
-
-                            <tbody>
-                              {items.map((item, itemIndex) => (
-                                <tr
-                                  key={`${transaction.วันที่}-${transaction.ทะเบียน}-${item.รหัสสินค้า}-${item.ชื่อสินค้า}-${itemIndex}`}
-                                  className="border-b hover:bg-gray-50"
-                                >
-                                  <td className="whitespace-nowrap px-4 py-3">
-                                    {item.รหัสสินค้า}
-                                  </td>
-
-                                  <td className="px-4 py-3">{item.ชื่อสินค้า}</td>
-
-                                  <td className="whitespace-nowrap px-4 py-3 text-right">
-                                    {formatNumber(item.actual_issue)}
-                                  </td>
-
-                                  <td className="whitespace-nowrap px-4 py-3 text-right font-bold">
-                                    {formatNumber(item.total_cost)}
-                                  </td>
-
-                                  <td className="whitespace-nowrap px-4 py-3 text-right">
-                                    {item.row_count.toLocaleString()}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
+                <PaginationControl
+                  page={transactionPage}
+                  totalPages={transactionTotalPages}
+                  onChange={(page) => {
+                    setTransactionPage(page)
+                    setOpenTransactions({})
+                  }}
+                />
               </div>
             </div>
           )}
@@ -2092,8 +2260,8 @@ export default function LadkrabangBudgetDashboardPage() {
           </p>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+        <div className="-mx-3 overflow-x-auto md:mx-0">
+          <table className="min-w-[980px] w-full text-sm">
             <thead className="bg-gray-50">
               <tr className="border-b">
                 <th className="whitespace-nowrap px-4 py-3 text-left">Month</th>
