@@ -23,10 +23,10 @@ export async function GET(req: Request) {
     const skip = (safePage - 1) * safeLimit;
 
     const client = await clientPromise;
-    const db = client.db("atms");
+    const db = client.db("asia-incentive");
 
     // Collection name
-    const collection = db.collection("asia-incentive");
+    const collection = db.collection("driver-incentive-data");
 
     const query: any = {};
 
