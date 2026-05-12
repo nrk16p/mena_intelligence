@@ -55,6 +55,7 @@ type SortKey =
   | "plant_code"
   | "status"
   | "working_days_value"
+  | "incentive_working_days"
   | "late_days_value"
   | "missed_days_so_far"
   | "max_possible_working_days"
@@ -71,6 +72,7 @@ type SortDirection = "asc" | "desc"
 
 type DriverCalcRow = AsiaIncentiveRow & {
   working_days_value: number
+  incentive_working_days: number
   late_days_value: number
   trip_value: number
   q_value: number
@@ -146,26 +148,31 @@ type DriverCalcRow = AsiaIncentiveRow & {
   projection_summary: string
 }
 
-const WORK_TARGETS_PJS: WorkTarget[] = [
-  { target: 28, amount: 1350, label: "28 วัน" },
-  { target: 29, amount: 1700, label: "29 วัน" },
-  { target: 30, amount: 3050, label: "30 วัน" },
-  { target: 31, amount: 3400, label: "31 วัน" },
-]
-
-const WORK_TARGETS_PJR: WorkTarget[] = [
+/**
+ * ✅ เงื่อนไขวันทำงานใหม่
+ * ใช้เหมือนกันทั้ง พจส และ พจร
+ * หมายเหตุ: วันมาสายไม่นับเป็นวันทำงานสำหรับ Incentive
+ */
+const WORK_TARGETS: WorkTarget[] = [
+  { target: 26, amount: 1000, label: "26 วัน" },
+  { target: 27, amount: 1000, label: "27 วัน" },
   { target: 28, amount: 1000, label: "28 วัน" },
   { target: 29, amount: 1000, label: "29 วัน" },
   { target: 30, amount: 2000, label: "30 วัน" },
   { target: 31, amount: 2000, label: "31 วัน" },
 ]
 
+/**
+ * เที่ยวงาน ใช้เงื่อนไข "มากกว่า"
+ */
 const TRIP_TARGETS: TripTarget[] = [
   { target: 80, amount: 800, label: ">80 เที่ยว" },
   { target: 90, amount: 1000, label: ">90 เที่ยว" },
   { target: 100, amount: 1200, label: ">100 เที่ยว" },
   { target: 120, amount: 1500, label: ">120 เที่ยว" },
 ]
+
+const MIN_WORK_DAYS_TARGET = 26
 
 const CONDITION_OPTIONS: {
   value: ConditionFilter
@@ -175,12 +182,12 @@ const CONDITION_OPTIONS: {
   {
     value: "work_possible",
     label: "ยังมีโอกาสด้านวันทำงาน",
-    description: "วันทำงานสูงสุดยังถึง 28 วันขึ้นไป",
+    description: "วันทำงานสิทธิ์สูงสุดยังถึง 26 วันขึ้นไป",
   },
   {
     value: "work_not_possible",
     label: "ไม่สามารถถึงเกณฑ์วันทำงาน",
-    description: "วันทำงานสูงสุดต่ำกว่า 28 วัน",
+    description: "วันทำงานสิทธิ์สูงสุดต่ำกว่า 26 วัน",
   },
   {
     value: "basic_pass",
@@ -258,15 +265,19 @@ function getDaysInMonthFromMMYY(mmyy?: string) {
 }
 
 function getMaxPossibleWorkingDays({
-  workingDays,
+  incentiveWorkingDays,
   monthDays,
   dataAsOfDay,
 }: {
-  workingDays: number
+  incentiveWorkingDays: number
   monthDays: number
   dataAsOfDay: number
 }) {
-  const missedDaysSoFar = Math.max(dataAsOfDay - workingDays, 0)
+  /**
+   * ✅ มาสายไม่นับวันทำงาน
+   * ดังนั้นวันที่หยุด/ไม่ได้สิทธิ์สะสม = วันที่ข้อมูลถึง - วันทำงานที่นับสิทธิ์
+   */
+  const missedDaysSoFar = Math.max(dataAsOfDay - incentiveWorkingDays, 0)
   const maxPossibleWorkingDays = Math.max(monthDays - missedDaysSoFar, 0)
 
   return {
@@ -275,27 +286,8 @@ function getMaxPossibleWorkingDays({
   }
 }
 
-function normalizeStatus(status?: string) {
-  return String(status || "").trim()
-}
-
-function getWorkTargetsByStatus(status?: string) {
-  const normalized = normalizeStatus(status)
-
-  if (normalized === "พจร") {
-    return WORK_TARGETS_PJR
-  }
-
-  return WORK_TARGETS_PJS
-}
-
-function getWorkRuleName(status?: string) {
-  const normalized = normalizeStatus(status)
-
-  if (normalized === "พจร") return "เงื่อนไข พจร"
-  if (normalized === "พจส") return "เงื่อนไข พจส"
-
-  return "เงื่อนไข พจส"
+function getWorkRuleName() {
+  return "เงื่อนไขวันทำงานใหม่ พจส/พจร ใช้เหมือนกัน"
 }
 
 function formatNumber(value: number) {
@@ -312,14 +304,12 @@ function formatMoney(value: number) {
   })
 }
 
-function getWorkIncentive(days: number, status?: string) {
-  const targets = getWorkTargetsByStatus(status)
-
-  const achieved = [...targets]
+function getWorkIncentive(days: number) {
+  const achieved = [...WORK_TARGETS]
     .reverse()
     .find((item) => days >= item.target)
 
-  const next = targets.find((item) => days < item.target)
+  const next = WORK_TARGETS.find((item) => days < item.target)
 
   return {
     amount: achieved?.amount || 0,
@@ -378,6 +368,12 @@ function calculateDriver(row: AsiaIncentiveRow): DriverCalcRow {
   const workingDays = Number(row.working_days || 0)
   const lateDays = Number(row.late_days || 0)
 
+  /**
+   * ✅ วันทำงานที่ใช้คิด Incentive
+   * ถ้ามาสาย แปลว่าไม่นับวันทำงาน
+   */
+  const incentiveWorkingDays = Math.max(workingDays - lateDays, 0)
+
   const trip = Number(row.gpm_total_trip || 0)
   const q = Number(row.gpm_total_q || 0)
 
@@ -402,18 +398,15 @@ function calculateDriver(row: AsiaIncentiveRow): DriverCalcRow {
 
   const { missedDaysSoFar, maxPossibleWorkingDays } =
     getMaxPossibleWorkingDays({
-      workingDays,
+      incentiveWorkingDays,
       monthDays,
       dataAsOfDay,
     })
 
-  const currentWork = getWorkIncentive(workingDays, row.สถานะ)
-  const projectedWorkMax = getWorkIncentive(
-    maxPossibleWorkingDays,
-    row.สถานะ
-  )
+  const currentWork = getWorkIncentive(incentiveWorkingDays)
+  const projectedWorkMax = getWorkIncentive(maxPossibleWorkingDays)
 
-  const isWorkPossible = maxPossibleWorkingDays >= 28
+  const isWorkPossible = maxPossibleWorkingDays >= MIN_WORK_DAYS_TARGET
 
   const tripCalc = getTripIncentive(trip)
 
@@ -427,8 +420,13 @@ function calculateDriver(row: AsiaIncentiveRow): DriverCalcRow {
 
   const currentTotal = isEligible ? currentTotalBeforeEligibility : 0
 
-  const avgTripPerDay = workingDays > 0 ? trip / workingDays : 0
-  const avgQPerDay = workingDays > 0 ? q / workingDays : 0
+  /**
+   * ✅ เฉลี่ยเที่ยว/คิว ใช้ working_days เดิม
+   * เพราะแม้มาสาย จะไม่นับวันทำงาน Incentive แต่ผลงานเที่ยว/คิวยังนับรวม
+   */
+  const avgBaseDays = workingDays > 0 ? workingDays : 0
+  const avgTripPerDay = avgBaseDays > 0 ? trip / avgBaseDays : 0
+  const avgQPerDay = avgBaseDays > 0 ? q / avgBaseDays : 0
 
   const projectedWorkingDays28 = 28
   const projectedTrip28 = avgTripPerDay * projectedWorkingDays28
@@ -441,9 +439,7 @@ function calculateDriver(row: AsiaIncentiveRow): DriverCalcRow {
   const isQPossibleAt28 = projectedQ28 > 400
 
   const projectedWorkIncentive28 =
-    maxPossibleWorkingDays >= 28
-      ? getWorkIncentive(28, row.สถานะ).amount
-      : 0
+    maxPossibleWorkingDays >= 28 ? getWorkIncentive(28).amount : 0
 
   const projectedTotalIncentive28 = isEligible
     ? projectedWorkIncentive28 +
@@ -473,23 +469,12 @@ function calculateDriver(row: AsiaIncentiveRow): DriverCalcRow {
   if (!isEligible) {
     workStatusMessage = "หมดสิทธิ์ทั้งหมด เนื่องจากไม่ผ่านเงื่อนไข AC/NC"
   } else if (!isWorkPossible) {
-    workStatusMessage = "ไม่สามารถถึงเกณฑ์วันทำงานขั้นต่ำ 28 วัน"
-  } else if (maxPossibleWorkingDays >= 31) {
-    workStatusMessage = `ยังมีโอกาสถึงระดับสูงสุด 31 วัน (${getWorkRuleName(
-      row.สถานะ
-    )})`
+    workStatusMessage =
+      "ไม่สามารถถึงเกณฑ์วันทำงานขั้นต่ำ 26 วัน เนื่องจากวันทำงานที่นับสิทธิ์ไม่พอ"
   } else if (maxPossibleWorkingDays >= 30) {
-    workStatusMessage = `ยังมีโอกาสถึงระดับ 30 วัน (${getWorkRuleName(
-      row.สถานะ
-    )})`
-  } else if (maxPossibleWorkingDays >= 29) {
-    workStatusMessage = `ยังมีโอกาสถึงระดับ 29 วัน (${getWorkRuleName(
-      row.สถานะ
-    )})`
+    workStatusMessage = "ยังมีโอกาสถึงระดับ 30–31 วัน = 2,000 บาท"
   } else {
-    workStatusMessage = `ยังมีโอกาสถึงเกณฑ์ขั้นต่ำ 28 วัน (${getWorkRuleName(
-      row.สถานะ
-    )})`
+    workStatusMessage = "ยังมีโอกาสถึงระดับ 26–29 วัน = 1,000 บาท"
   }
 
   let tripStatusMessage = ""
@@ -535,13 +520,15 @@ function calculateDriver(row: AsiaIncentiveRow): DriverCalcRow {
     workOpportunityLabel = "หมดสิทธิ์จาก AC/NC"
   } else {
     workOpportunityLabel =
-      `ข้อมูลถึงวันที่ ${dataAsOfDay}: ทำงานแล้ว ${formatNumber(
+      `ข้อมูลถึงวันที่ ${dataAsOfDay}: ทำงานจริง ${formatNumber(
         workingDays
-      )} วัน, มาสาย ${formatNumber(lateDays)} วัน, หยุดไปแล้ว ${formatNumber(
+      )} วัน, มาสาย ${formatNumber(lateDays)} วัน, วันทำงานนับสิทธิ์ ${formatNumber(
+        incentiveWorkingDays
+      )} วัน, ไม่ได้นับสิทธิ์/หยุดสะสม ${formatNumber(
         missedDaysSoFar
       )} วัน, สูงสุดเดือนนี้ทำได้ ${formatNumber(
         maxPossibleWorkingDays
-      )} วัน = ${projectedWorkMax.level} (${getWorkRuleName(row.สถานะ)})`
+      )} วัน = ${projectedWorkMax.level}`
   }
 
   const tripOpportunityLabel = tripStatusMessage
@@ -550,7 +537,7 @@ function calculateDriver(row: AsiaIncentiveRow): DriverCalcRow {
   const currentGapSummary = isEligible
     ? [
         isWorkPossible
-          ? `วันทำงานสูงสุด ${formatNumber(maxPossibleWorkingDays)} วัน`
+          ? `วันทำงานนับสิทธิ์สูงสุด ${formatNumber(maxPossibleWorkingDays)} วัน`
           : `ไม่สามารถถึงเกณฑ์วันทำงาน สูงสุด ${formatNumber(
               maxPossibleWorkingDays
             )} วัน`,
@@ -567,9 +554,10 @@ function calculateDriver(row: AsiaIncentiveRow): DriverCalcRow {
 
   const projectionSummary = isEligible
     ? [
-        `สถานะ ${row.สถานะ || "-"} ใช้ ${getWorkRuleName(row.สถานะ)}`,
+        "รางวัล 3 ส่วน: วันทำงาน + เที่ยวงาน + คิวงาน",
+        `ทำงานจริง ${formatNumber(workingDays)} วัน`,
         `มาสาย ${formatNumber(lateDays)} วัน`,
-        `หยุดไปแล้ว ${formatNumber(missedDaysSoFar)} วัน`,
+        `วันทำงานนับสิทธิ์ ${formatNumber(incentiveWorkingDays)} วัน`,
         `วันทำงานสูงสุดเดือนนี้ ${formatNumber(maxPossibleWorkingDays)} วัน`,
         `เงินวันทำงานสูงสุด ${formatMoney(projectedWorkMax.amount)} บาท`,
         `Trip @28 = ${formatNumber(projectedTrip28)}`,
@@ -585,6 +573,7 @@ function calculateDriver(row: AsiaIncentiveRow): DriverCalcRow {
   return {
     ...row,
     working_days_value: workingDays,
+    incentive_working_days: incentiveWorkingDays,
     late_days_value: lateDays,
     trip_value: trip,
     q_value: q,
@@ -811,9 +800,9 @@ function SummaryOverviewCard({
         </div>
 
         <div className="rounded-xl bg-gray-50 px-4 py-3 text-sm">
-          <div className="font-medium">ภาพรวมสถานะ</div>
+          <div className="font-medium">รางวัล 3 ส่วน</div>
           <div className="mt-1 text-xs text-muted-foreground">
-            สถานะวันทำงานก่อน แล้วตามด้วยเงื่อนไขพื้นฐาน AC/NC
+            วันทำงาน + เที่ยวงาน + คิวงาน
           </div>
         </div>
       </div>
@@ -831,7 +820,7 @@ function SummaryOverviewCard({
                 {formatNumber(stillPossibleDrivers)} คน
               </p>
               <p className="mt-1 text-xs text-blue-700">
-                วันทำงานสูงสุดยังถึง 28 วันขึ้นไป
+                วันทำงานสิทธิ์สูงสุดยังถึง 26 วันขึ้นไป
               </p>
               <div className="mt-3 h-2 overflow-hidden rounded-full bg-blue-100">
                 <div
@@ -849,7 +838,7 @@ function SummaryOverviewCard({
                 {formatNumber(workDisqualifiedDrivers)} คน
               </p>
               <p className="mt-1 text-xs text-orange-700">
-                วันทำงานสูงสุดต่ำกว่า 28 วัน
+                วันทำงานสิทธิ์สูงสุดต่ำกว่า 26 วัน
               </p>
               <div className="mt-3 h-2 overflow-hidden rounded-full bg-orange-100">
                 <div
@@ -1143,7 +1132,7 @@ export default function AsiaIncentiveDashboardPage() {
               </h1>
 
               <p className="mt-1 text-sm text-muted-foreground">
-                ติดตามวันทำงาน, เที่ยวงาน, คิวงาน,คุณสมบัติ และ Incentive รายคน
+                ติดตามรางวัล 3 ส่วน: วันทำงาน, เที่ยวงาน, คิวงาน
               </p>
 
               <p className="mt-1 text-xs text-muted-foreground">
@@ -1163,26 +1152,37 @@ export default function AsiaIncentiveDashboardPage() {
         </div>
 
         <div className="rounded-2xl border bg-yellow-50 p-4 text-sm text-yellow-900">
-          <div className="font-semibold">เงื่อนไขสำคัญ</div>
+          <div className="font-semibold">เงื่อนไขรางวัล 3 ส่วน</div>
 
-          <div className="mt-1 grid gap-1 lg:grid-cols-2">
-            <div>
-              วันทำงาน: พจส = 1,350 / 1,700 / 3,050 / 3,400 บาท,
-              พจร = 1,000 / 1,000 / 2,000 / 2,000 บาท
+          <div className="mt-2 grid gap-2 lg:grid-cols-3">
+            <div className="rounded-xl bg-white/60 p-3">
+              <div className="font-medium">1. รางวัลวันทำงาน</div>
+              <div className="mt-1 text-xs">
+                มาสายไม่นับเป็นวันทำงาน Incentive
+              </div>
+              <div className="mt-1 text-xs">
+                26–29 วัน = 1,000 บาท | 30–31 วัน = 2,000 บาท
+              </div>
             </div>
 
-            <div>
-              เที่ยวงานใช้เงื่อนไข “มากกว่า”: &gt;80 / &gt;90 / &gt;100 / &gt;120
-              ได้ 800 / 1,000 / 1,200 / 1,500 บาท
+            <div className="rounded-xl bg-white/60 p-3">
+              <div className="font-medium">2. รางวัลเที่ยวงาน</div>
+              <div className="mt-1 text-xs">
+                ใช้ gpm_total_trip และเงื่อนไขมากกว่า 80/90/100/120 เที่ยว
+              </div>
+              <div className="mt-1 text-xs">
+                มาสายยังนับรวมในค่าเฉลี่ยเที่ยว
+              </div>
             </div>
 
-            <div>
-              AC = 0 และ NC = 0 คือผ่านเงื่อนไขพื้นฐาน หากไม่ใช่ 0
-              จะหมดสิทธิ์ทั้งหมด
-            </div>
-
-            <div>
-              วันทำงานสูงสุด = จำนวนวันในเดือน - วันที่หยุดไปแล้ว
+            <div className="rounded-xl bg-white/60 p-3">
+              <div className="font-medium">3. รางวัลคิวงาน</div>
+              <div className="mt-1 text-xs">
+                ใช้ gpm_total_q หากมากกว่า 400 คิว ได้เพิ่ม 1,000 บาท
+              </div>
+              <div className="mt-1 text-xs">
+                มาสายยังนับรวมในค่าเฉลี่ยคิว
+              </div>
             </div>
           </div>
         </div>
@@ -1218,7 +1218,7 @@ export default function AsiaIncentiveDashboardPage() {
             </div>
 
             <div className="space-y-1 lg:col-span-2">
-              <label className="text-xs font-medium text-gray-600">ประเภทนักงาน</label>
+              <label className="text-xs font-medium text-gray-600">สถานะ</label>
               <select
                 value={selectedStatus}
                 onChange={(e) => setSelectedStatus(e.target.value)}
@@ -1249,7 +1249,7 @@ export default function AsiaIncentiveDashboardPage() {
               <div>
                 <p className="text-sm font-medium">Filter เงื่อนไข</p>
                 <p className="text-xs text-muted-foreground">
-                  เลือกได้หลายเงื่อนไขพร้อมกัน ระบบจะกรองแบบครบเงื่อนไข
+                  เลือกได้หลายเงื่อนไขพร้อมกัน ระบบจะกรองแบบ AND
                 </p>
               </div>
 
@@ -1347,7 +1347,7 @@ export default function AsiaIncentiveDashboardPage() {
             <div>
               <h2 className="font-semibold">Driver Incentive Detail</h2>
               <p className="text-sm text-muted-foreground">
-                ข้อมูลรายละเอียดเงินพิเศษ
+                มาสายถูกหักออกจากวันทำงาน Incentive แต่ Trip/Q ยังนับรวมในค่าเฉลี่ย
               </p>
             </div>
 
@@ -1364,7 +1364,7 @@ export default function AsiaIncentiveDashboardPage() {
           </div>
 
           <div className="max-h-[70vh] overflow-auto">
-            <table className="min-w-[1280px] w-full text-xs">
+            <table className="min-w-[1320px] w-full text-xs">
               <thead className="sticky top-0 z-20 bg-gray-50 shadow-sm">
                 <tr className="border-b">
                   <th className="sticky left-0 z-30 w-[220px] bg-gray-50 px-3 py-3 text-left">
@@ -1405,18 +1405,27 @@ export default function AsiaIncentiveDashboardPage() {
                     </div>
                   </th>
 
-                  <th className="w-[220px] px-3 py-3 text-left">
-                    คุณสมบัติ
+                  <th className="w-[210px] px-3 py-3 text-left">
+                    Eligibility
                   </th>
 
-                  <th className="w-[220px] px-3 py-3 text-right">
-                    <SortButton
-                      label="วันทำงาน"
-                      sortKey="max_possible_working_days"
-                      activeSortKey={sortKey}
-                      sortDirection={sortDirection}
-                      onSort={handleSort}
-                    />
+                  <th className="w-[240px] px-3 py-3 text-right">
+                    <div className="flex flex-col items-end gap-1">
+                      <SortButton
+                        label="วันทำงานจริง"
+                        sortKey="working_days_value"
+                        activeSortKey={sortKey}
+                        sortDirection={sortDirection}
+                        onSort={handleSort}
+                      />
+                      <SortButton
+                        label="วันทำงานนับสิทธิ์"
+                        sortKey="incentive_working_days"
+                        activeSortKey={sortKey}
+                        sortDirection={sortDirection}
+                        onSort={handleSort}
+                      />
+                    </div>
                   </th>
 
                   <th className="w-[90px] px-3 py-3 text-right">
@@ -1497,7 +1506,7 @@ export default function AsiaIncentiveDashboardPage() {
                   </th>
 
                   <th className="w-[360px] px-3 py-3 text-left">
-                    สรุป
+                    สรุปโอกาส
                   </th>
                 </tr>
               </thead>
@@ -1528,7 +1537,7 @@ export default function AsiaIncentiveDashboardPage() {
                         {row.รหัส || "-"} | {row.สถานะ || "-"}
                       </div>
                       <div className="mt-1 text-[11px] text-muted-foreground">
-                        {getWorkRuleName(row.สถานะ)}
+                        พจส/พจร ใช้เงื่อนไขวันทำงานเดียวกัน
                       </div>
                     </td>
 
@@ -1556,13 +1565,29 @@ export default function AsiaIncentiveDashboardPage() {
                     </td>
 
                     <td className="px-3 py-3 text-right">
-                      <div className="font-semibold">
-                        ทำแล้ว {formatNumber(row.working_days_value)} วัน
+                      <div>
+                        <span className="text-muted-foreground">จริง:</span>{" "}
+                        <span className="font-semibold">
+                          {formatNumber(row.working_days_value)} วัน
+                        </span>
+                      </div>
+
+                      <div>
+                        <span className="text-muted-foreground">นับสิทธิ์:</span>{" "}
+                        <span
+                          className={`font-semibold ${
+                            row.is_work_possible
+                              ? "text-green-700"
+                              : "text-red-600"
+                          }`}
+                        >
+                          {formatNumber(row.incentive_working_days)} วัน
+                        </span>
                       </div>
 
                       <div className="mt-1">
                         <ProgressBar
-                          value={row.working_days_value}
+                          value={row.incentive_working_days}
                           max={row.month_days}
                           danger={!row.is_work_possible}
                         />
@@ -1579,11 +1604,13 @@ export default function AsiaIncentiveDashboardPage() {
                             : "text-red-600"
                         }`}
                       >
-                        หยุด {formatNumber(row.missed_days_so_far)} วัน
+                        ไม่ได้นับสิทธิ์/หยุด {formatNumber(
+                          row.missed_days_so_far
+                        )} วัน
                       </div>
 
                       <div className="mt-1 text-[11px] font-medium text-gray-700">
-                        Max {formatNumber(row.max_possible_working_days)} วัน
+                        Max นับสิทธิ์ {formatNumber(row.max_possible_working_days)} วัน
                       </div>
 
                       <div
@@ -1612,6 +1639,12 @@ export default function AsiaIncentiveDashboardPage() {
                       <div className="text-[11px] text-muted-foreground">
                         วัน
                       </div>
+
+                      {row.late_days_value > 0 && (
+                        <div className="mt-1 text-[11px] text-orange-700">
+                          หักวันทำงาน
+                        </div>
+                      )}
                     </td>
 
                     <td className="px-3 py-3 text-right">
@@ -1635,6 +1668,10 @@ export default function AsiaIncentiveDashboardPage() {
 
                       <div className="text-[11px] text-muted-foreground">
                         Avg Q {formatNumber(row.avg_q_per_day)} / วัน
+                      </div>
+
+                      <div className="text-[11px] text-muted-foreground">
+                        เฉลี่ยยังนับวันมาสายรวม
                       </div>
                     </td>
 
