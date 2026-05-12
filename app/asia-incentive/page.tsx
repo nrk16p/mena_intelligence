@@ -1,0 +1,1841 @@
+"use client"
+
+import { useEffect, useMemo, useState } from "react"
+
+type AsiaIncentiveRow = {
+  fleet?: string
+  mmyy?: string
+  driver_id?: string
+  driver_name?: string
+  late_days?: number
+  total_ac?: number
+  total_nc?: number
+  total_q?: number
+  total_trip?: number
+  total_unique_date_trip?: number
+  working_days?: number
+  gpm_total_q?: number
+  gpm_total_trip?: number
+  created_at?: string
+  updated_at?: string
+  รหัส?: string
+  สถานะ?: string
+  แพล้นท์?: string
+}
+
+type WorkTarget = {
+  target: number
+  amount: number
+  label: string
+}
+
+type TripTarget = {
+  target: number
+  amount: number
+  label: string
+}
+
+type ConditionFilter =
+  | "work_possible"
+  | "work_not_possible"
+  | "basic_pass"
+  | "basic_fail"
+  | "trip_possible"
+  | "trip_not_possible"
+  | "q_possible"
+  | "q_not_possible"
+  | "has_late"
+
+type SortKey =
+  | "driver_id"
+  | "driver_name"
+  | "plant"
+  | "plant_code"
+  | "status"
+  | "working_days_value"
+  | "late_days_value"
+  | "missed_days_so_far"
+  | "max_possible_working_days"
+  | "trip_value"
+  | "q_value"
+  | "projected_trip_28"
+  | "projected_q_28"
+  | "projected_trip_max"
+  | "projected_q_max"
+  | "total_incentive"
+  | "projected_total_incentive_max_possible"
+
+type SortDirection = "asc" | "desc"
+
+type DriverCalcRow = AsiaIncentiveRow & {
+  working_days_value: number
+  late_days_value: number
+  trip_value: number
+  q_value: number
+
+  total_ac_value: number
+  total_nc_value: number
+  is_eligible: boolean
+  disqualified_reason: string
+
+  work_incentive: number
+  trip_incentive: number
+  q_incentive: number
+  total_incentive: number
+
+  work_level: string
+  trip_level: string
+  q_level: string
+
+  next_work_target: number | null
+  gap_work_days: number
+
+  next_trip_target: number | null
+  gap_trip: number
+
+  gap_q: number
+
+  status_label: string
+  status_type: "danger" | "warning" | "success" | "neutral"
+
+  data_as_of: string
+  data_as_of_day: number
+  month_days: number
+
+  missed_days_so_far: number
+  max_possible_working_days: number
+  projected_work_incentive_max_days: number
+  projected_work_level_max_days: string
+  is_work_possible: boolean
+  work_status_message: string
+
+  avg_trip_per_day: number
+  avg_q_per_day: number
+
+  projected_working_days_28: number
+  projected_trip_28: number
+  projected_q_28: number
+
+  projected_work_incentive_28: number
+  projected_trip_incentive_28: number
+  projected_q_incentive_28: number
+  projected_total_incentive_28: number
+
+  projected_working_days_max: number
+  projected_trip_max: number
+  projected_q_max: number
+  projected_trip_incentive_max: number
+  projected_q_incentive_max: number
+  projected_total_incentive_max_possible: number
+
+  is_trip_possible_at_28: boolean
+  is_q_possible_at_28: boolean
+  is_trip_possible_at_max: boolean
+  is_q_possible_at_max: boolean
+
+  trip_status_message: string
+  q_status_message: string
+
+  work_opportunity_label: string
+  trip_opportunity_label: string
+  q_opportunity_label: string
+
+  current_gap_summary: string
+  projection_summary: string
+}
+
+const WORK_TARGETS_PJS: WorkTarget[] = [
+  { target: 28, amount: 1350, label: "28 วัน" },
+  { target: 29, amount: 1700, label: "29 วัน" },
+  { target: 30, amount: 3050, label: "30 วัน" },
+  { target: 31, amount: 3400, label: "31 วัน" },
+]
+
+const WORK_TARGETS_PJR: WorkTarget[] = [
+  { target: 28, amount: 1000, label: "28 วัน" },
+  { target: 29, amount: 1000, label: "29 วัน" },
+  { target: 30, amount: 2000, label: "30 วัน" },
+  { target: 31, amount: 2000, label: "31 วัน" },
+]
+
+const TRIP_TARGETS: TripTarget[] = [
+  { target: 80, amount: 800, label: ">80 เที่ยว" },
+  { target: 90, amount: 1000, label: ">90 เที่ยว" },
+  { target: 100, amount: 1200, label: ">100 เที่ยว" },
+  { target: 120, amount: 1500, label: ">120 เที่ยว" },
+]
+
+const CONDITION_OPTIONS: {
+  value: ConditionFilter
+  label: string
+  description: string
+}[] = [
+  {
+    value: "work_possible",
+    label: "ยังมีโอกาสด้านวันทำงาน",
+    description: "วันทำงานสูงสุดยังถึง 28 วันขึ้นไป",
+  },
+  {
+    value: "work_not_possible",
+    label: "ไม่สามารถถึงเกณฑ์วันทำงาน",
+    description: "วันทำงานสูงสุดต่ำกว่า 28 วัน",
+  },
+  {
+    value: "basic_pass",
+    label: "ผ่านเงื่อนไขพื้นฐาน AC/NC",
+    description: "AC = 0 และ NC = 0",
+  },
+  {
+    value: "basic_fail",
+    label: "หมดสิทธิ์ทั้งหมดจาก AC/NC",
+    description: "AC หรือ NC ไม่เท่ากับ 0",
+  },
+  {
+    value: "trip_possible",
+    label: "เที่ยวงานมีแนวโน้มถึงเกณฑ์",
+    description: "ประเมินที่ 28 วันแล้วมากกว่า 80 เที่ยว",
+  },
+  {
+    value: "trip_not_possible",
+    label: "เที่ยวงานยังต่ำกว่าเกณฑ์",
+    description: "ประเมินที่ 28 วันแล้วยังไม่เกิน 80 เที่ยว",
+  },
+  {
+    value: "q_possible",
+    label: "คิวงานมีแนวโน้มถึงเกณฑ์",
+    description: "ประเมินที่ 28 วันแล้วมากกว่า 400 คิว",
+  },
+  {
+    value: "q_not_possible",
+    label: "คิวงานยังต่ำกว่าเกณฑ์",
+    description: "ประเมินที่ 28 วันแล้วยังไม่เกิน 400 คิว",
+  },
+  {
+    value: "has_late",
+    label: "มีวันมาสาย",
+    description: "late_days มากกว่า 0",
+  },
+]
+
+function getCurrentMMYY() {
+  const now = new Date()
+  const month = String(now.getMonth() + 1).padStart(2, "0")
+  const year = now.getFullYear()
+
+  return `${month}/${year}`
+}
+
+function getYesterdayDate() {
+  const d = new Date()
+  d.setDate(d.getDate() - 1)
+  return d
+}
+
+function getDataAsOfDayNumber() {
+  return getYesterdayDate().getDate()
+}
+
+function getDataAsOfText() {
+  return getYesterdayDate().toLocaleDateString("th-TH", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  })
+}
+
+function getDaysInMonthFromMMYY(mmyy?: string) {
+  if (!mmyy) return 31
+
+  const [monthText, yearText] = String(mmyy).split("/")
+  const month = Number(monthText)
+  const year = Number(yearText)
+
+  if (!month || !year) return 31
+
+  return new Date(year, month, 0).getDate()
+}
+
+function getMaxPossibleWorkingDays({
+  workingDays,
+  monthDays,
+  dataAsOfDay,
+}: {
+  workingDays: number
+  monthDays: number
+  dataAsOfDay: number
+}) {
+  const missedDaysSoFar = Math.max(dataAsOfDay - workingDays, 0)
+  const maxPossibleWorkingDays = Math.max(monthDays - missedDaysSoFar, 0)
+
+  return {
+    missedDaysSoFar,
+    maxPossibleWorkingDays,
+  }
+}
+
+function normalizeStatus(status?: string) {
+  return String(status || "").trim()
+}
+
+function getWorkTargetsByStatus(status?: string) {
+  const normalized = normalizeStatus(status)
+
+  if (normalized === "พจร") {
+    return WORK_TARGETS_PJR
+  }
+
+  return WORK_TARGETS_PJS
+}
+
+function getWorkRuleName(status?: string) {
+  const normalized = normalizeStatus(status)
+
+  if (normalized === "พจร") return "เงื่อนไข พจร"
+  if (normalized === "พจส") return "เงื่อนไข พจส"
+
+  return "เงื่อนไข พจส"
+}
+
+function formatNumber(value: number) {
+  return Number(value || 0).toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  })
+}
+
+function formatMoney(value: number) {
+  return Number(value || 0).toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  })
+}
+
+function getWorkIncentive(days: number, status?: string) {
+  const targets = getWorkTargetsByStatus(status)
+
+  const achieved = [...targets]
+    .reverse()
+    .find((item) => days >= item.target)
+
+  const next = targets.find((item) => days < item.target)
+
+  return {
+    amount: achieved?.amount || 0,
+    level: achieved?.label || "ยังไม่ถึงเกณฑ์",
+    nextTarget: next?.target || null,
+    gap: next ? Math.max(next.target - days, 0) : 0,
+  }
+}
+
+function getTripIncentive(trip: number) {
+  const achieved = [...TRIP_TARGETS]
+    .reverse()
+    .find((item) => trip > item.target)
+
+  const next = TRIP_TARGETS.find((item) => trip <= item.target)
+
+  const gap = next ? Math.max(next.target - trip + 1, 0) : 0
+
+  return {
+    amount: achieved?.amount || 0,
+    level: achieved?.label || "ยังไม่ถึงเกณฑ์",
+    nextTarget: next?.target || null,
+    gap,
+  }
+}
+
+function getTripLevelText(trip: number) {
+  if (trip > 120) return "ระดับมากกว่า 120 เที่ยว"
+  if (trip > 100) return "ระดับมากกว่า 100 เที่ยว"
+  if (trip > 90) return "ระดับมากกว่า 90 เที่ยว"
+  if (trip > 80) return "ระดับมากกว่า 80 เที่ยว"
+  return "ยังไม่ถึงเกณฑ์ขั้นต่ำมากกว่า 80 เที่ยว"
+}
+
+function getProjectedTripOpportunityLabel(projectedTrip: number, days: number) {
+  if (projectedTrip > 120) {
+    return `เมื่อประเมินที่ ${formatNumber(days)} วัน คาดว่าจะถึงระดับมากกว่า 120 เที่ยว`
+  }
+
+  if (projectedTrip > 100) {
+    return `เมื่อประเมินที่ ${formatNumber(days)} วัน คาดว่าจะถึงระดับมากกว่า 100 เที่ยว`
+  }
+
+  if (projectedTrip > 90) {
+    return `เมื่อประเมินที่ ${formatNumber(days)} วัน คาดว่าจะถึงระดับมากกว่า 90 เที่ยว`
+  }
+
+  if (projectedTrip > 80) {
+    return `เมื่อประเมินที่ ${formatNumber(days)} วัน คาดว่าจะถึงระดับมากกว่า 80 เที่ยว`
+  }
+
+  return `อัตราเฉลี่ยปัจจุบันยังต่ำกว่าเกณฑ์มากกว่า 80 เที่ยว เมื่อประเมินที่ ${formatNumber(days)} วัน`
+}
+
+function calculateDriver(row: AsiaIncentiveRow): DriverCalcRow {
+  const workingDays = Number(row.working_days || 0)
+  const lateDays = Number(row.late_days || 0)
+
+  const trip = Number(row.gpm_total_trip || 0)
+  const q = Number(row.gpm_total_q || 0)
+
+  const totalAC = Number(row.total_ac || 0)
+  const totalNC = Number(row.total_nc || 0)
+
+  const isEligible = totalAC === 0 && totalNC === 0
+
+  let disqualifiedReason = ""
+  if (totalAC > 0 && totalNC > 0) {
+    disqualifiedReason = `หมดสิทธิ์ทั้งหมด: มี AC ${formatNumber(
+      totalAC
+    )} และ NC ${formatNumber(totalNC)}`
+  } else if (totalAC > 0) {
+    disqualifiedReason = `หมดสิทธิ์ทั้งหมด: มี AC ${formatNumber(totalAC)}`
+  } else if (totalNC > 0) {
+    disqualifiedReason = `หมดสิทธิ์ทั้งหมด: มี NC ${formatNumber(totalNC)}`
+  }
+
+  const monthDays = getDaysInMonthFromMMYY(row.mmyy)
+  const dataAsOfDay = getDataAsOfDayNumber()
+
+  const { missedDaysSoFar, maxPossibleWorkingDays } =
+    getMaxPossibleWorkingDays({
+      workingDays,
+      monthDays,
+      dataAsOfDay,
+    })
+
+  const currentWork = getWorkIncentive(workingDays, row.สถานะ)
+  const projectedWorkMax = getWorkIncentive(
+    maxPossibleWorkingDays,
+    row.สถานะ
+  )
+
+  const isWorkPossible = maxPossibleWorkingDays >= 28
+
+  const tripCalc = getTripIncentive(trip)
+
+  const qIncentive = q > 400 ? 1000 : 0
+  const gapQ = q > 400 ? 0 : Math.max(400 - q, 0)
+
+  const currentTotalBeforeEligibility =
+    Number(currentWork.amount || 0) +
+    Number(tripCalc.amount || 0) +
+    Number(qIncentive || 0)
+
+  const currentTotal = isEligible ? currentTotalBeforeEligibility : 0
+
+  const avgTripPerDay = workingDays > 0 ? trip / workingDays : 0
+  const avgQPerDay = workingDays > 0 ? q / workingDays : 0
+
+  const projectedWorkingDays28 = 28
+  const projectedTrip28 = avgTripPerDay * projectedWorkingDays28
+  const projectedQ28 = avgQPerDay * projectedWorkingDays28
+
+  const projectedTripIncentive28 = getTripIncentive(projectedTrip28).amount
+  const projectedQIncentive28 = projectedQ28 > 400 ? 1000 : 0
+
+  const isTripPossibleAt28 = projectedTrip28 > 80
+  const isQPossibleAt28 = projectedQ28 > 400
+
+  const projectedWorkIncentive28 =
+    maxPossibleWorkingDays >= 28
+      ? getWorkIncentive(28, row.สถานะ).amount
+      : 0
+
+  const projectedTotalIncentive28 = isEligible
+    ? projectedWorkIncentive28 +
+      projectedTripIncentive28 +
+      projectedQIncentive28
+    : 0
+
+  const projectedWorkingDaysMax = maxPossibleWorkingDays
+  const projectedTripMax = avgTripPerDay * projectedWorkingDaysMax
+  const projectedQMax = avgQPerDay * projectedWorkingDaysMax
+
+  const projectedTripIncentiveMax =
+    getTripIncentive(projectedTripMax).amount
+
+  const projectedQIncentiveMax = projectedQMax > 400 ? 1000 : 0
+
+  const isTripPossibleAtMax = projectedTripMax > 80
+  const isQPossibleAtMax = projectedQMax > 400
+
+  const projectedTotalIncentiveMaxPossible = isEligible
+    ? projectedWorkMax.amount +
+      projectedTripIncentiveMax +
+      projectedQIncentiveMax
+    : 0
+
+  let workStatusMessage = ""
+  if (!isEligible) {
+    workStatusMessage = "หมดสิทธิ์ทั้งหมด เนื่องจากไม่ผ่านเงื่อนไข AC/NC"
+  } else if (!isWorkPossible) {
+    workStatusMessage =
+      "ไม่สามารถถึงเกณฑ์วันทำงานขั้นต่ำ 28 วัน เนื่องจากจำนวนวันที่หยุดสะสมเกินเงื่อนไข"
+  } else if (maxPossibleWorkingDays >= 31) {
+    workStatusMessage = `ยังมีโอกาสถึงระดับสูงสุด 31 วัน (${getWorkRuleName(
+      row.สถานะ
+    )})`
+  } else if (maxPossibleWorkingDays >= 30) {
+    workStatusMessage = `ยังมีโอกาสถึงระดับ 30 วัน (${getWorkRuleName(
+      row.สถานะ
+    )})`
+  } else if (maxPossibleWorkingDays >= 29) {
+    workStatusMessage = `ยังมีโอกาสถึงระดับ 29 วัน (${getWorkRuleName(
+      row.สถานะ
+    )})`
+  } else {
+    workStatusMessage = `ยังมีโอกาสถึงเกณฑ์ขั้นต่ำ 28 วัน (${getWorkRuleName(
+      row.สถานะ
+    )})`
+  }
+
+  let tripStatusMessage = ""
+  if (!isEligible) {
+    tripStatusMessage = "หมดสิทธิ์ทั้งหมด เนื่องจากไม่ผ่านเงื่อนไข AC/NC"
+  } else if (projectedTripMax <= 80) {
+    tripStatusMessage =
+      "อัตราเฉลี่ยปัจจุบันยังต่ำกว่าเกณฑ์มากกว่า 80 เที่ยว เมื่อประเมินที่วันทำงานสูงสุด"
+  } else {
+    tripStatusMessage = getProjectedTripOpportunityLabel(
+      projectedTripMax,
+      projectedWorkingDaysMax
+    )
+  }
+
+  let qStatusMessage = ""
+  if (!isEligible) {
+    qStatusMessage = "หมดสิทธิ์ทั้งหมด เนื่องจากไม่ผ่านเงื่อนไข AC/NC"
+  } else if (projectedQMax <= 400) {
+    qStatusMessage =
+      "อัตราเฉลี่ยปัจจุบันยังต่ำกว่าเกณฑ์ Bonus คิว เมื่อประเมินที่วันทำงานสูงสุด"
+  } else {
+    qStatusMessage =
+      "เมื่อประเมินที่วันทำงานสูงสุด คาดว่าจะได้รับ Bonus คิว +1,000 บาท"
+  }
+
+  let statusLabel = "ผ่านเงื่อนไขพื้นฐาน รอสะสมผลงาน"
+  let statusType: DriverCalcRow["status_type"] = "warning"
+
+  if (!isEligible) {
+    statusLabel = "หมดสิทธิ์ทั้งหมด"
+    statusType = "danger"
+  } else if (!isWorkPossible) {
+    statusLabel = "ไม่สามารถถึงเกณฑ์วันทำงาน"
+    statusType = "danger"
+  } else if (currentTotal > 0) {
+    statusLabel = "มี Incentive ตามผลงานปัจจุบัน"
+    statusType = "success"
+  } else {
+    statusLabel = "ยังมีโอกาสได้รับ Incentive"
+    statusType = "warning"
+  }
+
+  let workOpportunityLabel = ""
+  if (!isEligible) {
+    workOpportunityLabel = "หมดสิทธิ์จาก AC/NC"
+  } else {
+    workOpportunityLabel =
+      `ข้อมูลถึงวันที่ ${dataAsOfDay}: ทำงานแล้ว ${formatNumber(
+        workingDays
+      )} วัน, มาสาย ${formatNumber(lateDays)} วัน, หยุดไปแล้ว ${formatNumber(
+        missedDaysSoFar
+      )} วัน, สูงสุดเดือนนี้ทำได้ ${formatNumber(
+        maxPossibleWorkingDays
+      )} วัน = ${projectedWorkMax.level} (${getWorkRuleName(row.สถานะ)})`
+  }
+
+  const tripOpportunityLabel = tripStatusMessage
+  const qOpportunityLabel = qStatusMessage
+
+  const currentGapSummary = isEligible
+    ? [
+        isWorkPossible
+          ? `วันทำงานยังมีโอกาส สูงสุด ${formatNumber(
+              maxPossibleWorkingDays
+            )} วัน`
+          : `ไม่สามารถถึงเกณฑ์วันทำงาน สูงสุดทำได้ ${formatNumber(
+              maxPossibleWorkingDays
+            )} วัน`,
+        tripCalc.nextTarget === null
+          ? "เที่ยวถึงระดับสูงสุดแล้ว"
+          : `เที่ยวปัจจุบันต้องเพิ่มอีก ${formatNumber(
+              tripCalc.gap
+            )} เที่ยว เพื่อให้มากกว่า ${tripCalc.nextTarget} เที่ยว`,
+        q > 400
+          ? "คิวได้รับ Bonus แล้ว"
+          : `คิวปัจจุบันเหลือ ${formatNumber(gapQ)} คิว ถึง 400 คิว`,
+      ].join(" | ")
+    : disqualifiedReason
+
+  const projectionSummary = isEligible
+    ? [
+        `สถานะ ${row.สถานะ || "-"} ใช้ ${getWorkRuleName(row.สถานะ)}`,
+        `มาสาย ${formatNumber(lateDays)} วัน`,
+        `หยุดไปแล้ว ${formatNumber(missedDaysSoFar)} วัน`,
+        `วันทำงานสูงสุดเดือนนี้ ${formatNumber(maxPossibleWorkingDays)} วัน`,
+        `เงินวันทำงานสูงสุด ${formatMoney(projectedWorkMax.amount)} บาท`,
+        `Trip @28 วัน = ${formatNumber(projectedTrip28)} เที่ยว`,
+        `Q @28 วัน = ${formatNumber(projectedQ28)} คิว`,
+        `Trip @Max ${formatNumber(projectedWorkingDaysMax)} วัน = ${formatNumber(
+          projectedTripMax
+        )} เที่ยว`,
+        `Q @Max ${formatNumber(projectedWorkingDaysMax)} วัน = ${formatNumber(
+          projectedQMax
+        )} คิว`,
+        `คาดการณ์รวม = ${formatMoney(
+          projectedTotalIncentiveMaxPossible
+        )} บาท`,
+      ].join(" | ")
+    : "หมดสิทธิ์ จึงไม่คำนวณเงินคาดการณ์"
+
+  return {
+    ...row,
+    working_days_value: workingDays,
+    late_days_value: lateDays,
+    trip_value: trip,
+    q_value: q,
+
+    total_ac_value: totalAC,
+    total_nc_value: totalNC,
+    is_eligible: isEligible,
+    disqualified_reason: disqualifiedReason,
+
+    work_incentive: isEligible ? currentWork.amount : 0,
+    trip_incentive: isEligible ? tripCalc.amount : 0,
+    q_incentive: isEligible ? qIncentive : 0,
+    total_incentive: currentTotal,
+
+    work_level: isEligible ? currentWork.level : "หมดสิทธิ์",
+    trip_level: isEligible ? tripCalc.level : "หมดสิทธิ์",
+    q_level: isEligible ? (q > 400 ? ">400 คิว" : "ยังไม่ถึง") : "หมดสิทธิ์",
+
+    next_work_target: isEligible ? currentWork.nextTarget : null,
+    gap_work_days: isEligible ? currentWork.gap : 0,
+
+    next_trip_target: isEligible ? tripCalc.nextTarget : null,
+    gap_trip: isEligible ? tripCalc.gap : 0,
+
+    gap_q: isEligible ? gapQ : 0,
+
+    status_label: statusLabel,
+    status_type: statusType,
+
+    data_as_of: getDataAsOfText(),
+    data_as_of_day: dataAsOfDay,
+    month_days: monthDays,
+
+    missed_days_so_far: missedDaysSoFar,
+    max_possible_working_days: maxPossibleWorkingDays,
+    projected_work_incentive_max_days: isEligible ? projectedWorkMax.amount : 0,
+    projected_work_level_max_days: isEligible
+      ? projectedWorkMax.level
+      : "หมดสิทธิ์",
+    is_work_possible: isWorkPossible,
+    work_status_message: workStatusMessage,
+
+    avg_trip_per_day: avgTripPerDay,
+    avg_q_per_day: avgQPerDay,
+
+    projected_working_days_28: projectedWorkingDays28,
+    projected_trip_28: projectedTrip28,
+    projected_q_28: projectedQ28,
+
+    projected_work_incentive_28: isEligible ? projectedWorkIncentive28 : 0,
+    projected_trip_incentive_28: isEligible
+      ? projectedTripIncentive28
+      : 0,
+    projected_q_incentive_28: isEligible ? projectedQIncentive28 : 0,
+    projected_total_incentive_28: projectedTotalIncentive28,
+
+    projected_working_days_max: projectedWorkingDaysMax,
+    projected_trip_max: projectedTripMax,
+    projected_q_max: projectedQMax,
+    projected_trip_incentive_max: isEligible ? projectedTripIncentiveMax : 0,
+    projected_q_incentive_max: isEligible ? projectedQIncentiveMax : 0,
+    projected_total_incentive_max_possible: projectedTotalIncentiveMaxPossible,
+
+    is_trip_possible_at_28: isTripPossibleAt28,
+    is_q_possible_at_28: isQPossibleAt28,
+    is_trip_possible_at_max: isTripPossibleAtMax,
+    is_q_possible_at_max: isQPossibleAtMax,
+
+    trip_status_message: tripStatusMessage,
+    q_status_message: qStatusMessage,
+
+    work_opportunity_label: workOpportunityLabel,
+    trip_opportunity_label: tripOpportunityLabel,
+    q_opportunity_label: qOpportunityLabel,
+
+    current_gap_summary: currentGapSummary,
+    projection_summary: projectionSummary,
+  }
+}
+
+function getSortValue(row: DriverCalcRow, sortKey: SortKey) {
+  if (sortKey === "plant") return row.แพล้นท์ || ""
+  if (sortKey === "plant_code") return row.รหัส || ""
+  if (sortKey === "status") return row.สถานะ || ""
+  return row[sortKey]
+}
+
+function sortRows(
+  rows: DriverCalcRow[],
+  sortKey: SortKey,
+  sortDirection: SortDirection
+) {
+  return [...rows].sort((a, b) => {
+    const aValue = getSortValue(a, sortKey)
+    const bValue = getSortValue(b, sortKey)
+
+    if (typeof aValue === "number" && typeof bValue === "number") {
+      return sortDirection === "asc" ? aValue - bValue : bValue - aValue
+    }
+
+    const aText = String(aValue ?? "").toLowerCase()
+    const bText = String(bValue ?? "").toLowerCase()
+
+    return sortDirection === "asc"
+      ? aText.localeCompare(bText, "th")
+      : bText.localeCompare(aText, "th")
+  })
+}
+
+function ProgressBar({
+  value,
+  max,
+  danger = false,
+}: {
+  value: number
+  max: number
+  danger?: boolean
+}) {
+  const percent = max > 0 ? Math.min((value / max) * 100, 100) : 0
+
+  return (
+    <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100">
+      <div
+        className={`h-full rounded-full ${
+          danger ? "bg-red-600" : "bg-black"
+        }`}
+        style={{ width: `${percent}%` }}
+      />
+    </div>
+  )
+}
+
+function StatusBadge({ row }: { row: DriverCalcRow }) {
+  if (row.status_type === "danger") {
+    return (
+      <span className="rounded-full bg-red-50 px-2 py-1 text-xs font-medium text-red-700">
+        {row.status_label}
+      </span>
+    )
+  }
+
+  if (row.status_type === "success") {
+    return (
+      <span className="rounded-full bg-green-50 px-2 py-1 text-xs font-medium text-green-700">
+        {row.status_label}
+      </span>
+    )
+  }
+
+  return (
+    <span className="rounded-full bg-yellow-50 px-2 py-1 text-xs font-medium text-yellow-700">
+      {row.status_label}
+    </span>
+  )
+}
+
+function SortableTh({
+  label,
+  sortKey,
+  activeSortKey,
+  sortDirection,
+  onSort,
+  align = "left",
+}: {
+  label: string
+  sortKey: SortKey
+  activeSortKey: SortKey
+  sortDirection: SortDirection
+  onSort: (key: SortKey) => void
+  align?: "left" | "right"
+}) {
+  const isActive = activeSortKey === sortKey
+  const icon = isActive ? (sortDirection === "asc" ? "▲" : "▼") : "↕"
+
+  return (
+    <th
+      className={`whitespace-nowrap px-4 py-3 ${
+        align === "right" ? "text-right" : "text-left"
+      }`}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className={`inline-flex items-center gap-1 text-xs font-semibold ${
+          isActive ? "text-black" : "text-gray-600 hover:text-black"
+        }`}
+      >
+        <span>{label}</span>
+        <span className="text-[10px]">{icon}</span>
+      </button>
+    </th>
+  )
+}
+
+function SummaryOverviewCard({
+  totalDrivers,
+  eligibleDrivers,
+  disqualifiedDrivers,
+  workDisqualifiedDrivers,
+  stillPossibleDrivers,
+}: {
+  totalDrivers: number
+  eligibleDrivers: number
+  disqualifiedDrivers: number
+  workDisqualifiedDrivers: number
+  stillPossibleDrivers: number
+}) {
+  const workDisqualifiedPercent =
+    totalDrivers > 0 ? (workDisqualifiedDrivers / totalDrivers) * 100 : 0
+
+  const stillPossiblePercent =
+    totalDrivers > 0 ? (stillPossibleDrivers / totalDrivers) * 100 : 0
+
+  const eligiblePercent =
+    totalDrivers > 0 ? (eligibleDrivers / totalDrivers) * 100 : 0
+
+  const disqualifiedPercent =
+    totalDrivers > 0 ? (disqualifiedDrivers / totalDrivers) * 100 : 0
+
+  return (
+    <div className="rounded-2xl border bg-white p-5 shadow-sm">
+      <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
+        <div>
+          <p className="text-sm text-muted-foreground">จำนวนคนขับทั้งหมด</p>
+          <h2 className="mt-1 text-4xl font-bold">
+            {formatNumber(totalDrivers)}
+          </h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            ตาม filter ปัจจุบัน
+          </p>
+        </div>
+
+        <div className="rounded-xl bg-gray-50 px-4 py-3 text-sm">
+          <div className="font-medium">ภาพรวมสถานะ</div>
+          <div className="mt-1 text-xs text-muted-foreground">
+            แสดงสถานะวันทำงานก่อน แล้วตามด้วยเงื่อนไขพื้นฐาน AC/NC
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-5">
+        <div className="mb-2 text-sm font-semibold">1. สถานะวันทำงาน</div>
+
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div className="rounded-xl border bg-blue-50 p-4">
+            <p className="text-sm font-medium text-blue-800">
+              ยังมีโอกาสด้านวันทำงาน
+            </p>
+            <p className="mt-1 text-2xl font-bold text-blue-900">
+              {formatNumber(stillPossibleDrivers)} คน
+            </p>
+            <p className="mt-1 text-xs text-blue-700">
+              วันทำงานสูงสุดยังถึง 28 วันขึ้นไป
+            </p>
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-blue-100">
+              <div
+                className="h-full rounded-full bg-blue-700"
+                style={{ width: `${Math.min(stillPossiblePercent, 100)}%` }}
+              />
+            </div>
+          </div>
+
+          <div className="rounded-xl border bg-orange-50 p-4">
+            <p className="text-sm font-medium text-orange-800">
+              ไม่สามารถถึงเกณฑ์วันทำงาน
+            </p>
+            <p className="mt-1 text-2xl font-bold text-orange-900">
+              {formatNumber(workDisqualifiedDrivers)} คน
+            </p>
+            <p className="mt-1 text-xs text-orange-700">
+              วันทำงานสูงสุดต่ำกว่า 28 วัน
+            </p>
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-orange-100">
+              <div
+                className="h-full rounded-full bg-orange-700"
+                style={{
+                  width: `${Math.min(workDisqualifiedPercent, 100)}%`,
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-5">
+        <div className="mb-2 text-sm font-semibold">
+          2. เงื่อนไขพื้นฐาน AC/NC
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div className="rounded-xl border bg-green-50 p-4">
+            <p className="text-sm font-medium text-green-800">
+              ผ่านเงื่อนไขพื้นฐาน
+            </p>
+            <p className="mt-1 text-2xl font-bold text-green-900">
+              {formatNumber(eligibleDrivers)} คน
+            </p>
+            <p className="mt-1 text-xs text-green-700">
+              AC = 0 และ NC = 0
+            </p>
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-green-100">
+              <div
+                className="h-full rounded-full bg-green-700"
+                style={{ width: `${Math.min(eligiblePercent, 100)}%` }}
+              />
+            </div>
+          </div>
+
+          <div className="rounded-xl border bg-red-50 p-4">
+            <p className="text-sm font-medium text-red-800">
+              หมดสิทธิ์ทั้งหมด
+            </p>
+            <p className="mt-1 text-2xl font-bold text-red-900">
+              {formatNumber(disqualifiedDrivers)} คน
+            </p>
+            <p className="mt-1 text-xs text-red-700">
+              AC หรือ NC ไม่เท่ากับ 0
+            </p>
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-red-100">
+              <div
+                className="h-full rounded-full bg-red-700"
+                style={{ width: `${Math.min(disqualifiedPercent, 100)}%` }}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function getConditionFilterLabel(value: ConditionFilter) {
+  const option = CONDITION_OPTIONS.find((item) => item.value === value)
+  return option?.label || value
+}
+
+function matchCondition(row: DriverCalcRow, condition: ConditionFilter) {
+  if (condition === "work_possible") {
+    return row.is_eligible && row.is_work_possible
+  }
+
+  if (condition === "work_not_possible") {
+    return row.is_eligible && !row.is_work_possible
+  }
+
+  if (condition === "basic_pass") {
+    return row.is_eligible
+  }
+
+  if (condition === "basic_fail") {
+    return !row.is_eligible
+  }
+
+  if (condition === "trip_possible") {
+    return row.is_eligible && row.is_trip_possible_at_28
+  }
+
+  if (condition === "trip_not_possible") {
+    return row.is_eligible && !row.is_trip_possible_at_28
+  }
+
+  if (condition === "q_possible") {
+    return row.is_eligible && row.is_q_possible_at_28
+  }
+
+  if (condition === "q_not_possible") {
+    return row.is_eligible && !row.is_q_possible_at_28
+  }
+
+  if (condition === "has_late") {
+    return row.late_days_value > 0
+  }
+
+  return true
+}
+
+export default function AsiaIncentiveDashboardPage() {
+  const [data, setData] = useState<AsiaIncentiveRow[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
+
+  const [mmyy, setMmyy] = useState(getCurrentMMYY())
+  const [selectedPlant, setSelectedPlant] = useState("")
+  const [selectedStatus, setSelectedStatus] = useState("")
+  const [search, setSearch] = useState("")
+  const [conditionFilters, setConditionFilters] = useState<ConditionFilter[]>(
+    []
+  )
+
+  const [sortKey, setSortKey] = useState<SortKey>(
+    "projected_total_incentive_max_possible"
+  )
+  const [sortDirection, setSortDirection] = useState<SortDirection>("desc")
+
+  function handleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDirection((current) => (current === "asc" ? "desc" : "asc"))
+      return
+    }
+
+    setSortKey(key)
+    setSortDirection("desc")
+  }
+
+  function toggleConditionFilter(value: ConditionFilter) {
+    setConditionFilters((current) => {
+      if (current.includes(value)) {
+        return current.filter((item) => item !== value)
+      }
+
+      return [...current, value]
+    })
+  }
+
+  async function fetchData() {
+    try {
+      setLoading(true)
+      setError("")
+
+      const params = new URLSearchParams()
+      if (mmyy) params.append("mmyy", mmyy)
+
+      const response = await fetch(
+        `/api/asia-incentive?${params.toString()}`,
+        {
+          cache: "no-store",
+        }
+      )
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || "Failed to fetch data")
+      }
+
+      if (Array.isArray(result)) {
+        setData(result)
+      } else if (Array.isArray(result.data)) {
+        setData(result.data)
+      } else {
+        setData([])
+      }
+    } catch (err: any) {
+      setError(err.message || "Something went wrong")
+      setData([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchData()
+  }, [])
+
+  const calculatedData = useMemo(() => {
+    return data.map(calculateDriver)
+  }, [data])
+
+  const plantOptions = useMemo(() => {
+    return Array.from(
+      new Set(calculatedData.map((row) => row.แพล้นท์ || "ไม่ระบุ"))
+    ).sort()
+  }, [calculatedData])
+
+  const statusOptions = useMemo(() => {
+    return Array.from(
+      new Set(calculatedData.map((row) => row.สถานะ || "ไม่ระบุ"))
+    ).sort()
+  }, [calculatedData])
+
+  const filteredData = useMemo(() => {
+    return calculatedData.filter((row) => {
+      const plant = row.แพล้นท์ || "ไม่ระบุ"
+      const status = row.สถานะ || "ไม่ระบุ"
+
+      const matchPlant = selectedPlant ? plant === selectedPlant : true
+      const matchStatus = selectedStatus ? status === selectedStatus : true
+
+      const keyword = search.trim().toLowerCase()
+
+      const matchSearch = keyword
+        ? String(row.driver_id || "").toLowerCase().includes(keyword) ||
+          String(row.driver_name || "").toLowerCase().includes(keyword) ||
+          String(row.รหัส || "").toLowerCase().includes(keyword) ||
+          String(row.แพล้นท์ || "").toLowerCase().includes(keyword)
+        : true
+
+      const matchConditions =
+        conditionFilters.length === 0
+          ? true
+          : conditionFilters.every((condition) =>
+              matchCondition(row, condition)
+            )
+
+      return matchPlant && matchStatus && matchSearch && matchConditions
+    })
+  }, [
+    calculatedData,
+    selectedPlant,
+    selectedStatus,
+    search,
+    conditionFilters,
+  ])
+
+  const sortedData = useMemo(() => {
+    return sortRows(filteredData, sortKey, sortDirection)
+  }, [filteredData, sortKey, sortDirection])
+
+  const summary = useMemo(() => {
+    const totalDrivers = filteredData.length
+
+    const eligibleDrivers = filteredData.filter((row) => row.is_eligible)
+      .length
+
+    const disqualifiedDrivers = filteredData.filter(
+      (row) => !row.is_eligible
+    ).length
+
+    const workDisqualifiedDrivers = filteredData.filter(
+      (row) => row.is_eligible && !row.is_work_possible
+    ).length
+
+    const stillPossibleDrivers = filteredData.filter(
+      (row) => row.is_eligible && row.is_work_possible
+    ).length
+
+    return {
+      totalDrivers,
+      eligibleDrivers,
+      disqualifiedDrivers,
+      workDisqualifiedDrivers,
+      stillPossibleDrivers,
+    }
+  }, [filteredData])
+
+  const latestUpdatedAt = useMemo(() => {
+    const dates = calculatedData
+      .map((row) => row.updated_at)
+      .filter(Boolean)
+      .map((date) => new Date(String(date)).getTime())
+      .filter((time) => !Number.isNaN(time))
+
+    if (dates.length === 0) return "-"
+
+    return new Date(Math.max(...dates)).toLocaleString("th-TH", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    })
+  }, [calculatedData])
+
+  const dataAsOfText = getDataAsOfText()
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col justify-between gap-3 md:flex-row md:items-end">
+        <div>
+          <h1 className="text-2xl font-bold">
+            KA Asia Incentive Dashboard
+          </h1>
+
+          <p className="text-sm text-muted-foreground">
+            Dashboard ติดตามผลงานคนขับ: วันทำงาน, เที่ยวงาน, คิวงาน,
+            Eligibility และ Incentive ที่มีโอกาสได้รับ
+          </p>
+
+          <p className="mt-1 text-xs text-muted-foreground">
+            ข้อมูลแสดงถึงวันที่ {dataAsOfText} | API updated:{" "}
+            {latestUpdatedAt}
+          </p>
+        </div>
+
+        <button
+          onClick={fetchData}
+          disabled={loading}
+          className="rounded-md bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
+        >
+          {loading ? "Loading..." : "Refresh"}
+        </button>
+      </div>
+
+      <div className="rounded-xl border bg-yellow-50 p-4 text-sm text-yellow-900">
+        <div className="font-semibold">เงื่อนไขสำคัญ</div>
+
+        <div className="mt-1">
+          วันทำงานแยกตามสถานะ: พจส = 28/29/30/31 วัน ได้ 1,350 / 1,700 / 3,050 / 3,400 บาท,
+          พจร = 28/29/30/31 วัน ได้ 1,000 / 1,000 / 2,000 / 2,000 บาท
+        </div>
+
+        <div className="mt-1">
+          เที่ยวงานใช้เงื่อนไข “มากกว่า”: มากกว่า 80 / 90 / 100 / 120 เที่ยว
+          ได้ 800 / 1,000 / 1,200 / 1,500 บาท
+        </div>
+
+        <div className="mt-1">
+          AC = 0 และ NC = 0 แปลว่า “ผ่านเงื่อนไขพื้นฐาน”
+          หาก AC หรือ NC ไม่เท่ากับ 0 จะถือว่า “หมดสิทธิ์ Incentive ทั้งหมด”
+          ทันที
+        </div>
+
+        <div className="mt-1">
+          วันทำงานสูงสุด = จำนวนวันในเดือน - วันที่หยุดไปแล้ว,
+          วันที่หยุดไปแล้ว = วันที่ข้อมูลถึง - working_days
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 rounded-xl border bg-white p-4 md:grid-cols-6">
+        <div className="space-y-1">
+          <label className="text-sm font-medium">Month</label>
+          <input
+            value={mmyy}
+            onChange={(e) => setMmyy(e.target.value)}
+            placeholder="05/2026"
+            className="w-full rounded-md border px-3 py-2 text-sm"
+          />
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-sm font-medium">แพล้นท์</label>
+          <select
+            value={selectedPlant}
+            onChange={(e) => setSelectedPlant(e.target.value)}
+            className="w-full rounded-md border px-3 py-2 text-sm"
+          >
+            <option value="">ทั้งหมด</option>
+            {plantOptions.map((plant) => (
+              <option key={plant} value={plant}>
+                {plant}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-sm font-medium">สถานะ</label>
+          <select
+            value={selectedStatus}
+            onChange={(e) => setSelectedStatus(e.target.value)}
+            className="w-full rounded-md border px-3 py-2 text-sm"
+          >
+            <option value="">ทั้งหมด</option>
+            {statusOptions.map((status) => (
+              <option key={status} value={status}>
+                {status}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="space-y-1 md:col-span-3">
+          <label className="text-sm font-medium">Search</label>
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="ค้นหา driver_id, ชื่อ, รหัสแพล้นท์, แพล้นท์"
+            className="w-full rounded-md border px-3 py-2 text-sm"
+          />
+        </div>
+
+        <div className="space-y-3 md:col-span-6">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium">Filter เงื่อนไข</p>
+              <p className="text-xs text-muted-foreground">
+                เลือกได้หลายเงื่อนไขพร้อมกัน ระบบจะกรองแบบ AND
+              </p>
+            </div>
+
+            {conditionFilters.length > 0 && (
+              <button
+                onClick={() => setConditionFilters([])}
+                className="rounded-md border px-3 py-2 text-xs"
+              >
+                Clear condition
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-3 xl:grid-cols-4">
+            {CONDITION_OPTIONS.map((option) => {
+              const checked = conditionFilters.includes(option.value)
+
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => toggleConditionFilter(option.value)}
+                  className={`rounded-xl border p-3 text-left transition ${
+                    checked
+                      ? "border-black bg-black text-white"
+                      : "bg-white hover:bg-gray-50"
+                  }`}
+                >
+                  <div className="flex items-start gap-2">
+                    <span
+                      className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] ${
+                        checked
+                          ? "border-white bg-white text-black"
+                          : "border-gray-300 bg-white text-white"
+                      }`}
+                    >
+                      {checked ? "✓" : ""}
+                    </span>
+
+                    <div>
+                      <div className="text-sm font-medium">
+                        {option.label}
+                      </div>
+                      <div
+                        className={`mt-1 text-xs ${
+                          checked ? "text-gray-200" : "text-muted-foreground"
+                        }`}
+                      >
+                        {option.description}
+                      </div>
+                    </div>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+
+          {conditionFilters.length > 0 && (
+            <div className="rounded-md bg-gray-100 px-3 py-2 text-sm text-gray-700">
+              Filter AND:{" "}
+              {conditionFilters
+                .map((item) => getConditionFilterLabel(item))
+                .join(" + ")}
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-wrap gap-2 md:col-span-6">
+          <button
+            onClick={fetchData}
+            disabled={loading}
+            className="rounded-md bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
+          >
+            Search
+          </button>
+
+          <button
+            onClick={() => {
+              setMmyy(getCurrentMMYY())
+              setSelectedPlant("")
+              setSelectedStatus("")
+              setConditionFilters([])
+              setSearch("")
+              setSortKey("projected_total_incentive_max_possible")
+              setSortDirection("desc")
+            }}
+            className="rounded-md border px-4 py-2 text-sm"
+          >
+            Clear
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
+      {loading && (
+        <div className="rounded-xl border bg-white p-4 text-sm text-muted-foreground">
+          Processing...
+        </div>
+      )}
+
+      <SummaryOverviewCard
+        totalDrivers={summary.totalDrivers}
+        eligibleDrivers={summary.eligibleDrivers}
+        disqualifiedDrivers={summary.disqualifiedDrivers}
+        workDisqualifiedDrivers={summary.workDisqualifiedDrivers}
+        stillPossibleDrivers={summary.stillPossibleDrivers}
+      />
+
+      <div className="overflow-hidden rounded-xl border bg-white">
+        <div className="flex flex-col justify-between gap-3 border-b p-4 md:flex-row md:items-center">
+          <div>
+            <h2 className="font-semibold">Driver Incentive Detail</h2>
+            <p className="text-sm text-muted-foreground">
+              แสดงสถานะชัดเจนว่า หมดสิทธิ์แล้ว หรือยังมีโอกาสได้รับ Incentive
+              พร้อมเหตุผลรายคน สามารถ filter หลายเงื่อนไขแบบ AND และ sort ตารางได้
+            </p>
+          </div>
+
+          <div className="rounded-md bg-gray-50 px-3 py-2 text-xs text-muted-foreground">
+            Sort: {sortKey} / {sortDirection === "asc" ? "น้อยไปมาก" : "มากไปน้อย"}
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50">
+              <tr className="border-b">
+                <SortableTh
+                  label="Driver ID"
+                  sortKey="driver_id"
+                  activeSortKey={sortKey}
+                  sortDirection={sortDirection}
+                  onSort={handleSort}
+                />
+
+                <SortableTh
+                  label="Driver Name"
+                  sortKey="driver_name"
+                  activeSortKey={sortKey}
+                  sortDirection={sortDirection}
+                  onSort={handleSort}
+                />
+
+                <SortableTh
+                  label="Plant"
+                  sortKey="plant"
+                  activeSortKey={sortKey}
+                  sortDirection={sortDirection}
+                  onSort={handleSort}
+                />
+
+                <SortableTh
+                  label="สถานะ"
+                  sortKey="status"
+                  activeSortKey={sortKey}
+                  sortDirection={sortDirection}
+                  onSort={handleSort}
+                />
+
+                <th className="whitespace-nowrap px-4 py-3 text-left">
+                  Eligibility
+                </th>
+
+                <SortableTh
+                  label="วันทำงาน"
+                  sortKey="working_days_value"
+                  activeSortKey={sortKey}
+                  sortDirection={sortDirection}
+                  onSort={handleSort}
+                  align="right"
+                />
+
+                <SortableTh
+                  label="มาสาย"
+                  sortKey="late_days_value"
+                  activeSortKey={sortKey}
+                  sortDirection={sortDirection}
+                  onSort={handleSort}
+                  align="right"
+                />
+
+                <SortableTh
+                  label="GPM Trip"
+                  sortKey="trip_value"
+                  activeSortKey={sortKey}
+                  sortDirection={sortDirection}
+                  onSort={handleSort}
+                  align="right"
+                />
+
+                <SortableTh
+                  label="GPM Q"
+                  sortKey="q_value"
+                  activeSortKey={sortKey}
+                  sortDirection={sortDirection}
+                  onSort={handleSort}
+                  align="right"
+                />
+
+                <SortableTh
+                  label="Trip @28"
+                  sortKey="projected_trip_28"
+                  activeSortKey={sortKey}
+                  sortDirection={sortDirection}
+                  onSort={handleSort}
+                  align="right"
+                />
+
+                <SortableTh
+                  label="Q @28"
+                  sortKey="projected_q_28"
+                  activeSortKey={sortKey}
+                  sortDirection={sortDirection}
+                  onSort={handleSort}
+                  align="right"
+                />
+
+                <SortableTh
+                  label="Trip @Max"
+                  sortKey="projected_trip_max"
+                  activeSortKey={sortKey}
+                  sortDirection={sortDirection}
+                  onSort={handleSort}
+                  align="right"
+                />
+
+                <SortableTh
+                  label="Q @Max"
+                  sortKey="projected_q_max"
+                  activeSortKey={sortKey}
+                  sortDirection={sortDirection}
+                  onSort={handleSort}
+                  align="right"
+                />
+
+                <SortableTh
+                  label="Incentive ปัจจุบัน"
+                  sortKey="total_incentive"
+                  activeSortKey={sortKey}
+                  sortDirection={sortDirection}
+                  onSort={handleSort}
+                  align="right"
+                />
+
+                <SortableTh
+                  label="คาดการณ์สูงสุด"
+                  sortKey="projected_total_incentive_max_possible"
+                  activeSortKey={sortKey}
+                  sortDirection={sortDirection}
+                  onSort={handleSort}
+                  align="right"
+                />
+
+                <th className="whitespace-nowrap px-4 py-3 text-left">
+                  สรุปโอกาส
+                </th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {sortedData.map((row) => (
+                <tr key={row.driver_id} className="border-b hover:bg-gray-50">
+                  <td className="whitespace-nowrap px-4 py-3">
+                    <div className="font-medium">{row.driver_id || "-"}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      ข้อมูลถึง: {row.data_as_of}
+                    </div>
+                  </td>
+
+                  <td className="whitespace-nowrap px-4 py-3">
+                    <div className="font-medium">{row.driver_name || "-"}</div>
+                  </td>
+
+                  <td className="whitespace-nowrap px-4 py-3">
+                    <div>{row.แพล้นท์ || "-"}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {row.รหัส || "-"}
+                    </div>
+                  </td>
+
+                  <td className="whitespace-nowrap px-4 py-3">
+                    <div>{row.สถานะ || "-"}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {getWorkRuleName(row.สถานะ)}
+                    </div>
+                  </td>
+
+                  <td className="whitespace-nowrap px-4 py-3">
+                    <StatusBadge row={row} />
+
+                    <div
+                      className={`mt-1 text-xs ${
+                        row.is_eligible ? "text-green-700" : "text-red-600"
+                      }`}
+                    >
+                      AC = {formatNumber(row.total_ac_value)}, NC ={" "}
+                      {formatNumber(row.total_nc_value)}
+                    </div>
+
+                    {row.is_eligible ? (
+                      <div className="mt-1 text-xs text-green-700">
+                        ผ่านเงื่อนไขพื้นฐาน AC/NC
+                      </div>
+                    ) : (
+                      <div className="mt-1 text-xs text-red-600">
+                        {row.disqualified_reason}
+                      </div>
+                    )}
+                  </td>
+
+                  <td className="whitespace-nowrap px-4 py-3 text-right">
+                    <div className="font-medium">
+                      {formatNumber(row.working_days_value)} วัน
+                    </div>
+
+                    <div className="mt-1">
+                      <ProgressBar
+                        value={row.working_days_value}
+                        max={row.month_days}
+                        danger={!row.is_work_possible}
+                      />
+                    </div>
+
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      ข้อมูลถึงวันที่ {row.data_as_of_day} จาก{" "}
+                      {row.month_days} วัน
+                    </div>
+
+                    <div
+                      className={`mt-1 text-xs font-medium ${
+                        row.is_work_possible ? "text-yellow-700" : "text-red-600"
+                      }`}
+                    >
+                      หยุดไปแล้ว {formatNumber(row.missed_days_so_far)} วัน{" "}
+                      {!row.is_work_possible &&
+                        "* ไม่สามารถถึงเกณฑ์ขั้นต่ำ 28 วัน"}
+                    </div>
+
+                    <div className="mt-1 text-xs font-medium text-gray-700">
+                      สูงสุดเดือนนี้ทำได้{" "}
+                      {formatNumber(row.max_possible_working_days)} วัน
+                    </div>
+                  </td>
+
+                  <td className="whitespace-nowrap px-4 py-3 text-right">
+                    <div
+                      className={`font-semibold ${
+                        row.late_days_value > 0
+                          ? "text-orange-700"
+                          : "text-gray-700"
+                      }`}
+                    >
+                      {formatNumber(row.late_days_value)} วัน
+                    </div>
+
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      จำนวนวันทำงานที่มาสาย
+                    </div>
+                  </td>
+
+                  <td className="whitespace-nowrap px-4 py-3 text-right">
+                    <div className="font-medium">
+                      {formatNumber(row.trip_value)}
+                    </div>
+
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      เฉลี่ย {formatNumber(row.avg_trip_per_day)} / วัน
+                    </div>
+                  </td>
+
+                  <td className="whitespace-nowrap px-4 py-3 text-right">
+                    <div className="font-medium">
+                      {formatNumber(row.q_value)}
+                    </div>
+
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      เฉลี่ย {formatNumber(row.avg_q_per_day)} / วัน
+                    </div>
+                  </td>
+
+                  <td className="whitespace-nowrap px-4 py-3 text-right">
+                    <span
+                      className={`font-semibold ${
+                        row.is_trip_possible_at_28
+                          ? "text-green-700"
+                          : "text-red-600"
+                      }`}
+                    >
+                      {formatNumber(row.projected_trip_28)}
+                    </span>
+                  </td>
+
+                  <td className="whitespace-nowrap px-4 py-3 text-right">
+                    <span
+                      className={`font-semibold ${
+                        row.is_q_possible_at_28
+                          ? "text-green-700"
+                          : "text-red-600"
+                      }`}
+                    >
+                      {formatNumber(row.projected_q_28)}
+                    </span>
+                  </td>
+
+                  <td className="whitespace-nowrap px-4 py-3 text-right">
+                    <div className="text-xs text-muted-foreground">
+                      Max {formatNumber(row.projected_working_days_max)} วัน
+                    </div>
+
+                    <span
+                      className={`font-semibold ${
+                        row.is_trip_possible_at_max
+                          ? "text-green-700"
+                          : "text-red-600"
+                      }`}
+                    >
+                      {formatNumber(row.projected_trip_max)}
+                    </span>
+                  </td>
+
+                  <td className="whitespace-nowrap px-4 py-3 text-right">
+                    <div className="text-xs text-muted-foreground">
+                      Max {formatNumber(row.projected_working_days_max)} วัน
+                    </div>
+
+                    <span
+                      className={`font-semibold ${
+                        row.is_q_possible_at_max
+                          ? "text-green-700"
+                          : "text-red-600"
+                      }`}
+                    >
+                      {formatNumber(row.projected_q_max)}
+                    </span>
+                  </td>
+
+                  <td className="whitespace-nowrap px-4 py-3 text-right">
+                    <div className="font-bold">
+                      {formatMoney(row.total_incentive)} บาท
+                    </div>
+
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      วัน {formatMoney(row.work_incentive)}
+                    </div>
+
+                    <div className="text-xs text-muted-foreground">
+                      เที่ยว {formatMoney(row.trip_incentive)}
+                    </div>
+
+                    <div className="text-xs text-muted-foreground">
+                      คิว {formatMoney(row.q_incentive)}
+                    </div>
+                  </td>
+
+                  <td className="whitespace-nowrap px-4 py-3 text-right">
+                    <div className="font-bold">
+                      {formatMoney(
+                        row.projected_total_incentive_max_possible
+                      )}{" "}
+                      บาท
+                    </div>
+
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      วันสูงสุด{" "}
+                      {formatMoney(row.projected_work_incentive_max_days)}
+                    </div>
+
+                    <div className="text-xs text-muted-foreground">
+                      เที่ยว @Max{" "}
+                      {formatMoney(row.projected_trip_incentive_max)}
+                    </div>
+
+                    <div className="text-xs text-muted-foreground">
+                      คิว @Max {formatMoney(row.projected_q_incentive_max)}
+                    </div>
+                  </td>
+
+                  <td className="min-w-[420px] px-4 py-3">
+                    <div className="space-y-1 text-xs">
+                      <div>
+                        <span className="font-medium">สถานะรวม:</span>{" "}
+                        <span
+                          className={
+                            row.status_type === "danger"
+                              ? "text-red-600"
+                              : row.status_type === "success"
+                              ? "text-green-700"
+                              : "text-yellow-700"
+                          }
+                        >
+                          {row.status_label}
+                        </span>
+                      </div>
+
+                      <div>
+                        <span className="font-medium">วันทำงาน:</span>{" "}
+                        <span
+                          className={
+                            row.is_work_possible ? "text-green-700" : "text-red-600"
+                          }
+                        >
+                          {row.work_status_message}
+                        </span>
+                      </div>
+
+                      <div>
+                        <span className="font-medium">มาสาย:</span>{" "}
+                        <span
+                          className={
+                            row.late_days_value > 0
+                              ? "text-orange-700"
+                              : "text-green-700"
+                          }
+                        >
+                          {formatNumber(row.late_days_value)} วัน
+                        </span>
+                      </div>
+
+                      <div>
+                        <span className="font-medium">เที่ยวงาน:</span>{" "}
+                        <span
+                          className={
+                            row.is_trip_possible_at_max
+                              ? "text-green-700"
+                              : "text-red-600"
+                          }
+                        >
+                          {row.trip_status_message}
+                        </span>
+                      </div>
+
+                      <div>
+                        <span className="font-medium">คิวงาน:</span>{" "}
+                        <span
+                          className={
+                            row.is_q_possible_at_max
+                              ? "text-green-700"
+                              : "text-red-600"
+                          }
+                        >
+                          {row.q_status_message}
+                        </span>
+                      </div>
+
+                      {!row.is_eligible && (
+                        <div className="mt-2 rounded-md bg-red-50 p-2 text-red-700">
+                          หมดสิทธิ์ Incentive เพราะ AC/NC ต้องเป็น 0 เท่านั้น
+                        </div>
+                      )}
+
+                      {row.is_eligible && (
+                        <div className="mt-2 rounded-md bg-gray-50 p-2 text-muted-foreground">
+                          {row.projection_summary}
+                        </div>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+
+              {sortedData.length === 0 && !loading && (
+                <tr>
+                  <td
+                    colSpan={16}
+                    className="px-4 py-8 text-center text-muted-foreground"
+                  >
+                    No data
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
