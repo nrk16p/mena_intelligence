@@ -1,3 +1,5 @@
+// app/ka/asia-incentive/page.tsx
+
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
@@ -193,22 +195,22 @@ const CONDITION_OPTIONS: {
   {
     value: "trip_possible",
     label: "เที่ยวงานมีแนวโน้มถึงเกณฑ์",
-    description: "ประเมินที่ 28 วันแล้วมากกว่า 80 เที่ยว",
+    description: "Project @28 มากกว่า 80 เที่ยว",
   },
   {
     value: "trip_not_possible",
     label: "เที่ยวงานยังต่ำกว่าเกณฑ์",
-    description: "ประเมินที่ 28 วันแล้วยังไม่เกิน 80 เที่ยว",
+    description: "Project @28 ยังไม่เกิน 80 เที่ยว",
   },
   {
     value: "q_possible",
     label: "คิวงานมีแนวโน้มถึงเกณฑ์",
-    description: "ประเมินที่ 28 วันแล้วมากกว่า 400 คิว",
+    description: "Project @28 มากกว่า 400 คิว",
   },
   {
     value: "q_not_possible",
     label: "คิวงานยังต่ำกว่าเกณฑ์",
-    description: "ประเมินที่ 28 วันแล้วยังไม่เกิน 400 คิว",
+    description: "Project @28 ยังไม่เกิน 400 คิว",
   },
   {
     value: "has_late",
@@ -345,31 +347,31 @@ function getTripIncentive(trip: number) {
 }
 
 function getTripLevelText(trip: number) {
-  if (trip > 120) return "ระดับมากกว่า 120 เที่ยว"
-  if (trip > 100) return "ระดับมากกว่า 100 เที่ยว"
-  if (trip > 90) return "ระดับมากกว่า 90 เที่ยว"
-  if (trip > 80) return "ระดับมากกว่า 80 เที่ยว"
-  return "ยังไม่ถึงเกณฑ์ขั้นต่ำมากกว่า 80 เที่ยว"
+  if (trip > 120) return "ระดับ >120 เที่ยว"
+  if (trip > 100) return "ระดับ >100 เที่ยว"
+  if (trip > 90) return "ระดับ >90 เที่ยว"
+  if (trip > 80) return "ระดับ >80 เที่ยว"
+  return "ต่ำกว่าเกณฑ์ >80 เที่ยว"
 }
 
 function getProjectedTripOpportunityLabel(projectedTrip: number, days: number) {
   if (projectedTrip > 120) {
-    return `เมื่อประเมินที่ ${formatNumber(days)} วัน คาดว่าจะถึงระดับมากกว่า 120 เที่ยว`
+    return `Project ${formatNumber(days)} วัน คาดว่าจะถึงระดับ >120 เที่ยว`
   }
 
   if (projectedTrip > 100) {
-    return `เมื่อประเมินที่ ${formatNumber(days)} วัน คาดว่าจะถึงระดับมากกว่า 100 เที่ยว`
+    return `Project ${formatNumber(days)} วัน คาดว่าจะถึงระดับ >100 เที่ยว`
   }
 
   if (projectedTrip > 90) {
-    return `เมื่อประเมินที่ ${formatNumber(days)} วัน คาดว่าจะถึงระดับมากกว่า 90 เที่ยว`
+    return `Project ${formatNumber(days)} วัน คาดว่าจะถึงระดับ >90 เที่ยว`
   }
 
   if (projectedTrip > 80) {
-    return `เมื่อประเมินที่ ${formatNumber(days)} วัน คาดว่าจะถึงระดับมากกว่า 80 เที่ยว`
+    return `Project ${formatNumber(days)} วัน คาดว่าจะถึงระดับ >80 เที่ยว`
   }
 
-  return `อัตราเฉลี่ยปัจจุบันยังต่ำกว่าเกณฑ์มากกว่า 80 เที่ยว เมื่อประเมินที่ ${formatNumber(days)} วัน`
+  return `Project ${formatNumber(days)} วัน ยังต่ำกว่าเกณฑ์ >80 เที่ยว`
 }
 
 function calculateDriver(row: AsiaIncentiveRow): DriverCalcRow {
@@ -471,8 +473,7 @@ function calculateDriver(row: AsiaIncentiveRow): DriverCalcRow {
   if (!isEligible) {
     workStatusMessage = "หมดสิทธิ์ทั้งหมด เนื่องจากไม่ผ่านเงื่อนไข AC/NC"
   } else if (!isWorkPossible) {
-    workStatusMessage =
-      "ไม่สามารถถึงเกณฑ์วันทำงานขั้นต่ำ 28 วัน เนื่องจากจำนวนวันที่หยุดสะสมเกินเงื่อนไข"
+    workStatusMessage = "ไม่สามารถถึงเกณฑ์วันทำงานขั้นต่ำ 28 วัน"
   } else if (maxPossibleWorkingDays >= 31) {
     workStatusMessage = `ยังมีโอกาสถึงระดับสูงสุด 31 วัน (${getWorkRuleName(
       row.สถานะ
@@ -495,8 +496,7 @@ function calculateDriver(row: AsiaIncentiveRow): DriverCalcRow {
   if (!isEligible) {
     tripStatusMessage = "หมดสิทธิ์ทั้งหมด เนื่องจากไม่ผ่านเงื่อนไข AC/NC"
   } else if (projectedTripMax <= 80) {
-    tripStatusMessage =
-      "อัตราเฉลี่ยปัจจุบันยังต่ำกว่าเกณฑ์มากกว่า 80 เที่ยว เมื่อประเมินที่วันทำงานสูงสุด"
+    tripStatusMessage = "Project @Max ยังต่ำกว่าเกณฑ์ >80 เที่ยว"
   } else {
     tripStatusMessage = getProjectedTripOpportunityLabel(
       projectedTripMax,
@@ -508,11 +508,9 @@ function calculateDriver(row: AsiaIncentiveRow): DriverCalcRow {
   if (!isEligible) {
     qStatusMessage = "หมดสิทธิ์ทั้งหมด เนื่องจากไม่ผ่านเงื่อนไข AC/NC"
   } else if (projectedQMax <= 400) {
-    qStatusMessage =
-      "อัตราเฉลี่ยปัจจุบันยังต่ำกว่าเกณฑ์ Bonus คิว เมื่อประเมินที่วันทำงานสูงสุด"
+    qStatusMessage = "Project @Max ยังต่ำกว่าเกณฑ์ Bonus คิว"
   } else {
-    qStatusMessage =
-      "เมื่อประเมินที่วันทำงานสูงสุด คาดว่าจะได้รับ Bonus คิว +1,000 บาท"
+    qStatusMessage = "Project @Max คาดว่าจะได้รับ Bonus คิว +1,000 บาท"
   }
 
   let statusLabel = "ผ่านเงื่อนไขพื้นฐาน รอสะสมผลงาน"
@@ -552,10 +550,8 @@ function calculateDriver(row: AsiaIncentiveRow): DriverCalcRow {
   const currentGapSummary = isEligible
     ? [
         isWorkPossible
-          ? `วันทำงานยังมีโอกาส สูงสุด ${formatNumber(
-              maxPossibleWorkingDays
-            )} วัน`
-          : `ไม่สามารถถึงเกณฑ์วันทำงาน สูงสุดทำได้ ${formatNumber(
+          ? `วันทำงานสูงสุด ${formatNumber(maxPossibleWorkingDays)} วัน`
+          : `ไม่สามารถถึงเกณฑ์วันทำงาน สูงสุด ${formatNumber(
               maxPossibleWorkingDays
             )} วัน`,
         tripCalc.nextTarget === null
@@ -576,14 +572,10 @@ function calculateDriver(row: AsiaIncentiveRow): DriverCalcRow {
         `หยุดไปแล้ว ${formatNumber(missedDaysSoFar)} วัน`,
         `วันทำงานสูงสุดเดือนนี้ ${formatNumber(maxPossibleWorkingDays)} วัน`,
         `เงินวันทำงานสูงสุด ${formatMoney(projectedWorkMax.amount)} บาท`,
-        `Trip @28 วัน = ${formatNumber(projectedTrip28)} เที่ยว`,
-        `Q @28 วัน = ${formatNumber(projectedQ28)} คิว`,
-        `Trip @Max ${formatNumber(projectedWorkingDaysMax)} วัน = ${formatNumber(
-          projectedTripMax
-        )} เที่ยว`,
-        `Q @Max ${formatNumber(projectedWorkingDaysMax)} วัน = ${formatNumber(
-          projectedQMax
-        )} คิว`,
+        `Trip @28 = ${formatNumber(projectedTrip28)}`,
+        `Q @28 = ${formatNumber(projectedQ28)}`,
+        `Trip @Max = ${formatNumber(projectedTripMax)}`,
+        `Q @Max = ${formatNumber(projectedQMax)}`,
         `คาดการณ์รวม = ${formatMoney(
           projectedTotalIncentiveMaxPossible
         )} บาท`,
@@ -677,6 +669,7 @@ function getSortValue(row: DriverCalcRow, sortKey: SortKey) {
   if (sortKey === "plant") return row.แพล้นท์ || ""
   if (sortKey === "plant_code") return row.รหัส || ""
   if (sortKey === "status") return row.สถานะ || ""
+
   return row[sortKey]
 }
 
@@ -714,7 +707,7 @@ function ProgressBar({
   const percent = max > 0 ? Math.min((value / max) * 100, 100) : 0
 
   return (
-    <div className="h-2 w-full overflow-hidden rounded-full bg-gray-100">
+    <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
       <div
         className={`h-full rounded-full ${
           danger ? "bg-red-600" : "bg-black"
@@ -728,7 +721,7 @@ function ProgressBar({
 function StatusBadge({ row }: { row: DriverCalcRow }) {
   if (row.status_type === "danger") {
     return (
-      <span className="rounded-full bg-red-50 px-2 py-1 text-xs font-medium text-red-700">
+      <span className="inline-flex rounded-full bg-red-50 px-2 py-1 text-[11px] font-medium text-red-700">
         {row.status_label}
       </span>
     )
@@ -736,54 +729,46 @@ function StatusBadge({ row }: { row: DriverCalcRow }) {
 
   if (row.status_type === "success") {
     return (
-      <span className="rounded-full bg-green-50 px-2 py-1 text-xs font-medium text-green-700">
+      <span className="inline-flex rounded-full bg-green-50 px-2 py-1 text-[11px] font-medium text-green-700">
         {row.status_label}
       </span>
     )
   }
 
   return (
-    <span className="rounded-full bg-yellow-50 px-2 py-1 text-xs font-medium text-yellow-700">
+    <span className="inline-flex rounded-full bg-yellow-50 px-2 py-1 text-[11px] font-medium text-yellow-700">
       {row.status_label}
     </span>
   )
 }
 
-function SortableTh({
+function SortButton({
   label,
   sortKey,
   activeSortKey,
   sortDirection,
   onSort,
-  align = "left",
 }: {
   label: string
   sortKey: SortKey
   activeSortKey: SortKey
   sortDirection: SortDirection
   onSort: (key: SortKey) => void
-  align?: "left" | "right"
 }) {
   const isActive = activeSortKey === sortKey
   const icon = isActive ? (sortDirection === "asc" ? "▲" : "▼") : "↕"
 
   return (
-    <th
-      className={`whitespace-nowrap px-4 py-3 ${
-        align === "right" ? "text-right" : "text-left"
+    <button
+      type="button"
+      onClick={() => onSort(sortKey)}
+      className={`inline-flex items-center gap-1 text-[11px] font-semibold ${
+        isActive ? "text-black" : "text-gray-500 hover:text-black"
       }`}
     >
-      <button
-        type="button"
-        onClick={() => onSort(sortKey)}
-        className={`inline-flex items-center gap-1 text-xs font-semibold ${
-          isActive ? "text-black" : "text-gray-600 hover:text-black"
-        }`}
-      >
-        <span>{label}</span>
-        <span className="text-[10px]">{icon}</span>
-      </button>
-    </th>
+      <span>{label}</span>
+      <span className="text-[9px]">{icon}</span>
+    </button>
   )
 }
 
@@ -813,11 +798,11 @@ function SummaryOverviewCard({
     totalDrivers > 0 ? (disqualifiedDrivers / totalDrivers) * 100 : 0
 
   return (
-    <div className="rounded-2xl border bg-white p-5 shadow-sm">
-      <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
+    <div className="rounded-2xl border bg-white p-4 shadow-sm lg:p-5">
+      <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-start">
         <div>
           <p className="text-sm text-muted-foreground">จำนวนคนขับทั้งหมด</p>
-          <h2 className="mt-1 text-4xl font-bold">
+          <h2 className="mt-1 text-3xl font-bold lg:text-4xl">
             {formatNumber(totalDrivers)}
           </h2>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -828,94 +813,96 @@ function SummaryOverviewCard({
         <div className="rounded-xl bg-gray-50 px-4 py-3 text-sm">
           <div className="font-medium">ภาพรวมสถานะ</div>
           <div className="mt-1 text-xs text-muted-foreground">
-            แสดงสถานะวันทำงานก่อน แล้วตามด้วยเงื่อนไขพื้นฐาน AC/NC
+            สถานะวันทำงานก่อน แล้วตามด้วยเงื่อนไขพื้นฐาน AC/NC
           </div>
         </div>
       </div>
 
-      <div className="mt-5">
-        <div className="mb-2 text-sm font-semibold">1. สถานะวันทำงาน</div>
+      <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+        <div>
+          <div className="mb-2 text-sm font-semibold">1. สถานะวันทำงาน</div>
 
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <div className="rounded-xl border bg-blue-50 p-4">
-            <p className="text-sm font-medium text-blue-800">
-              ยังมีโอกาสด้านวันทำงาน
-            </p>
-            <p className="mt-1 text-2xl font-bold text-blue-900">
-              {formatNumber(stillPossibleDrivers)} คน
-            </p>
-            <p className="mt-1 text-xs text-blue-700">
-              วันทำงานสูงสุดยังถึง 28 วันขึ้นไป
-            </p>
-            <div className="mt-3 h-2 overflow-hidden rounded-full bg-blue-100">
-              <div
-                className="h-full rounded-full bg-blue-700"
-                style={{ width: `${Math.min(stillPossiblePercent, 100)}%` }}
-              />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border bg-blue-50 p-4">
+              <p className="text-sm font-medium text-blue-800">
+                ยังมีโอกาสด้านวันทำงาน
+              </p>
+              <p className="mt-1 text-2xl font-bold text-blue-900">
+                {formatNumber(stillPossibleDrivers)} คน
+              </p>
+              <p className="mt-1 text-xs text-blue-700">
+                วันทำงานสูงสุดยังถึง 28 วันขึ้นไป
+              </p>
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-blue-100">
+                <div
+                  className="h-full rounded-full bg-blue-700"
+                  style={{ width: `${Math.min(stillPossiblePercent, 100)}%` }}
+                />
+              </div>
             </div>
-          </div>
 
-          <div className="rounded-xl border bg-orange-50 p-4">
-            <p className="text-sm font-medium text-orange-800">
-              ไม่สามารถถึงเกณฑ์วันทำงาน
-            </p>
-            <p className="mt-1 text-2xl font-bold text-orange-900">
-              {formatNumber(workDisqualifiedDrivers)} คน
-            </p>
-            <p className="mt-1 text-xs text-orange-700">
-              วันทำงานสูงสุดต่ำกว่า 28 วัน
-            </p>
-            <div className="mt-3 h-2 overflow-hidden rounded-full bg-orange-100">
-              <div
-                className="h-full rounded-full bg-orange-700"
-                style={{
-                  width: `${Math.min(workDisqualifiedPercent, 100)}%`,
-                }}
-              />
+            <div className="rounded-xl border bg-orange-50 p-4">
+              <p className="text-sm font-medium text-orange-800">
+                ไม่สามารถถึงเกณฑ์วันทำงาน
+              </p>
+              <p className="mt-1 text-2xl font-bold text-orange-900">
+                {formatNumber(workDisqualifiedDrivers)} คน
+              </p>
+              <p className="mt-1 text-xs text-orange-700">
+                วันทำงานสูงสุดต่ำกว่า 28 วัน
+              </p>
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-orange-100">
+                <div
+                  className="h-full rounded-full bg-orange-700"
+                  style={{
+                    width: `${Math.min(workDisqualifiedPercent, 100)}%`,
+                  }}
+                />
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      <div className="mt-5">
-        <div className="mb-2 text-sm font-semibold">
-          2. เงื่อนไขพื้นฐาน AC/NC
-        </div>
-
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <div className="rounded-xl border bg-green-50 p-4">
-            <p className="text-sm font-medium text-green-800">
-              ผ่านเงื่อนไขพื้นฐาน
-            </p>
-            <p className="mt-1 text-2xl font-bold text-green-900">
-              {formatNumber(eligibleDrivers)} คน
-            </p>
-            <p className="mt-1 text-xs text-green-700">
-              AC = 0 และ NC = 0
-            </p>
-            <div className="mt-3 h-2 overflow-hidden rounded-full bg-green-100">
-              <div
-                className="h-full rounded-full bg-green-700"
-                style={{ width: `${Math.min(eligiblePercent, 100)}%` }}
-              />
-            </div>
+        <div>
+          <div className="mb-2 text-sm font-semibold">
+            2. เงื่อนไขพื้นฐาน AC/NC
           </div>
 
-          <div className="rounded-xl border bg-red-50 p-4">
-            <p className="text-sm font-medium text-red-800">
-              หมดสิทธิ์ทั้งหมด
-            </p>
-            <p className="mt-1 text-2xl font-bold text-red-900">
-              {formatNumber(disqualifiedDrivers)} คน
-            </p>
-            <p className="mt-1 text-xs text-red-700">
-              AC หรือ NC ไม่เท่ากับ 0
-            </p>
-            <div className="mt-3 h-2 overflow-hidden rounded-full bg-red-100">
-              <div
-                className="h-full rounded-full bg-red-700"
-                style={{ width: `${Math.min(disqualifiedPercent, 100)}%` }}
-              />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border bg-green-50 p-4">
+              <p className="text-sm font-medium text-green-800">
+                ผ่านเงื่อนไขพื้นฐาน
+              </p>
+              <p className="mt-1 text-2xl font-bold text-green-900">
+                {formatNumber(eligibleDrivers)} คน
+              </p>
+              <p className="mt-1 text-xs text-green-700">
+                AC = 0 และ NC = 0
+              </p>
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-green-100">
+                <div
+                  className="h-full rounded-full bg-green-700"
+                  style={{ width: `${Math.min(eligiblePercent, 100)}%` }}
+                />
+              </div>
+            </div>
+
+            <div className="rounded-xl border bg-red-50 p-4">
+              <p className="text-sm font-medium text-red-800">
+                หมดสิทธิ์ทั้งหมด
+              </p>
+              <p className="mt-1 text-2xl font-bold text-red-900">
+                {formatNumber(disqualifiedDrivers)} คน
+              </p>
+              <p className="mt-1 text-xs text-red-700">
+                AC หรือ NC ไม่เท่ากับ 0
+              </p>
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-red-100">
+                <div
+                  className="h-full rounded-full bg-red-700"
+                  style={{ width: `${Math.min(disqualifiedPercent, 100)}%` }}
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -1146,694 +1133,697 @@ export default function AsiaIncentiveDashboardPage() {
   const dataAsOfText = getDataAsOfText()
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col justify-between gap-3 md:flex-row md:items-end">
-        <div>
-          <h1 className="text-2xl font-bold">
-            KA Asia Incentive Dashboard
-          </h1>
-
-          <p className="text-sm text-muted-foreground">
-            Dashboard ติดตามผลงานคนขับ: วันทำงาน, เที่ยวงาน, คิวงาน,
-            Eligibility และ Incentive ที่มีโอกาสได้รับ
-          </p>
-
-          <p className="mt-1 text-xs text-muted-foreground">
-            ข้อมูลแสดงถึงวันที่ {dataAsOfText} | API updated:{" "}
-            {latestUpdatedAt}
-          </p>
-        </div>
-
-        <button
-          onClick={fetchData}
-          disabled={loading}
-          className="rounded-md bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
-        >
-          {loading ? "Loading..." : "Refresh"}
-        </button>
-      </div>
-
-      <div className="rounded-xl border bg-yellow-50 p-4 text-sm text-yellow-900">
-        <div className="font-semibold">เงื่อนไขสำคัญ</div>
-
-        <div className="mt-1">
-          วันทำงานแยกตามสถานะ: พจส = 28/29/30/31 วัน ได้ 1,350 / 1,700 / 3,050 / 3,400 บาท,
-          พจร = 28/29/30/31 วัน ได้ 1,000 / 1,000 / 2,000 / 2,000 บาท
-        </div>
-
-        <div className="mt-1">
-          เที่ยวงานใช้เงื่อนไข “มากกว่า”: มากกว่า 80 / 90 / 100 / 120 เที่ยว
-          ได้ 800 / 1,000 / 1,200 / 1,500 บาท
-        </div>
-
-        <div className="mt-1">
-          AC = 0 และ NC = 0 แปลว่า “ผ่านเงื่อนไขพื้นฐาน”
-          หาก AC หรือ NC ไม่เท่ากับ 0 จะถือว่า “หมดสิทธิ์ Incentive ทั้งหมด”
-          ทันที
-        </div>
-
-        <div className="mt-1">
-          วันทำงานสูงสุด = จำนวนวันในเดือน - วันที่หยุดไปแล้ว,
-          วันที่หยุดไปแล้ว = วันที่ข้อมูลถึง - working_days
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 rounded-xl border bg-white p-4 md:grid-cols-6">
-        <div className="space-y-1">
-          <label className="text-sm font-medium">Month</label>
-          <input
-            value={mmyy}
-            onChange={(e) => setMmyy(e.target.value)}
-            placeholder="05/2026"
-            className="w-full rounded-md border px-3 py-2 text-sm"
-          />
-        </div>
-
-        <div className="space-y-1">
-          <label className="text-sm font-medium">แพล้นท์</label>
-          <select
-            value={selectedPlant}
-            onChange={(e) => setSelectedPlant(e.target.value)}
-            className="w-full rounded-md border px-3 py-2 text-sm"
-          >
-            <option value="">ทั้งหมด</option>
-            {plantOptions.map((plant) => (
-              <option key={plant} value={plant}>
-                {plant}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="space-y-1">
-          <label className="text-sm font-medium">สถานะ</label>
-          <select
-            value={selectedStatus}
-            onChange={(e) => setSelectedStatus(e.target.value)}
-            className="w-full rounded-md border px-3 py-2 text-sm"
-          >
-            <option value="">ทั้งหมด</option>
-            {statusOptions.map((status) => (
-              <option key={status} value={status}>
-                {status}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="space-y-1 md:col-span-3">
-          <label className="text-sm font-medium">Search</label>
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="ค้นหา driver_id, ชื่อ, รหัสแพล้นท์, แพล้นท์"
-            className="w-full rounded-md border px-3 py-2 text-sm"
-          />
-        </div>
-
-        <div className="space-y-3 md:col-span-6">
-          <div className="flex items-center justify-between gap-3">
+    <div className="min-h-screen bg-gray-50">
+      <div className="mx-auto w-full max-w-[1600px] space-y-5 px-3 py-4 lg:px-5">
+        <div className="rounded-2xl border bg-white p-4 shadow-sm lg:p-5">
+          <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-end">
             <div>
-              <p className="text-sm font-medium">Filter เงื่อนไข</p>
-              <p className="text-xs text-muted-foreground">
-                เลือกได้หลายเงื่อนไขพร้อมกัน ระบบจะกรองแบบ AND
+              <h1 className="text-xl font-bold tracking-tight lg:text-2xl">
+                KA Asia Incentive Dashboard
+              </h1>
+
+              <p className="mt-1 text-sm text-muted-foreground">
+                ติดตามวันทำงาน, เที่ยวงาน, คิวงาน,คุณสมบัติ และ Incentive รายคน
+              </p>
+
+              <p className="mt-1 text-xs text-muted-foreground">
+                ข้อมูลแสดงถึงวันที่ {dataAsOfText} | API updated:{" "}
+                {latestUpdatedAt}
               </p>
             </div>
 
-            {conditionFilters.length > 0 && (
-              <button
-                onClick={() => setConditionFilters([])}
-                className="rounded-md border px-3 py-2 text-xs"
+            <button
+              onClick={fetchData}
+              disabled={loading}
+              className="rounded-xl bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            >
+              {loading ? "Loading..." : "Refresh"}
+            </button>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border bg-yellow-50 p-4 text-sm text-yellow-900">
+          <div className="font-semibold">เงื่อนไขสำคัญ</div>
+
+          <div className="mt-1 grid gap-1 lg:grid-cols-2">
+            <div>
+              วันทำงาน: พจส = 1,350 / 1,700 / 3,050 / 3,400 บาท,
+              พจร = 1,000 / 1,000 / 2,000 / 2,000 บาท
+            </div>
+
+            <div>
+              เที่ยวงานใช้เงื่อนไข “มากกว่า”: &gt;80 / &gt;90 / &gt;100 / &gt;120
+              ได้ 800 / 1,000 / 1,200 / 1,500 บาท
+            </div>
+
+            <div>
+              AC = 0 และ NC = 0 คือผ่านเงื่อนไขพื้นฐาน หากไม่ใช่ 0
+              จะหมดสิทธิ์ทั้งหมด
+            </div>
+
+            <div>
+              วันทำงานสูงสุด = จำนวนวันในเดือน - วันที่หยุดไปแล้ว
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border bg-white p-4 shadow-sm">
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-12">
+            <div className="space-y-1 lg:col-span-2">
+              <label className="text-xs font-medium text-gray-600">Month</label>
+              <input
+                value={mmyy}
+                onChange={(e) => setMmyy(e.target.value)}
+                placeholder="05/2026"
+                className="w-full rounded-xl border px-3 py-2 text-sm"
+              />
+            </div>
+
+            <div className="space-y-1 lg:col-span-2">
+              <label className="text-xs font-medium text-gray-600">
+                แพล้นท์
+              </label>
+              <select
+                value={selectedPlant}
+                onChange={(e) => setSelectedPlant(e.target.value)}
+                className="w-full rounded-xl border px-3 py-2 text-sm"
               >
-                Clear condition
-              </button>
+                <option value="">ทั้งหมด</option>
+                {plantOptions.map((plant) => (
+                  <option key={plant} value={plant}>
+                    {plant}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-1 lg:col-span-2">
+              <label className="text-xs font-medium text-gray-600">ประเภทนักงาน</label>
+              <select
+                value={selectedStatus}
+                onChange={(e) => setSelectedStatus(e.target.value)}
+                className="w-full rounded-xl border px-3 py-2 text-sm"
+              >
+                <option value="">ทั้งหมด</option>
+                {statusOptions.map((status) => (
+                  <option key={status} value={status}>
+                    {status}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-1 lg:col-span-6">
+              <label className="text-xs font-medium text-gray-600">Search</label>
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="ค้นหา driver_id, ชื่อ, รหัสแพล้นท์, แพล้นท์"
+                className="w-full rounded-xl border px-3 py-2 text-sm"
+              />
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium">Filter เงื่อนไข</p>
+                <p className="text-xs text-muted-foreground">
+                  เลือกได้หลายเงื่อนไขพร้อมกัน ระบบจะกรองแบบครบเงื่อนไข
+                </p>
+              </div>
+
+              {conditionFilters.length > 0 && (
+                <button
+                  onClick={() => setConditionFilters([])}
+                  className="rounded-lg border px-3 py-2 text-xs"
+                >
+                  Clear condition
+                </button>
+              )}
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {CONDITION_OPTIONS.map((option) => {
+                const checked = conditionFilters.includes(option.value)
+
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => toggleConditionFilter(option.value)}
+                    className={`rounded-full border px-3 py-2 text-xs transition ${
+                      checked
+                        ? "border-black bg-black text-white"
+                        : "bg-white hover:bg-gray-50"
+                    }`}
+                    title={option.description}
+                  >
+                    {checked ? "✓ " : ""}
+                    {option.label}
+                  </button>
+                )
+              })}
+            </div>
+
+            {conditionFilters.length > 0 && (
+              <div className="rounded-xl bg-gray-100 px-3 py-2 text-sm text-gray-700">
+                Filter AND:{" "}
+                {conditionFilters
+                  .map((item) => getConditionFilterLabel(item))
+                  .join(" + ")}
+              </div>
             )}
           </div>
 
-          <div className="grid grid-cols-1 gap-2 md:grid-cols-3 xl:grid-cols-4">
-            {CONDITION_OPTIONS.map((option) => {
-              const checked = conditionFilters.includes(option.value)
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              onClick={fetchData}
+              disabled={loading}
+              className="rounded-xl bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            >
+              Search
+            </button>
 
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => toggleConditionFilter(option.value)}
-                  className={`rounded-xl border p-3 text-left transition ${
-                    checked
-                      ? "border-black bg-black text-white"
-                      : "bg-white hover:bg-gray-50"
-                  }`}
-                >
-                  <div className="flex items-start gap-2">
-                    <span
-                      className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] ${
-                        checked
-                          ? "border-white bg-white text-black"
-                          : "border-gray-300 bg-white text-white"
-                      }`}
-                    >
-                      {checked ? "✓" : ""}
-                    </span>
-
-                    <div>
-                      <div className="text-sm font-medium">
-                        {option.label}
-                      </div>
-                      <div
-                        className={`mt-1 text-xs ${
-                          checked ? "text-gray-200" : "text-muted-foreground"
-                        }`}
-                      >
-                        {option.description}
-                      </div>
-                    </div>
-                  </div>
-                </button>
-              )
-            })}
+            <button
+              onClick={() => {
+                setMmyy(getCurrentMMYY())
+                setSelectedPlant("")
+                setSelectedStatus("")
+                setConditionFilters([])
+                setSearch("")
+                setSortKey("projected_total_incentive_max_possible")
+                setSortDirection("desc")
+              }}
+              className="rounded-xl border px-4 py-2 text-sm"
+            >
+              Clear
+            </button>
           </div>
+        </div>
 
-          {conditionFilters.length > 0 && (
-            <div className="rounded-md bg-gray-100 px-3 py-2 text-sm text-gray-700">
-              Filter AND:{" "}
-              {conditionFilters
-                .map((item) => getConditionFilterLabel(item))
-                .join(" + ")}
+        {error && (
+          <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+
+        {loading && (
+          <div className="rounded-xl border bg-white p-4 text-sm text-muted-foreground">
+            Processing...
+          </div>
+        )}
+
+        <SummaryOverviewCard
+          totalDrivers={summary.totalDrivers}
+          eligibleDrivers={summary.eligibleDrivers}
+          disqualifiedDrivers={summary.disqualifiedDrivers}
+          workDisqualifiedDrivers={summary.workDisqualifiedDrivers}
+          stillPossibleDrivers={summary.stillPossibleDrivers}
+        />
+
+        <div className="overflow-hidden rounded-2xl border bg-white shadow-sm">
+          <div className="flex flex-col justify-between gap-3 border-b p-4 lg:flex-row lg:items-center">
+            <div>
+              <h2 className="font-semibold">Driver Incentive Detail</h2>
+              <p className="text-sm text-muted-foreground">
+                ข้อมูลรายละเอียดเงินพิเศษ
+              </p>
             </div>
-          )}
-        </div>
 
-        <div className="flex flex-wrap gap-2 md:col-span-6">
-          <button
-            onClick={fetchData}
-            disabled={loading}
-            className="rounded-md bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
-          >
-            Search
-          </button>
+            <div className="flex flex-wrap gap-2">
+              <div className="rounded-xl bg-gray-50 px-3 py-2 text-xs text-muted-foreground">
+                Result: {formatNumber(sortedData.length)} rows
+              </div>
 
-          <button
-            onClick={() => {
-              setMmyy(getCurrentMMYY())
-              setSelectedPlant("")
-              setSelectedStatus("")
-              setConditionFilters([])
-              setSearch("")
-              setSortKey("projected_total_incentive_max_possible")
-              setSortDirection("desc")
-            }}
-            className="rounded-md border px-4 py-2 text-sm"
-          >
-            Clear
-          </button>
-        </div>
-      </div>
-
-      {error && (
-        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-          {error}
-        </div>
-      )}
-
-      {loading && (
-        <div className="rounded-xl border bg-white p-4 text-sm text-muted-foreground">
-          Processing...
-        </div>
-      )}
-
-      <SummaryOverviewCard
-        totalDrivers={summary.totalDrivers}
-        eligibleDrivers={summary.eligibleDrivers}
-        disqualifiedDrivers={summary.disqualifiedDrivers}
-        workDisqualifiedDrivers={summary.workDisqualifiedDrivers}
-        stillPossibleDrivers={summary.stillPossibleDrivers}
-      />
-
-      <div className="overflow-hidden rounded-xl border bg-white">
-        <div className="flex flex-col justify-between gap-3 border-b p-4 md:flex-row md:items-center">
-          <div>
-            <h2 className="font-semibold">Driver Incentive Detail</h2>
-            <p className="text-sm text-muted-foreground">
-              แสดงสถานะชัดเจนว่า หมดสิทธิ์แล้ว หรือยังมีโอกาสได้รับ Incentive
-              พร้อมเหตุผลรายคน สามารถ filter หลายเงื่อนไขแบบ AND และ sort ตารางได้
-            </p>
+              <div className="rounded-xl bg-gray-50 px-3 py-2 text-xs text-muted-foreground">
+                Sort: {sortKey} /{" "}
+                {sortDirection === "asc" ? "น้อยไปมาก" : "มากไปน้อย"}
+              </div>
+            </div>
           </div>
 
-          <div className="rounded-md bg-gray-50 px-3 py-2 text-xs text-muted-foreground">
-            Sort: {sortKey} / {sortDirection === "asc" ? "น้อยไปมาก" : "มากไปน้อย"}
-          </div>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50">
-              <tr className="border-b">
-                <SortableTh
-                  label="Driver ID"
-                  sortKey="driver_id"
-                  activeSortKey={sortKey}
-                  sortDirection={sortDirection}
-                  onSort={handleSort}
-                />
-
-                <SortableTh
-                  label="Driver Name"
-                  sortKey="driver_name"
-                  activeSortKey={sortKey}
-                  sortDirection={sortDirection}
-                  onSort={handleSort}
-                />
-
-                <SortableTh
-                  label="Plant"
-                  sortKey="plant"
-                  activeSortKey={sortKey}
-                  sortDirection={sortDirection}
-                  onSort={handleSort}
-                />
-
-                <SortableTh
-                  label="สถานะ"
-                  sortKey="status"
-                  activeSortKey={sortKey}
-                  sortDirection={sortDirection}
-                  onSort={handleSort}
-                />
-
-                <th className="whitespace-nowrap px-4 py-3 text-left">
-                  Eligibility
-                </th>
-
-                <SortableTh
-                  label="วันทำงาน"
-                  sortKey="working_days_value"
-                  activeSortKey={sortKey}
-                  sortDirection={sortDirection}
-                  onSort={handleSort}
-                  align="right"
-                />
-
-                <SortableTh
-                  label="มาสาย"
-                  sortKey="late_days_value"
-                  activeSortKey={sortKey}
-                  sortDirection={sortDirection}
-                  onSort={handleSort}
-                  align="right"
-                />
-
-                <SortableTh
-                  label="GPM Trip"
-                  sortKey="trip_value"
-                  activeSortKey={sortKey}
-                  sortDirection={sortDirection}
-                  onSort={handleSort}
-                  align="right"
-                />
-
-                <SortableTh
-                  label="GPM Q"
-                  sortKey="q_value"
-                  activeSortKey={sortKey}
-                  sortDirection={sortDirection}
-                  onSort={handleSort}
-                  align="right"
-                />
-
-                <SortableTh
-                  label="Trip @28"
-                  sortKey="projected_trip_28"
-                  activeSortKey={sortKey}
-                  sortDirection={sortDirection}
-                  onSort={handleSort}
-                  align="right"
-                />
-
-                <SortableTh
-                  label="Q @28"
-                  sortKey="projected_q_28"
-                  activeSortKey={sortKey}
-                  sortDirection={sortDirection}
-                  onSort={handleSort}
-                  align="right"
-                />
-
-                <SortableTh
-                  label="Trip @Max"
-                  sortKey="projected_trip_max"
-                  activeSortKey={sortKey}
-                  sortDirection={sortDirection}
-                  onSort={handleSort}
-                  align="right"
-                />
-
-                <SortableTh
-                  label="Q @Max"
-                  sortKey="projected_q_max"
-                  activeSortKey={sortKey}
-                  sortDirection={sortDirection}
-                  onSort={handleSort}
-                  align="right"
-                />
-
-                <SortableTh
-                  label="Incentive ปัจจุบัน"
-                  sortKey="total_incentive"
-                  activeSortKey={sortKey}
-                  sortDirection={sortDirection}
-                  onSort={handleSort}
-                  align="right"
-                />
-
-                <SortableTh
-                  label="คาดการณ์สูงสุด"
-                  sortKey="projected_total_incentive_max_possible"
-                  activeSortKey={sortKey}
-                  sortDirection={sortDirection}
-                  onSort={handleSort}
-                  align="right"
-                />
-
-                <th className="whitespace-nowrap px-4 py-3 text-left">
-                  สรุปโอกาส
-                </th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {sortedData.map((row) => (
-                <tr key={row.driver_id} className="border-b hover:bg-gray-50">
-                  <td className="whitespace-nowrap px-4 py-3">
-                    <div className="font-medium">{row.driver_id || "-"}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      ข้อมูลถึง: {row.data_as_of}
-                    </div>
-                  </td>
-
-                  <td className="whitespace-nowrap px-4 py-3">
-                    <div className="font-medium">{row.driver_name || "-"}</div>
-                  </td>
-
-                  <td className="whitespace-nowrap px-4 py-3">
-                    <div>{row.แพล้นท์ || "-"}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {row.รหัส || "-"}
-                    </div>
-                  </td>
-
-                  <td className="whitespace-nowrap px-4 py-3">
-                    <div>{row.สถานะ || "-"}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {getWorkRuleName(row.สถานะ)}
-                    </div>
-                  </td>
-
-                  <td className="whitespace-nowrap px-4 py-3">
-                    <StatusBadge row={row} />
-
-                    <div
-                      className={`mt-1 text-xs ${
-                        row.is_eligible ? "text-green-700" : "text-red-600"
-                      }`}
-                    >
-                      AC = {formatNumber(row.total_ac_value)}, NC ={" "}
-                      {formatNumber(row.total_nc_value)}
-                    </div>
-
-                    {row.is_eligible ? (
-                      <div className="mt-1 text-xs text-green-700">
-                        ผ่านเงื่อนไขพื้นฐาน AC/NC
-                      </div>
-                    ) : (
-                      <div className="mt-1 text-xs text-red-600">
-                        {row.disqualified_reason}
-                      </div>
-                    )}
-                  </td>
-
-                  <td className="whitespace-nowrap px-4 py-3 text-right">
-                    <div className="font-medium">
-                      {formatNumber(row.working_days_value)} วัน
-                    </div>
-
-                    <div className="mt-1">
-                      <ProgressBar
-                        value={row.working_days_value}
-                        max={row.month_days}
-                        danger={!row.is_work_possible}
+          <div className="max-h-[70vh] overflow-auto">
+            <table className="min-w-[1280px] w-full text-xs">
+              <thead className="sticky top-0 z-20 bg-gray-50 shadow-sm">
+                <tr className="border-b">
+                  <th className="sticky left-0 z-30 w-[220px] bg-gray-50 px-3 py-3 text-left">
+                    <div className="flex flex-col gap-1">
+                      <SortButton
+                        label="Driver"
+                        sortKey="driver_name"
+                        activeSortKey={sortKey}
+                        sortDirection={sortDirection}
+                        onSort={handleSort}
+                      />
+                      <SortButton
+                        label="ID"
+                        sortKey="driver_id"
+                        activeSortKey={sortKey}
+                        sortDirection={sortDirection}
+                        onSort={handleSort}
                       />
                     </div>
+                  </th>
 
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      ข้อมูลถึงวันที่ {row.data_as_of_day} จาก{" "}
-                      {row.month_days} วัน
+                  <th className="w-[170px] px-3 py-3 text-left">
+                    <div className="flex flex-col gap-1">
+                      <SortButton
+                        label="Plant"
+                        sortKey="plant"
+                        activeSortKey={sortKey}
+                        sortDirection={sortDirection}
+                        onSort={handleSort}
+                      />
+                      <SortButton
+                        label="Status"
+                        sortKey="status"
+                        activeSortKey={sortKey}
+                        sortDirection={sortDirection}
+                        onSort={handleSort}
+                      />
                     </div>
+                  </th>
 
-                    <div
-                      className={`mt-1 text-xs font-medium ${
-                        row.is_work_possible ? "text-yellow-700" : "text-red-600"
-                      }`}
-                    >
-                      หยุดไปแล้ว {formatNumber(row.missed_days_so_far)} วัน{" "}
-                      {!row.is_work_possible &&
-                        "* ไม่สามารถถึงเกณฑ์ขั้นต่ำ 28 วัน"}
+                  <th className="w-[220px] px-3 py-3 text-left">
+                    คุณสมบัติ
+                  </th>
+
+                  <th className="w-[220px] px-3 py-3 text-right">
+                    <SortButton
+                      label="วันทำงาน"
+                      sortKey="max_possible_working_days"
+                      activeSortKey={sortKey}
+                      sortDirection={sortDirection}
+                      onSort={handleSort}
+                    />
+                  </th>
+
+                  <th className="w-[90px] px-3 py-3 text-right">
+                    <SortButton
+                      label="มาสาย"
+                      sortKey="late_days_value"
+                      activeSortKey={sortKey}
+                      sortDirection={sortDirection}
+                      onSort={handleSort}
+                    />
+                  </th>
+
+                  <th className="w-[180px] px-3 py-3 text-right">
+                    <div className="flex flex-col items-end gap-1">
+                      <SortButton
+                        label="GPM Trip"
+                        sortKey="trip_value"
+                        activeSortKey={sortKey}
+                        sortDirection={sortDirection}
+                        onSort={handleSort}
+                      />
+                      <SortButton
+                        label="GPM Q"
+                        sortKey="q_value"
+                        activeSortKey={sortKey}
+                        sortDirection={sortDirection}
+                        onSort={handleSort}
+                      />
                     </div>
+                  </th>
 
-                    <div className="mt-1 text-xs font-medium text-gray-700">
-                      สูงสุดเดือนนี้ทำได้{" "}
-                      {formatNumber(row.max_possible_working_days)} วัน
+                  <th className="w-[180px] px-3 py-3 text-right">
+                    <div className="flex flex-col items-end gap-1">
+                      <SortButton
+                        label="Trip @28"
+                        sortKey="projected_trip_28"
+                        activeSortKey={sortKey}
+                        sortDirection={sortDirection}
+                        onSort={handleSort}
+                      />
+                      <SortButton
+                        label="Q @28"
+                        sortKey="projected_q_28"
+                        activeSortKey={sortKey}
+                        sortDirection={sortDirection}
+                        onSort={handleSort}
+                      />
                     </div>
-                  </td>
+                  </th>
 
-                  <td className="whitespace-nowrap px-4 py-3 text-right">
-                    <div
-                      className={`font-semibold ${
-                        row.late_days_value > 0
-                          ? "text-orange-700"
-                          : "text-gray-700"
-                      }`}
-                    >
-                      {formatNumber(row.late_days_value)} วัน
+                  <th className="w-[190px] px-3 py-3 text-right">
+                    <div className="flex flex-col items-end gap-1">
+                      <SortButton
+                        label="Trip @Max"
+                        sortKey="projected_trip_max"
+                        activeSortKey={sortKey}
+                        sortDirection={sortDirection}
+                        onSort={handleSort}
+                      />
+                      <SortButton
+                        label="Q @Max"
+                        sortKey="projected_q_max"
+                        activeSortKey={sortKey}
+                        sortDirection={sortDirection}
+                        onSort={handleSort}
+                      />
                     </div>
+                  </th>
 
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      จำนวนวันทำงานที่มาสาย
-                    </div>
-                  </td>
+                  <th className="w-[170px] px-3 py-3 text-right">
+                    <SortButton
+                      label="คาดการณ์สูงสุด"
+                      sortKey="projected_total_incentive_max_possible"
+                      activeSortKey={sortKey}
+                      sortDirection={sortDirection}
+                      onSort={handleSort}
+                    />
+                  </th>
 
-                  <td className="whitespace-nowrap px-4 py-3 text-right">
-                    <div className="font-medium">
-                      {formatNumber(row.trip_value)}
-                    </div>
+                  <th className="w-[360px] px-3 py-3 text-left">
+                    สรุป
+                  </th>
+                </tr>
+              </thead>
 
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      เฉลี่ย {formatNumber(row.avg_trip_per_day)} / วัน
-                    </div>
-                  </td>
+              <tbody>
+                {sortedData.map((row) => (
+                  <tr
+                    key={row.driver_id}
+                    className="border-b align-top hover:bg-gray-50"
+                  >
+                    <td className="sticky left-0 z-10 bg-white px-3 py-3 shadow-[1px_0_0_0_#e5e7eb]">
+                      <div className="font-semibold text-gray-900">
+                        {row.driver_name || "-"}
+                      </div>
 
-                  <td className="whitespace-nowrap px-4 py-3 text-right">
-                    <div className="font-medium">
-                      {formatNumber(row.q_value)}
-                    </div>
+                      <div className="text-xs text-muted-foreground">
+                        {row.driver_id || "-"}
+                      </div>
 
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      เฉลี่ย {formatNumber(row.avg_q_per_day)} / วัน
-                    </div>
-                  </td>
+                      <div className="mt-1 text-[11px] text-muted-foreground">
+                        ข้อมูลถึง: {row.data_as_of}
+                      </div>
+                    </td>
 
-                  <td className="whitespace-nowrap px-4 py-3 text-right">
-                    <span
-                      className={`font-semibold ${
-                        row.is_trip_possible_at_28
-                          ? "text-green-700"
-                          : "text-red-600"
-                      }`}
-                    >
-                      {formatNumber(row.projected_trip_28)}
-                    </span>
-                  </td>
+                    <td className="px-3 py-3">
+                      <div className="font-medium">{row.แพล้นท์ || "-"}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {row.รหัส || "-"} | {row.สถานะ || "-"}
+                      </div>
+                      <div className="mt-1 text-[11px] text-muted-foreground">
+                        {getWorkRuleName(row.สถานะ)}
+                      </div>
+                    </td>
 
-                  <td className="whitespace-nowrap px-4 py-3 text-right">
-                    <span
-                      className={`font-semibold ${
-                        row.is_q_possible_at_28
-                          ? "text-green-700"
-                          : "text-red-600"
-                      }`}
-                    >
-                      {formatNumber(row.projected_q_28)}
-                    </span>
-                  </td>
+                    <td className="px-3 py-3">
+                      <StatusBadge row={row} />
 
-                  <td className="whitespace-nowrap px-4 py-3 text-right">
-                    <div className="text-xs text-muted-foreground">
-                      Max {formatNumber(row.projected_working_days_max)} วัน
-                    </div>
+                      <div
+                        className={`mt-1 text-[11px] ${
+                          row.is_eligible ? "text-green-700" : "text-red-600"
+                        }`}
+                      >
+                        AC = {formatNumber(row.total_ac_value)}, NC ={" "}
+                        {formatNumber(row.total_nc_value)}
+                      </div>
 
-                    <span
-                      className={`font-semibold ${
-                        row.is_trip_possible_at_max
-                          ? "text-green-700"
-                          : "text-red-600"
-                      }`}
-                    >
-                      {formatNumber(row.projected_trip_max)}
-                    </span>
-                  </td>
+                      {row.is_eligible ? (
+                        <div className="mt-1 text-[11px] text-green-700">
+                          ผ่านเงื่อนไขพื้นฐาน
+                        </div>
+                      ) : (
+                        <div className="mt-1 text-[11px] text-red-600">
+                          {row.disqualified_reason}
+                        </div>
+                      )}
+                    </td>
 
-                  <td className="whitespace-nowrap px-4 py-3 text-right">
-                    <div className="text-xs text-muted-foreground">
-                      Max {formatNumber(row.projected_working_days_max)} วัน
-                    </div>
+                    <td className="px-3 py-3 text-right">
+                      <div className="font-semibold">
+                        ทำแล้ว {formatNumber(row.working_days_value)} วัน
+                      </div>
 
-                    <span
-                      className={`font-semibold ${
-                        row.is_q_possible_at_max
-                          ? "text-green-700"
-                          : "text-red-600"
-                      }`}
-                    >
-                      {formatNumber(row.projected_q_max)}
-                    </span>
-                  </td>
+                      <div className="mt-1">
+                        <ProgressBar
+                          value={row.working_days_value}
+                          max={row.month_days}
+                          danger={!row.is_work_possible}
+                        />
+                      </div>
 
-                  <td className="whitespace-nowrap px-4 py-3 text-right">
-                    <div className="font-bold">
-                      {formatMoney(row.total_incentive)} บาท
-                    </div>
+                      <div className="mt-1 text-[11px] text-muted-foreground">
+                        ถึงวันที่ {row.data_as_of_day} / {row.month_days} วัน
+                      </div>
 
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      วัน {formatMoney(row.work_incentive)}
-                    </div>
+                      <div
+                        className={`mt-1 text-[11px] font-medium ${
+                          row.is_work_possible
+                            ? "text-yellow-700"
+                            : "text-red-600"
+                        }`}
+                      >
+                        หยุด {formatNumber(row.missed_days_so_far)} วัน
+                      </div>
 
-                    <div className="text-xs text-muted-foreground">
-                      เที่ยว {formatMoney(row.trip_incentive)}
-                    </div>
+                      <div className="mt-1 text-[11px] font-medium text-gray-700">
+                        Max {formatNumber(row.max_possible_working_days)} วัน
+                      </div>
 
-                    <div className="text-xs text-muted-foreground">
-                      คิว {formatMoney(row.q_incentive)}
-                    </div>
-                  </td>
+                      <div
+                        className={`mt-1 text-[11px] ${
+                          row.is_work_possible
+                            ? "text-green-700"
+                            : "text-red-600"
+                        }`}
+                      >
+                        {row.projected_work_level_max_days} ={" "}
+                        {formatMoney(row.projected_work_incentive_max_days)} บาท
+                      </div>
+                    </td>
 
-                  <td className="whitespace-nowrap px-4 py-3 text-right">
-                    <div className="font-bold">
-                      {formatMoney(
-                        row.projected_total_incentive_max_possible
-                      )}{" "}
-                      บาท
-                    </div>
+                    <td className="px-3 py-3 text-right">
+                      <div
+                        className={`font-semibold ${
+                          row.late_days_value > 0
+                            ? "text-orange-700"
+                            : "text-gray-700"
+                        }`}
+                      >
+                        {formatNumber(row.late_days_value)}
+                      </div>
 
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      วันสูงสุด{" "}
-                      {formatMoney(row.projected_work_incentive_max_days)}
-                    </div>
+                      <div className="text-[11px] text-muted-foreground">
+                        วัน
+                      </div>
+                    </td>
 
-                    <div className="text-xs text-muted-foreground">
-                      เที่ยว @Max{" "}
-                      {formatMoney(row.projected_trip_incentive_max)}
-                    </div>
-
-                    <div className="text-xs text-muted-foreground">
-                      คิว @Max {formatMoney(row.projected_q_incentive_max)}
-                    </div>
-                  </td>
-
-                  <td className="min-w-[420px] px-4 py-3">
-                    <div className="space-y-1 text-xs">
+                    <td className="px-3 py-3 text-right">
                       <div>
-                        <span className="font-medium">สถานะรวม:</span>{" "}
+                        <span className="text-muted-foreground">Trip:</span>{" "}
+                        <span className="font-semibold">
+                          {formatNumber(row.trip_value)}
+                        </span>
+                      </div>
+
+                      <div>
+                        <span className="text-muted-foreground">Q:</span>{" "}
+                        <span className="font-semibold">
+                          {formatNumber(row.q_value)}
+                        </span>
+                      </div>
+
+                      <div className="mt-1 text-[11px] text-muted-foreground">
+                        Avg Trip {formatNumber(row.avg_trip_per_day)} / วัน
+                      </div>
+
+                      <div className="text-[11px] text-muted-foreground">
+                        Avg Q {formatNumber(row.avg_q_per_day)} / วัน
+                      </div>
+                    </td>
+
+                    <td className="px-3 py-3 text-right">
+                      <div>
+                        <span className="text-muted-foreground">Trip:</span>{" "}
                         <span
-                          className={
-                            row.status_type === "danger"
-                              ? "text-red-600"
-                              : row.status_type === "success"
+                          className={`font-semibold ${
+                            row.is_trip_possible_at_28
                               ? "text-green-700"
-                              : "text-yellow-700"
-                          }
+                              : "text-red-600"
+                          }`}
                         >
-                          {row.status_label}
+                          {formatNumber(row.projected_trip_28)}
                         </span>
                       </div>
 
                       <div>
-                        <span className="font-medium">วันทำงาน:</span>{" "}
+                        <span className="text-muted-foreground">Q:</span>{" "}
                         <span
-                          className={
-                            row.is_work_possible ? "text-green-700" : "text-red-600"
-                          }
+                          className={`font-semibold ${
+                            row.is_q_possible_at_28
+                              ? "text-green-700"
+                              : "text-red-600"
+                          }`}
                         >
-                          {row.work_status_message}
+                          {formatNumber(row.projected_q_28)}
                         </span>
                       </div>
 
-                      <div>
-                        <span className="font-medium">มาสาย:</span>{" "}
-                        <span
-                          className={
-                            row.late_days_value > 0
-                              ? "text-orange-700"
-                              : "text-green-700"
-                          }
-                        >
-                          {formatNumber(row.late_days_value)} วัน
-                        </span>
+                      <div className="mt-1 text-[11px] text-muted-foreground">
+                        Avg × 28 วัน
+                      </div>
+                    </td>
+
+                    <td className="px-3 py-3 text-right">
+                      <div className="text-[11px] text-muted-foreground">
+                        Max {formatNumber(row.projected_working_days_max)} วัน
                       </div>
 
                       <div>
-                        <span className="font-medium">เที่ยวงาน:</span>{" "}
+                        <span className="text-muted-foreground">Trip:</span>{" "}
                         <span
-                          className={
+                          className={`font-semibold ${
                             row.is_trip_possible_at_max
                               ? "text-green-700"
                               : "text-red-600"
-                          }
+                          }`}
                         >
-                          {row.trip_status_message}
+                          {formatNumber(row.projected_trip_max)}
                         </span>
                       </div>
 
                       <div>
-                        <span className="font-medium">คิวงาน:</span>{" "}
+                        <span className="text-muted-foreground">Q:</span>{" "}
                         <span
-                          className={
+                          className={`font-semibold ${
                             row.is_q_possible_at_max
                               ? "text-green-700"
                               : "text-red-600"
-                          }
+                          }`}
                         >
-                          {row.q_status_message}
+                          {formatNumber(row.projected_q_max)}
                         </span>
                       </div>
+                    </td>
 
-                      {!row.is_eligible && (
-                        <div className="mt-2 rounded-md bg-red-50 p-2 text-red-700">
-                          หมดสิทธิ์ Incentive เพราะ AC/NC ต้องเป็น 0 เท่านั้น
+                    <td className="px-3 py-3 text-right">
+                      <div className="font-bold">
+                        {formatMoney(
+                          row.projected_total_incentive_max_possible
+                        )}{" "}
+                        บาท
+                      </div>
+
+                      <div className="mt-1 text-[11px] text-muted-foreground">
+                        วัน {formatMoney(row.projected_work_incentive_max_days)}
+                      </div>
+
+                      <div className="text-[11px] text-muted-foreground">
+                        เที่ยว {formatMoney(row.projected_trip_incentive_max)}
+                      </div>
+
+                      <div className="text-[11px] text-muted-foreground">
+                        คิว {formatMoney(row.projected_q_incentive_max)}
+                      </div>
+                    </td>
+
+                    <td className="px-3 py-3">
+                      <div className="space-y-1 text-[11px]">
+                        <div>
+                          <span className="font-medium">สถานะรวม:</span>{" "}
+                          <span
+                            className={
+                              row.status_type === "danger"
+                                ? "text-red-600"
+                                : row.status_type === "success"
+                                ? "text-green-700"
+                                : "text-yellow-700"
+                            }
+                          >
+                            {row.status_label}
+                          </span>
                         </div>
-                      )}
 
-                      {row.is_eligible && (
-                        <div className="mt-2 rounded-md bg-gray-50 p-2 text-muted-foreground">
-                          {row.projection_summary}
+                        <div>
+                          <span className="font-medium">วันทำงาน:</span>{" "}
+                          <span
+                            className={
+                              row.is_work_possible
+                                ? "text-green-700"
+                                : "text-red-600"
+                            }
+                          >
+                            {row.work_status_message}
+                          </span>
                         </div>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
 
-              {sortedData.length === 0 && !loading && (
-                <tr>
-                  <td
-                    colSpan={16}
-                    className="px-4 py-8 text-center text-muted-foreground"
-                  >
-                    No data
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                        <div>
+                          <span className="font-medium">มาสาย:</span>{" "}
+                          <span
+                            className={
+                              row.late_days_value > 0
+                                ? "text-orange-700"
+                                : "text-green-700"
+                            }
+                          >
+                            {formatNumber(row.late_days_value)} วัน
+                          </span>
+                        </div>
+
+                        <div>
+                          <span className="font-medium">เที่ยว:</span>{" "}
+                          <span
+                            className={
+                              row.is_trip_possible_at_max
+                                ? "text-green-700"
+                                : "text-red-600"
+                            }
+                          >
+                            {row.trip_status_message}
+                          </span>
+                        </div>
+
+                        <div>
+                          <span className="font-medium">คิว:</span>{" "}
+                          <span
+                            className={
+                              row.is_q_possible_at_max
+                                ? "text-green-700"
+                                : "text-red-600"
+                            }
+                          >
+                            {row.q_status_message}
+                          </span>
+                        </div>
+
+                        {row.is_eligible ? (
+                          <details className="mt-2 rounded-lg bg-gray-50 p-2">
+                            <summary className="cursor-pointer text-[11px] font-medium">
+                              รายละเอียด Projection
+                            </summary>
+                            <div className="mt-1 text-[11px] text-muted-foreground">
+                              {row.projection_summary}
+                            </div>
+                          </details>
+                        ) : (
+                          <div className="mt-2 rounded-lg bg-red-50 p-2 text-red-700">
+                            หมดสิทธิ์ Incentive เพราะ AC/NC ต้องเป็น 0
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+
+                {sortedData.length === 0 && !loading && (
+                  <tr>
+                    <td
+                      colSpan={10}
+                      className="px-4 py-10 text-center text-muted-foreground"
+                    >
+                      No data
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
