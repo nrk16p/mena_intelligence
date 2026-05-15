@@ -1116,6 +1116,7 @@ export default function AsiaIncentiveDashboardPage() {
     return new Date(Math.max(...dates)).toLocaleString("th-TH", {
       dateStyle: "medium",
       timeStyle: "short",
+      timeZone: "UTC",
     })
   }, [calculatedData])
 
@@ -1218,7 +1219,7 @@ export default function AsiaIncentiveDashboardPage() {
             </div>
 
             <div className="space-y-1 lg:col-span-2">
-              <label className="text-xs font-medium text-gray-600">สถานะ</label>
+              <label className="text-xs font-medium text-gray-600">ประเภทพนักงาน</label>
               <select
                 value={selectedStatus}
                 onChange={(e) => setSelectedStatus(e.target.value)}

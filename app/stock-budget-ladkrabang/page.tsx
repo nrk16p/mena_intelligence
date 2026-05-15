@@ -15,6 +15,20 @@ import {
   YAxis,
 } from "recharts"
 
+// ================================
+// CONFIG
+// ================================
+const YEAR = 2026
+const WAREHOUSE = "ลาดกระบัง"
+const PAGE_SIZE = 10
+
+// ✅ เป้าประหยัด 9%
+// Target Cost = Budget * 91%
+// Target Saving = Budget * 9%
+const TARGET_SAVING_RATE = 0.09
+const TARGET_COST_RATE = 1 - TARGET_SAVING_RATE
+const TARGET_PERCENT_LABEL = `${TARGET_SAVING_RATE * 100}%`
+
 type ActualRow = {
   คลังสินค้า?: string
   จุดประสงค์ในการเบิก?: string
@@ -133,10 +147,6 @@ type CategoryBudgetChartRow = {
   overBudgetAmount: number
   status: ControlStatus
 }
-
-const YEAR = 2026
-const WAREHOUSE = "ลาดกระบัง"
-const PAGE_SIZE = 10
 
 const MONTHS = [
   { key: "2026-01", label: "Jan" },
@@ -267,8 +277,8 @@ function getControlStatus(
 }
 
 function getStatusLabel(status: ControlStatus) {
-  if (status === "excellent") return "ดีมาก ลดได้ตามเป้า 15%"
-  if (status === "within_budget") return "อยู่ในงบ แต่ยังลดไม่ถึง 15%"
+  if (status === "excellent") return `ดีมาก ลดได้ตามเป้า ${TARGET_PERCENT_LABEL}`
+  if (status === "within_budget") return `อยู่ในงบ แต่ยังลดไม่ถึง ${TARGET_PERCENT_LABEL}`
   return "เกินงบ ต้องคุมค่าใช้จ่าย"
 }
 
@@ -552,9 +562,7 @@ function buildPareto(rows: CompareRow[], key: keyof CompareRow): ParetoItem[] {
     .map(([name, total_cost]) => ({ name, total_cost }))
     .sort((a, b) => b.total_cost - a.total_cost)
     .map((item) => {
-      const percentage =
-        totalCost > 0 ? (item.total_cost / totalCost) * 100 : 0
-
+      const percentage = totalCost > 0 ? (item.total_cost / totalCost) * 100 : 0
       const previousCumulative = cumulative
       cumulative += percentage
 
@@ -803,8 +811,8 @@ export default function LadkrabangBudgetDashboardPage() {
     BUDGET_DATA.forEach((budget) => {
       MONTHS.forEach((month, monthIndex) => {
         const budgetValue = Number(budget.monthlyBudget[monthIndex] || 0)
-        const targetCost = budgetValue * 0.85
-        const targetSaving = budgetValue * 0.15
+        const targetCost = budgetValue * TARGET_COST_RATE
+        const targetSaving = budgetValue * TARGET_SAVING_RATE
 
         const matchedActualRows = actualData
           .filter((actual) => actual.month_year === month.key)
@@ -867,7 +875,7 @@ export default function LadkrabangBudgetDashboardPage() {
       const targetCost = rows.reduce((sum, row) => sum + row.targetCost, 0)
       const actualCost = rows.reduce((sum, row) => sum + row.actualCost, 0)
       const savingFromBudget = budget - actualCost
-      const targetSaving = budget * 0.15
+      const targetSaving = budget * TARGET_SAVING_RATE
       const overBudgetAmount = Math.max(actualCost - budget, 0)
       const gapToSavingTarget = Math.max(actualCost - targetCost, 0)
       const savingAchievedPercent =
@@ -894,7 +902,7 @@ export default function LadkrabangBudgetDashboardPage() {
     const targetCost = filteredRows.reduce((sum, row) => sum + row.targetCost, 0)
     const actualCost = filteredRows.reduce((sum, row) => sum + row.actualCost, 0)
 
-    const targetSaving = budget * 0.15
+    const targetSaving = budget * TARGET_SAVING_RATE
     const savingFromBudget = budget - actualCost
     const overBudgetAmount = Math.max(actualCost - budget, 0)
     const gapToSavingTarget = Math.max(actualCost - targetCost, 0)
@@ -922,7 +930,7 @@ export default function LadkrabangBudgetDashboardPage() {
     const targetCost = ytmRows.reduce((sum, row) => sum + row.targetCost, 0)
     const actualCost = ytmRows.reduce((sum, row) => sum + row.actualCost, 0)
 
-    const targetSaving = budget * 0.15
+    const targetSaving = budget * TARGET_SAVING_RATE
     const savingFromBudget = budget - actualCost
     const overBudgetAmount = Math.max(actualCost - budget, 0)
     const gapToSavingTarget = Math.max(actualCost - targetCost, 0)
@@ -1143,8 +1151,8 @@ export default function LadkrabangBudgetDashboardPage() {
       ประเภทรถร่วม: row.ประเภทรถร่วม,
       ประเภทยานพาหนะ: row.ประเภทยานพาหนะ,
       budget: row.budget,
-      target_cost_after_15_percent_reduce: row.targetCost,
-      target_saving_15_percent: row.targetSaving,
+      target_cost_after_9_percent_reduce: row.targetCost,
+      target_saving_9_percent: row.targetSaving,
       actual_cost: row.actualCost,
       saving_from_budget: row.savingFromBudget,
       over_budget_amount: row.overBudgetAmount,
@@ -1258,7 +1266,7 @@ export default function LadkrabangBudgetDashboardPage() {
             Ladkrabang Procurement Cost Control 2026
           </h1>
           <p className="text-sm text-muted-foreground">
-            คลังสินค้า: {WAREHOUSE} | ยิ่งใช้ต่ำกว่า Budget ยิ่งดี และเป้าหมายสูงสุดคือประหยัดให้ได้ 15%
+            คลังสินค้า: {WAREHOUSE} | ยิ่งใช้ต่ำกว่า Budget ยิ่งดี และเป้าหมายสูงสุดคือประหยัดให้ได้ {TARGET_PERCENT_LABEL}
           </p>
         </div>
 
@@ -1278,14 +1286,14 @@ export default function LadkrabangBudgetDashboardPage() {
           <div className="rounded-lg border border-green-200 bg-green-50 p-3">
             <p className="font-bold text-green-700">ดีมาก</p>
             <p className="text-sm text-muted-foreground">
-              Actual ต่ำกว่า Target Cost หลังลด 15% แปลว่าคุมงบและลด Cost ได้ตามเป้า
+              Actual ต่ำกว่า Target Cost หลังลด {TARGET_PERCENT_LABEL} แปลว่าคุมงบและลด Cost ได้ตามเป้า
             </p>
           </div>
 
           <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3">
             <p className="font-bold text-yellow-700">อยู่ในงบ</p>
             <p className="text-sm text-muted-foreground">
-              Actual ยังไม่เกิน Budget แต่ยังลด Cost ไม่ถึงเป้า 15%
+              Actual ยังไม่เกิน Budget แต่ยังลด Cost ไม่ถึงเป้า {TARGET_PERCENT_LABEL}
             </p>
           </div>
 
@@ -1372,7 +1380,7 @@ export default function LadkrabangBudgetDashboardPage() {
 
         <div className="rounded-xl border bg-white p-3 md:p-4">
           <p className="text-xs text-muted-foreground md:text-sm">
-            Target Cost หลังลด 15%
+            Target Cost หลังลด {TARGET_PERCENT_LABEL}
           </p>
           <p className="text-xl font-bold md:text-2xl">
             {formatNumber(selectedMonthSummary.targetCost)}
@@ -1406,7 +1414,7 @@ export default function LadkrabangBudgetDashboardPage() {
             </p>
           ) : (
             <p className="text-xs text-muted-foreground">
-              เป้าประหยัด 15%: {formatNumber(selectedMonthSummary.targetSaving)}
+              เป้าประหยัด {TARGET_PERCENT_LABEL}: {formatNumber(selectedMonthSummary.targetSaving)}
             </p>
           )}
         </div>
@@ -1438,7 +1446,7 @@ export default function LadkrabangBudgetDashboardPage() {
             Period: {yearToMonthSummary.period}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            YTM saving target 15%: {formatNumber(yearToMonthSummary.targetSaving)}
+            YTM saving target {TARGET_PERCENT_LABEL}: {formatNumber(yearToMonthSummary.targetSaving)}
           </p>
         </div>
 
@@ -1456,12 +1464,10 @@ export default function LadkrabangBudgetDashboardPage() {
                 : "text-red-700"
             }`}
           >
-            YTM saving from budget:{" "}
-            {formatNumber(yearToMonthSummary.savingFromBudget)}
+            YTM saving from budget: {formatNumber(yearToMonthSummary.savingFromBudget)}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Target cost after 15% reduction:{" "}
-            {formatNumber(yearToMonthSummary.targetCost)}
+            Target cost after {TARGET_PERCENT_LABEL} reduction: {formatNumber(yearToMonthSummary.targetCost)}
           </p>
         </div>
 
@@ -1621,7 +1627,7 @@ export default function LadkrabangBudgetDashboardPage() {
               <Bar dataKey="budget" name="Budget" fill="#D1D5DB" radius={[6, 6, 0, 0]} />
               <Bar
                 dataKey="targetCost"
-                name="Target Cost หลังลด 15%"
+                name={`Target Cost หลังลด ${TARGET_PERCENT_LABEL}`}
                 fill="#111827"
                 radius={[6, 6, 0, 0]}
               />
@@ -1691,6 +1697,8 @@ export default function LadkrabangBudgetDashboardPage() {
         </ChartScrollContainer>
       </div>
 
+      <ParetoChart data={paretoByCategory} title="Pareto by จุดประสงค์การเบิก" />
+
       <div className="rounded-xl border bg-white p-3 md:p-4">
         <div className="mb-4">
           <h2 className="text-base font-semibold md:text-lg">
@@ -1714,7 +1722,7 @@ export default function LadkrabangBudgetDashboardPage() {
             <p className="text-xl font-bold text-green-700 md:text-2xl">
               {cardAnalysis.excellentRows.length}
             </p>
-            <p className="text-xs text-green-700">ลดได้ตามเป้า 15%</p>
+            <p className="text-xs text-green-700">ลดได้ตามเป้า {TARGET_PERCENT_LABEL}</p>
           </div>
 
           <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 md:p-4">
@@ -1760,8 +1768,6 @@ export default function LadkrabangBudgetDashboardPage() {
           </p>
         </div>
       </div>
-
-
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         {filteredRows.map((row) => (
@@ -1834,21 +1840,19 @@ export default function LadkrabangBudgetDashboardPage() {
 
               {row.status === "excellent" && (
                 <p className="mt-1 text-sm text-green-700">
-                  ผ่านดีมาก: Actual ต่ำกว่า Target Cost แล้ว ประหยัดได้ตามเป้า 15%
+                  ผ่านดีมาก: Actual ต่ำกว่า Target Cost แล้ว ประหยัดได้ตามเป้า {TARGET_PERCENT_LABEL}
                 </p>
               )}
 
               {row.status === "within_budget" && (
                 <p className="mt-1 text-sm text-yellow-700">
-                  ผ่านงบ แต่ยังไม่ถึงเป้าลด 15%: ต้องลดเพิ่มอีก{" "}
-                  {formatNumber(row.gapToSavingTarget)}
+                  ผ่านงบ แต่ยังไม่ถึงเป้าลด {TARGET_PERCENT_LABEL}: ต้องลดเพิ่มอีก {formatNumber(row.gapToSavingTarget)}
                 </p>
               )}
 
               {row.status === "over_budget" && (
                 <p className="mt-1 text-sm text-red-700">
-                  ไม่ผ่าน: Actual เกิน Budget อยู่{" "}
-                  {formatNumber(row.overBudgetAmount)} ต้องรีบคุมค่าใช้จ่าย
+                  ไม่ผ่าน: Actual เกิน Budget อยู่ {formatNumber(row.overBudgetAmount)} ต้องรีบคุมค่าใช้จ่าย
                 </p>
               )}
             </div>
@@ -2016,47 +2020,29 @@ export default function LadkrabangBudgetDashboardPage() {
 
               <div className="overflow-hidden rounded-lg border bg-white">
                 <div className="border-b bg-gray-50 p-4">
-                  <h3 className="font-semibold">Summary by รหัสสินค้า</h3>
+                  <h3 className="font-semibold">Product Code Summary</h3>
                   <p className="text-sm text-muted-foreground">
-                    รวม total_cost และจำนวนครั้งของแต่ละรหัสสินค้า แสดงหน้า ละ 10 รายการ
+                    แสดงหน้า ละ 10 รายการ เรียงจาก Cost สูงสุด
                   </p>
                 </div>
 
-                <div className="-mx-3 overflow-x-auto md:mx-0">
-                  <table className="min-w-[760px] w-full text-sm">
-                    <thead className="bg-white">
-                      <tr className="border-b">
-                        <th className="whitespace-nowrap px-4 py-3 text-left">
-                          รหัสสินค้า
-                        </th>
-                        <th className="whitespace-nowrap px-4 py-3 text-left">
-                          ชื่อสินค้า
-                        </th>
-                        <th className="whitespace-nowrap px-4 py-3 text-right">
-                          Count รหัสสินค้า
-                        </th>
-                        <th className="whitespace-nowrap px-4 py-3 text-right">
-                          จำนวน Transaction
-                        </th>
-                        <th className="whitespace-nowrap px-4 py-3 text-right">
-                          actual_issue
-                        </th>
-                        <th className="whitespace-nowrap px-4 py-3 text-right">
-                          total_cost
-                        </th>
-                        <th className="whitespace-nowrap px-4 py-3 text-right">
-                          %
-                        </th>
+                <div className="overflow-x-auto">
+                  <table className="min-w-[900px] w-full text-sm">
+                    <thead className="bg-gray-50 text-xs uppercase text-muted-foreground">
+                      <tr>
+                        <th className="px-4 py-3 text-left">รหัสสินค้า</th>
+                        <th className="px-4 py-3 text-left">ชื่อสินค้า</th>
+                        <th className="px-4 py-3 text-right">Count</th>
+                        <th className="px-4 py-3 text-right">Transactions</th>
+                        <th className="px-4 py-3 text-right">Actual Issue</th>
+                        <th className="px-4 py-3 text-right">Total Cost</th>
+                        <th className="px-4 py-3 text-right">%</th>
                       </tr>
                     </thead>
-
-                    <tbody>
-                      {paginatedProductCodeSummary.map((item, index) => (
-                        <tr
-                          key={`${item.รหัสสินค้า}-${item.ชื่อสินค้า}-${index}`}
-                          className="border-b hover:bg-gray-50"
-                        >
-                          <td className="whitespace-nowrap px-4 py-3">
+                    <tbody className="divide-y">
+                      {paginatedProductCodeSummary.map((item) => (
+                        <tr key={`${item.รหัสสินค้า}-${item.ชื่อสินค้า}`}>
+                          <td className="whitespace-nowrap px-4 py-3 font-medium">
                             {item.รหัสสินค้า}
                           </td>
                           <td className="px-4 py-3">{item.ชื่อสินค้า}</td>
@@ -2118,46 +2104,31 @@ export default function LadkrabangBudgetDashboardPage() {
                               <p className="text-sm text-muted-foreground">
                                 Transaction
                               </p>
-                              <h3 className="text-base font-bold">
+                              <p className="font-semibold">
                                 {transaction.วันที่} | {transaction.ทะเบียน}
-                              </h3>
-                              <p className="mt-1 text-xs text-muted-foreground">
-                                {isOpen ? "Hide items" : "View items"}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {items.length.toLocaleString()} items
                               </p>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-2 text-left sm:text-right md:grid-cols-4 md:gap-3">
-                              <div>
-                                <p className="text-xs text-muted-foreground">
-                                  Total Cost
-                                </p>
-                                <p className="font-bold">
-                                  {formatNumber(transaction.total_cost)}
-                                </p>
-                              </div>
-
-                              <div>
-                                <p className="text-xs text-muted-foreground">
-                                  Actual Issue
-                                </p>
+                            <div className="grid grid-cols-3 gap-2 text-xs lg:min-w-[420px]">
+                              <div className="rounded-md bg-white p-2">
+                                <p className="text-muted-foreground">Actual Issue</p>
                                 <p className="font-bold">
                                   {formatNumber(transaction.actual_issue)}
                                 </p>
                               </div>
 
-                              <div>
-                                <p className="text-xs text-muted-foreground">
-                                  Rows
-                                </p>
+                              <div className="rounded-md bg-white p-2">
+                                <p className="text-muted-foreground">Total Cost</p>
                                 <p className="font-bold">
-                                  {transaction.row_count.toLocaleString()}
+                                  {formatNumber(transaction.total_cost)}
                                 </p>
                               </div>
 
-                              <div>
-                                <p className="text-xs text-muted-foreground">
-                                  % of Group
-                                </p>
+                              <div className="rounded-md bg-white p-2">
+                                <p className="text-muted-foreground">%</p>
                                 <p className="font-bold">
                                   {transaction.percentage.toFixed(1)}%
                                 </p>
@@ -2167,66 +2138,38 @@ export default function LadkrabangBudgetDashboardPage() {
                         </button>
 
                         {isOpen && (
-                          <>
-                            {items.length === 0 ? (
-                              <div className="p-4 text-center text-sm text-muted-foreground">
-                                No items in this transaction
-                              </div>
-                            ) : (
-                              <div className="-mx-3 overflow-x-auto md:mx-0">
-                                <table className="min-w-[760px] w-full text-sm">
-                                  <thead className="bg-white">
-                                    <tr className="border-b">
-                                      <th className="whitespace-nowrap px-4 py-3 text-left">
-                                        รหัสสินค้า
-                                      </th>
-                                      <th className="whitespace-nowrap px-4 py-3 text-left">
-                                        ชื่อสินค้า
-                                      </th>
-                                      <th className="whitespace-nowrap px-4 py-3 text-right">
-                                        actual_issue
-                                      </th>
-                                      <th className="whitespace-nowrap px-4 py-3 text-right">
-                                        total_cost
-                                      </th>
-                                      <th className="whitespace-nowrap px-4 py-3 text-right">
-                                        จำนวนรายการ
-                                      </th>
-                                    </tr>
-                                  </thead>
-
-                                  <tbody>
-                                    {items.map((item, itemIndex) => (
-                                      <tr
-                                        key={`${transactionKey}-${item.รหัสสินค้า}-${item.ชื่อสินค้า}-${itemIndex}`}
-                                        className="border-b hover:bg-gray-50"
-                                      >
-                                        <td className="whitespace-nowrap px-4 py-3">
-                                          {item.รหัสสินค้า}
-                                        </td>
-
-                                        <td className="px-4 py-3">
-                                          {item.ชื่อสินค้า}
-                                        </td>
-
-                                        <td className="whitespace-nowrap px-4 py-3 text-right">
-                                          {formatNumber(item.actual_issue)}
-                                        </td>
-
-                                        <td className="whitespace-nowrap px-4 py-3 text-right font-bold">
-                                          {formatNumber(item.total_cost)}
-                                        </td>
-
-                                        <td className="whitespace-nowrap px-4 py-3 text-right">
-                                          {item.row_count.toLocaleString()}
-                                        </td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
-                            )}
-                          </>
+                          <div className="overflow-x-auto">
+                            <table className="min-w-[760px] w-full text-sm">
+                              <thead className="bg-white text-xs uppercase text-muted-foreground">
+                                <tr>
+                                  <th className="px-4 py-3 text-left">รหัสสินค้า</th>
+                                  <th className="px-4 py-3 text-left">ชื่อสินค้า</th>
+                                  <th className="px-4 py-3 text-right">Actual Issue</th>
+                                  <th className="px-4 py-3 text-right">Total Cost</th>
+                                  <th className="px-4 py-3 text-right">Rows</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y">
+                                {items.map((item) => (
+                                  <tr key={`${transactionKey}-${item.รหัสสินค้า}-${item.ชื่อสินค้า}`}>
+                                    <td className="whitespace-nowrap px-4 py-3 font-medium">
+                                      {item.รหัสสินค้า}
+                                    </td>
+                                    <td className="px-4 py-3">{item.ชื่อสินค้า}</td>
+                                    <td className="whitespace-nowrap px-4 py-3 text-right">
+                                      {formatNumber(item.actual_issue)}
+                                    </td>
+                                    <td className="whitespace-nowrap px-4 py-3 text-right font-bold">
+                                      {formatNumber(item.total_cost)}
+                                    </td>
+                                    <td className="whitespace-nowrap px-4 py-3 text-right">
+                                      {item.row_count.toLocaleString()}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
                         )}
                       </div>
                     )
@@ -2236,90 +2179,13 @@ export default function LadkrabangBudgetDashboardPage() {
                 <PaginationControl
                   page={transactionPage}
                   totalPages={transactionTotalPages}
-                  onChange={(page) => {
-                    setTransactionPage(page)
-                    setOpenTransactions({})
-                  }}
+                  onChange={setTransactionPage}
                 />
               </div>
             </div>
           )}
         </div>
       )}
-
-      <div className="overflow-hidden rounded-xl border bg-white">
-        <div className="border-b p-4">
-          <h2 className="font-semibold">Budget VS Actual Table</h2>
-          <p className="text-sm text-muted-foreground">
-            {WAREHOUSE} | {selectedMonth}
-          </p>
-        </div>
-
-        <div className="-mx-3 overflow-x-auto md:mx-0">
-          <table className="min-w-[980px] w-full text-sm">
-            <thead className="bg-gray-50">
-              <tr className="border-b">
-                <th className="whitespace-nowrap px-4 py-3 text-left">Month</th>
-                <th className="whitespace-nowrap px-4 py-3 text-left">AccName</th>
-                <th className="whitespace-nowrap px-4 py-3 text-left">
-                  ประเภทยานพาหนะ
-                </th>
-                <th className="whitespace-nowrap px-4 py-3 text-right">Budget</th>
-                <th className="whitespace-nowrap px-4 py-3 text-right">
-                  Target Cost
-                </th>
-                <th className="whitespace-nowrap px-4 py-3 text-right">Actual</th>
-                <th className="whitespace-nowrap px-4 py-3 text-right">
-                  Saving / Over
-                </th>
-                <th className="whitespace-nowrap px-4 py-3 text-left">Status</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {filteredRows.map((row) => (
-                <tr key={row.id} className="border-b hover:bg-gray-50">
-                  <td className="whitespace-nowrap px-4 py-3">{row.month}</td>
-                  <td className="whitespace-nowrap px-4 py-3">{row.AccName}</td>
-                  <td className="whitespace-nowrap px-4 py-3">
-                    {row.ประเภทยานพาหนะ}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right">
-                    {formatNumber(row.budget)}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right">
-                    {formatNumber(row.targetCost)}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right">
-                    {formatNumber(row.actualCost)}
-                  </td>
-                  <td
-                    className={`whitespace-nowrap px-4 py-3 text-right ${
-                      row.savingFromBudget >= 0 ? "text-green-700" : "text-red-700"
-                    }`}
-                  >
-                    {formatNumber(row.savingFromBudget)}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3">
-                    {getStatusLabel(row.status)}
-                  </td>
-                </tr>
-              ))}
-
-              {filteredRows.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={8}
-                    className="px-4 py-8 text-center text-muted-foreground"
-                  >
-                    No data
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
     </div>
   )
 }
