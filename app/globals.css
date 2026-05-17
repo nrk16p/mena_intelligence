@@ -124,3 +124,60 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Dark mode overrides for hardcoded utility classes used across pages */
+.dark .bg-white {
+  background-color: oklch(0.2 0 0) !important;
+  color: oklch(0.92 0 0);
+}
+.dark .bg-gray-50 {
+  background-color: oklch(0.17 0 0) !important;
+}
+.dark .bg-gray-100 {
+  background-color: oklch(0.22 0 0) !important;
+}
+.dark .border {
+  border-color: oklch(1 0 0 / 10%) !important;
+}
+.dark .border-b,
+.dark .border-t,
+.dark .border-r {
+  border-color: oklch(1 0 0 / 10%) !important;
+}
+.dark .text-gray-900 {
+  color: oklch(0.95 0 0) !important;
+}
+.dark .text-gray-700 {
+  color: oklch(0.82 0 0) !important;
+}
+.dark .text-gray-600 {
+  color: oklch(0.72 0 0) !important;
+}
+.dark .text-gray-500 {
+  color: oklch(0.62 0 0) !important;
+}
+.dark .text-gray-400 {
+  color: oklch(0.55 0 0) !important;
+}
+.dark .text-muted-foreground {
+  color: oklch(0.6 0 0) !important;
+}
+.dark .shadow-sm {
+  box-shadow: 0 1px 3px oklch(0 0 0 / 40%) !important;
+}
+.dark input,
+.dark select,
+.dark textarea {
+  background-color: oklch(0.22 0 0) !important;
+  color: oklch(0.92 0 0) !important;
+  border-color: oklch(1 0 0 / 15%) !important;
+}
+.dark table thead {
+  background-color: oklch(0.17 0 0) !important;
+}
+.dark table tr:hover {
+  background-color: oklch(0.22 0 0) !important;
+}
+.dark .divide-y > * + * {
+  border-color: oklch(1 0 0 / 8%) !important;
+}

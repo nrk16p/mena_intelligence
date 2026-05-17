@@ -87,6 +87,7 @@ type ProductItemDetail = {
   actual_issue: number
   total_cost: number
   row_count: number
+  ราคาทุน_sum: number
 }
 
 type ProductTransactionBreakdown = {
@@ -107,6 +108,7 @@ type ProductCodeSummary = {
   actual_issue: number
   transaction_count: number
   percentage: number
+  avg_ราคาทุน: number
 }
 
 type CompareRow = {
@@ -149,18 +151,18 @@ type CategoryBudgetChartRow = {
 }
 
 const MONTHS = [
-  { key: "2026-01", label: "Jan" },
-  { key: "2026-02", label: "Feb" },
-  { key: "2026-03", label: "Mar" },
-  { key: "2026-04", label: "Apr" },
-  { key: "2026-05", label: "May" },
-  { key: "2026-06", label: "Jun" },
-  { key: "2026-07", label: "Jul" },
-  { key: "2026-08", label: "Aug" },
-  { key: "2026-09", label: "Sep" },
-  { key: "2026-10", label: "Oct" },
-  { key: "2026-11", label: "Nov" },
-  { key: "2026-12", label: "Dec" },
+  { key: "2026-01", label: "Jan", fullLabel: "January 2026" },
+  { key: "2026-02", label: "Feb", fullLabel: "February 2026" },
+  { key: "2026-03", label: "Mar", fullLabel: "March 2026" },
+  { key: "2026-04", label: "Apr", fullLabel: "April 2026" },
+  { key: "2026-05", label: "May", fullLabel: "May 2026" },
+  { key: "2026-06", label: "Jun", fullLabel: "June 2026" },
+  { key: "2026-07", label: "Jul", fullLabel: "July 2026" },
+  { key: "2026-08", label: "Aug", fullLabel: "August 2026" },
+  { key: "2026-09", label: "Sep", fullLabel: "September 2026" },
+  { key: "2026-10", label: "Oct", fullLabel: "October 2026" },
+  { key: "2026-11", label: "Nov", fullLabel: "November 2026" },
+  { key: "2026-12", label: "Dec", fullLabel: "December 2026" },
 ]
 
 const BUDGET_DATA: BudgetRow[] = [
@@ -406,6 +408,7 @@ function buildProductTransactionBreakdown(
           actual_issue: number
           total_cost: number
           row_count: number
+          ราคาทุน_sum: number
         }
       >
     }
@@ -418,6 +421,7 @@ function buildProductTransactionBreakdown(
     const productName = String(row.ชื่อสินค้า || "ไม่ระบุชื่อสินค้า")
     const actualIssue = Number(row.actual_issue || 0)
     const totalCost = Number(row.total_cost || 0)
+    const ราคาทุน = Number(row.ราคาทุน || 0)
 
     const transactionKey = `${date}__${plate}`
 
@@ -447,6 +451,7 @@ function buildProductTransactionBreakdown(
         actual_issue: 0,
         total_cost: 0,
         row_count: 0,
+        ราคาทุน_sum: 0,
       })
     }
 
@@ -455,6 +460,7 @@ function buildProductTransactionBreakdown(
     item.actual_issue += actualIssue
     item.total_cost += totalCost
     item.row_count += 1
+    item.ราคาทุน_sum += ราคาทุน
   })
 
   const grandTotalCost = Array.from(transactionMap.values()).reduce(
@@ -491,6 +497,7 @@ function buildProductCodeSummary(
       count_product_code: number
       total_cost: number
       actual_issue: number
+      ราคาทุน_sum: number
       transactionKeys: Set<string>
     }
   >()
@@ -511,6 +518,7 @@ function buildProductCodeSummary(
           count_product_code: 0,
           total_cost: 0,
           actual_issue: 0,
+          ราคาทุน_sum: 0,
           transactionKeys: new Set(),
         })
       }
@@ -520,6 +528,7 @@ function buildProductCodeSummary(
       summary.count_product_code += Number(item.row_count || 0)
       summary.total_cost += Number(item.total_cost || 0)
       summary.actual_issue += Number(item.actual_issue || 0)
+      summary.ราคาทุน_sum += Number(item.ราคาทุน_sum || 0)
       summary.transactionKeys.add(transactionKey)
     })
   })
@@ -538,6 +547,7 @@ function buildProductCodeSummary(
       actual_issue: item.actual_issue,
       transaction_count: item.transactionKeys.size,
       percentage: totalCost > 0 ? (item.total_cost / totalCost) * 100 : 0,
+      avg_ราคาทุน: item.count_product_code > 0 ? item.ราคาทุน_sum / item.count_product_code : 0,
     }))
     .sort((a, b) => b.total_cost - a.total_cost)
 }
@@ -573,6 +583,37 @@ function buildPareto(rows: CompareRow[], key: keyof CompareRow): ParetoItem[] {
         isTop80: previousCumulative < 80,
       }
     })
+}
+
+function ColHeader({ label, tip }: { label: string; tip: string }) {
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
+
+  return (
+    <span className="inline-flex items-center justify-end gap-1">
+      {label}
+      <span
+        className="relative inline-flex"
+        onMouseEnter={(e) => {
+          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+          setPos({ x: rect.left + rect.width / 2, y: rect.top })
+        }}
+        onMouseLeave={() => setPos(null)}
+      >
+        <span className="flex h-4 w-4 cursor-default items-center justify-center rounded-full bg-gray-300 text-[10px] font-bold text-gray-700 hover:bg-gray-400">
+          i
+        </span>
+        {pos && (
+          <span
+            className="pointer-events-none fixed z-[9999] w-60 -translate-x-1/2 -translate-y-full rounded-xl bg-gray-900 px-4 py-3 text-xs font-normal normal-case leading-relaxed text-white shadow-xl"
+            style={{ left: pos.x, top: pos.y - 8 }}
+          >
+            {tip}
+            <span className="absolute left-1/2 top-full -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
+          </span>
+        )}
+      </span>
+    </span>
+  )
 }
 
 function PaginationControl({
@@ -727,6 +768,7 @@ export default function LadkrabangBudgetDashboardPage() {
   const [actualData, setActualData] = useState<ActualRow[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
+  const [showGuide, setShowGuide] = useState(false)
 
   const [selectedMonth, setSelectedMonth] = useState("2026-05")
   const [selectedVehicle, setSelectedVehicle] = useState("")
@@ -1228,6 +1270,7 @@ export default function LadkrabangBudgetDashboardPage() {
       count_product_code: item.count_product_code,
       transaction_count: item.transaction_count,
       actual_issue: item.actual_issue,
+      avg_ราคาทุน: item.avg_ราคาทุน,
       total_cost: item.total_cost,
       percentage: item.percentage,
     }))
@@ -1280,30 +1323,38 @@ export default function LadkrabangBudgetDashboardPage() {
       </div>
 
       <div className="rounded-xl border bg-white p-3 md:p-4">
-        <h2 className="font-semibold">วิธีอ่าน Dashboard</h2>
+        <button
+          onClick={() => setShowGuide((v) => !v)}
+          className="flex w-full items-center justify-between text-left"
+        >
+          <span className="font-semibold">วิธีอ่าน Dashboard</span>
+          <span className="text-xs text-gray-400">{showGuide ? "ซ่อน ▲" : "ดูวิธีอ่าน ▼"}</span>
+        </button>
 
-        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
-          <div className="rounded-lg border border-green-200 bg-green-50 p-3">
-            <p className="font-bold text-green-700">ดีมาก</p>
-            <p className="text-sm text-muted-foreground">
-              Actual ต่ำกว่า Target Cost หลังลด {TARGET_PERCENT_LABEL} แปลว่าคุมงบและลด Cost ได้ตามเป้า
-            </p>
-          </div>
+        {showGuide && (
+          <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div className="rounded-lg border border-green-200 bg-green-50 p-3">
+              <p className="font-bold text-green-700">ดีมาก</p>
+              <p className="text-sm text-muted-foreground">
+                Actual ต่ำกว่า Target Cost หลังลด {TARGET_PERCENT_LABEL} แปลว่าคุมงบและลด Cost ได้ตามเป้า
+              </p>
+            </div>
 
-          <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3">
-            <p className="font-bold text-yellow-700">อยู่ในงบ</p>
-            <p className="text-sm text-muted-foreground">
-              Actual ยังไม่เกิน Budget แต่ยังลด Cost ไม่ถึงเป้า {TARGET_PERCENT_LABEL}
-            </p>
-          </div>
+            <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3">
+              <p className="font-bold text-yellow-700">อยู่ในงบ</p>
+              <p className="text-sm text-muted-foreground">
+                Actual ยังไม่เกิน Budget แต่ยังลด Cost ไม่ถึงเป้า {TARGET_PERCENT_LABEL}
+              </p>
+            </div>
 
-          <div className="rounded-lg border border-red-200 bg-red-50 p-3">
-            <p className="font-bold text-red-700">เกินงบ</p>
-            <p className="text-sm text-muted-foreground">
-              Actual มากกว่า Budget ต้องรีบคุมค่าใช้จ่าย เพราะยิ่งเกินงบยิ่งแย่
-            </p>
+            <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+              <p className="font-bold text-red-700">เกินงบ</p>
+              <p className="text-sm text-muted-foreground">
+                Actual มากกว่า Budget ต้องรีบคุมค่าใช้จ่าย เพราะยิ่งเกินงบยิ่งแย่
+              </p>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-3 rounded-xl border bg-white p-3 md:grid-cols-4 md:gap-4 md:p-4">
@@ -1316,7 +1367,7 @@ export default function LadkrabangBudgetDashboardPage() {
           >
             {MONTHS.map((month) => (
               <option key={month.key} value={month.key}>
-                {month.key}
+                {month.fullLabel}
               </option>
             ))}
           </select>
@@ -1396,7 +1447,7 @@ export default function LadkrabangBudgetDashboardPage() {
 
         <div className="rounded-xl border bg-white p-3 md:p-4">
           <p className="text-xs text-muted-foreground md:text-sm">
-            ประหยัดจาก Budget
+            {selectedMonthSummary.savingFromBudget >= 0 ? "ประหยัดจาก Budget" : "เกินงบ"}
           </p>
           <p
             className={`text-xl font-bold md:text-2xl ${
@@ -1405,7 +1456,7 @@ export default function LadkrabangBudgetDashboardPage() {
                 : "text-red-700"
             }`}
           >
-            {formatNumber(selectedMonthSummary.savingFromBudget)}
+            {formatNumber(Math.abs(selectedMonthSummary.savingFromBudget))}
           </p>
 
           {selectedMonthSummary.overBudgetAmount > 0 ? (
@@ -2032,11 +2083,24 @@ export default function LadkrabangBudgetDashboardPage() {
                       <tr>
                         <th className="px-4 py-3 text-left">รหัสสินค้า</th>
                         <th className="px-4 py-3 text-left">ชื่อสินค้า</th>
-                        <th className="px-4 py-3 text-right">Count</th>
-                        <th className="px-4 py-3 text-right">Transactions</th>
-                        <th className="px-4 py-3 text-right">Actual Issue</th>
-                        <th className="px-4 py-3 text-right">Total Cost</th>
-                        <th className="px-4 py-3 text-right">%</th>
+                        <th className="px-4 py-3 text-right">
+                          <ColHeader label="Count" tip="จำนวนครั้งที่เบิกสินค้านี้ (นับตาม row ใน stock)" />
+                        </th>
+                        <th className="px-4 py-3 text-right">
+                          <ColHeader label="Transactions" tip="จำนวน transaction ที่มีสินค้านี้ (นับตาม วันที่ + ทะเบียน)" />
+                        </th>
+                        <th className="px-4 py-3 text-right">
+                          <ColHeader label="Actual Issue" tip="จำนวนที่จ่ายออกจริง (หน่วยตามสินค้า เช่น เส้น / ชิ้น)" />
+                        </th>
+                        <th className="px-4 py-3 text-right">
+                          <ColHeader label="ราคาทุน (เฉลี่ย)" tip="ราคาทุนต่อหน่วย เฉลี่ยจากทุก row ของสินค้านี้" />
+                        </th>
+                        <th className="px-4 py-3 text-right">
+                          <ColHeader label="Total Cost" tip="ยอดรวมค่าใช้จ่ายจริงของสินค้านี้ทั้งหมด" />
+                        </th>
+                        <th className="px-4 py-3 text-right">
+                          <ColHeader label="%" tip="สัดส่วน Total Cost ของสินค้านี้ เทียบกับยอดรวมทั้งกลุ่ม" />
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
@@ -2054,6 +2118,9 @@ export default function LadkrabangBudgetDashboardPage() {
                           </td>
                           <td className="whitespace-nowrap px-4 py-3 text-right">
                             {formatNumber(item.actual_issue)}
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-3 text-right">
+                            {formatNumber(item.avg_ราคาทุน)}
                           </td>
                           <td className="whitespace-nowrap px-4 py-3 text-right font-bold">
                             {formatNumber(item.total_cost)}
