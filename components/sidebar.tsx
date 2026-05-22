@@ -14,6 +14,7 @@ import {
   PackageSearch,
   LayoutDashboard,
   ClipboardList,
+  Warehouse,
 } from "lucide-react"
 import { ThemeToggle } from "./theme-toggle"
 
@@ -52,6 +53,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Ops",
     items: [
       { href: "/repair-cost", label: "Repair Cost", icon: Calculator },
+      { href: "/cost", label: "Cost Monitoring", icon: Warehouse },
     ],
   },
   {
