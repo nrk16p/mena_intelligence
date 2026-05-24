@@ -42,6 +42,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Vehicle",
     items: [
       { href: "/truck-distance", label: "Truck Distance", icon: Truck },
+      { href: "/truck-year-cost", label: "Truck Year Cost", icon: BarChart3 },
     ],
   },
   {
