@@ -381,7 +381,7 @@ export default function TruckYearCostPage() {
                     <div className="text-xs font-normal text-indigo-300">× 12 เดือน</div>
                   </th>
                   <th className="whitespace-nowrap bg-indigo-50 px-4 py-3 text-right font-semibold">
-                    <div>ประมาณการทั้งฝูง / ปี</div>
+                    <div>ประมาณค่าซ่อมต่อปี</div>
                     <div className="text-xs font-normal text-indigo-300">× จำนวนคัน</div>
                   </th>
                 </tr>
