@@ -189,6 +189,10 @@ export default function TruckYearCostPage() {
       {!loading && filtered.length > 0 && (
         <div className="rounded-xl border bg-white p-5 space-y-4">
           {/* Chart header */}
+          <div>
+            <h2 className="text-base font-bold text-gray-900">วิเคราะห์ Correlation ค่าซ่อมและอายุรถ</h2>
+            <p className="text-xs text-gray-400 mt-0.5">ความสัมพันธ์ระหว่างปีรถ (อายุรถ) กับค่าซ่อมเฉลี่ยต่อคัน</p>
+          </div>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p className="text-sm font-semibold">เฉลี่ย / คัน vs ปีรถ</p>
