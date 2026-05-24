@@ -23,6 +23,8 @@ type TruckYearRow = {
   year_x_truck: number
 }
 
+const CURRENT_YEAR = 2026
+
 function linearRegression(points: { x: number; y: number }[]) {
   const n = points.length
   if (n < 2) return null
@@ -50,6 +52,8 @@ export default function TruckYearCostPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [selectedTypes, setSelectedTypes] = useState<Set<string>>(new Set())
+  const [minAge, setMinAge] = useState<string>("")
+  const [maxAge, setMaxAge] = useState<string>("")
 
   useEffect(() => {
     async function load() {
@@ -79,43 +83,55 @@ export default function TruckYearCostPage() {
   )
 
   const filtered = useMemo(() => {
-    if (selectedTypes.size === 0) return data
-    return data.filter((r) => selectedTypes.has(r.ประเภทยานพาหนะ))
-  }, [data, selectedTypes])
+    return data.filter((r) => {
+      if (selectedTypes.size > 0 && !selectedTypes.has(r.ประเภทยานพาหนะ)) return false
+      const age = CURRENT_YEAR - r.ปี
+      if (minAge !== "" && age < Number(minAge)) return false
+      if (maxAge !== "" && age > Number(maxAge)) return false
+      return true
+    })
+  }, [data, selectedTypes, minAge, maxAge])
+
+  const filteredWithAge = useMemo(
+    () => filtered.map((r) => ({ ...r, truck_age: CURRENT_YEAR - r.ปี })),
+    [filtered]
+  )
 
   const trendData = useMemo(() => {
-    const points = filtered.map((r) => ({ x: r.ปี, y: r.avg_cost_per_ทะเบียน }))
+    const points = filteredWithAge.map((r) => ({ x: r.truck_age, y: r.avg_cost_per_ทะเบียน }))
     const reg = linearRegression(points)
     if (!reg) return []
-    const years = filtered.map((r) => r.ปี)
-    const minY = Math.min(...years)
-    const maxY = Math.max(...years)
+    const ages = filteredWithAge.map((r) => r.truck_age)
+    const minAge = Math.min(...ages)
+    const maxAge = Math.max(...ages)
     return [
-      { ปี: minY, trend: reg.slope * minY + reg.intercept },
-      { ปี: maxY, trend: reg.slope * maxY + reg.intercept },
+      { truck_age: minAge, trend: reg.slope * minAge + reg.intercept },
+      { truck_age: maxAge, trend: reg.slope * maxAge + reg.intercept },
     ]
-  }, [filtered])
+  }, [filteredWithAge])
 
   const trendInsight = useMemo(() => {
-    const points = filtered.map((r) => ({ x: r.ปี, y: r.avg_cost_per_ทะเบียน }))
+    const points = filteredWithAge.map((r) => ({ x: r.truck_age, y: r.avg_cost_per_ทะเบียน }))
     const reg = linearRegression(points)
-    if (!reg || filtered.length < 2) return null
-    const years = filtered.map((r) => r.ปี)
-    const minYear = Math.min(...years)
-    const maxYear = Math.max(...years)
-    const valAtMin = reg.slope * minYear + reg.intercept
-    const valAtMax = reg.slope * maxYear + reg.intercept
+    if (!reg || filteredWithAge.length < 2) return null
+    const ages = filteredWithAge.map((r) => r.truck_age)
+    const minAge = Math.min(...ages)
+    const maxAge = Math.max(...ages)
+    const valAtMin = reg.slope * minAge + reg.intercept
+    const valAtMax = reg.slope * maxAge + reg.intercept
     const totalDiff = valAtMax - valAtMin
-    const pct = valAtMin !== 0 ? (totalDiff / valAtMin) * 100 : 0
-    const yearSpan = maxYear - minYear
-    return { slope: reg.slope, minYear, maxYear, yearSpan, valAtMin, valAtMax, totalDiff, pct }
-  }, [filtered])
+    const ageSpan = maxAge - minAge
+    // % per year = slope / mean(avg_cost) — more stable than dividing by endpoint
+    const meanCost = filteredWithAge.reduce((s, r) => s + r.avg_cost_per_ทะเบียน, 0) / filteredWithAge.length
+    const pctPerYear = meanCost !== 0 ? (reg.slope / meanCost) * 100 : 0
+    return { slope: reg.slope, minAge, maxAge, ageSpan, valAtMin, valAtMax, totalDiff, pctPerYear, meanCost }
+  }, [filteredWithAge])
 
-  // show every 2nd year on x axis when there are many years
   const xTicks = useMemo(() => {
-    if (allYears.length <= 10) return allYears
-    return allYears.filter((_, i) => i % 2 === 0)
-  }, [allYears])
+    const ages = Array.from(new Set(filteredWithAge.map((r) => r.truck_age))).sort((a, b) => a - b)
+    if (ages.length <= 10) return ages
+    return ages.filter((_, i) => i % 2 === 0)
+  }, [filteredWithAge])
 
   function toggleType(type: string) {
     setSelectedTypes((prev) => {
@@ -147,40 +163,82 @@ export default function TruckYearCostPage() {
         <span className="mx-2 text-blue-300">·</span>ช่วงเวลา: <span className="font-medium">ม.ค. 2023 — พ.ค. 2026</span>
       </div>
 
-      {/* Filter chips */}
-      <div className="rounded-xl border bg-white p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-medium">กรองประเภทรถ</span>
-          {selectedTypes.size > 0 && (
-            <button
-              onClick={() => setSelectedTypes(new Set())}
-              className="text-xs text-gray-500 underline hover:text-black"
-            >
-              ล้างทั้งหมด ({selectedTypes.size})
-            </button>
-          )}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {allTypes.map((type) => {
-            const active = selectedTypes.has(type)
-            return (
+      {/* Filter */}
+      <div className="rounded-xl border bg-white p-4 space-y-4">
+        {/* Age filter */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium">กรองอายุรถ (ปี)</span>
+            {(minAge !== "" || maxAge !== "") && (
               <button
-                key={type}
-                onClick={() => toggleType(type)}
-                className={`rounded-full border px-3 py-1 text-xs transition ${
-                  active
-                    ? "border-indigo-600 bg-indigo-600 text-white"
-                    : "border-gray-200 bg-gray-50 text-gray-700 hover:border-gray-400"
-                }`}
+                onClick={() => { setMinAge(""); setMaxAge("") }}
+                className="text-xs text-gray-500 underline hover:text-black"
               >
-                {type}
+                ล้าง
               </button>
-            )
-          })}
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min={0}
+              placeholder="อายุน้อยสุด"
+              value={minAge}
+              onChange={(e) => setMinAge(e.target.value)}
+              className="w-36 rounded-lg border px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+            />
+            <span className="text-gray-400 text-sm">—</span>
+            <input
+              type="number"
+              min={0}
+              placeholder="อายุมากสุด"
+              value={maxAge}
+              onChange={(e) => setMaxAge(e.target.value)}
+              className="w-36 rounded-lg border px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+            />
+            <span className="text-xs text-gray-400">ปี</span>
+          </div>
         </div>
-        {selectedTypes.size > 0 && (
+
+        {/* Vehicle type chips */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium">กรองประเภทรถ</span>
+            {selectedTypes.size > 0 && (
+              <button
+                onClick={() => setSelectedTypes(new Set())}
+                className="text-xs text-gray-500 underline hover:text-black"
+              >
+                ล้างทั้งหมด ({selectedTypes.size})
+              </button>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {allTypes.map((type) => {
+              const active = selectedTypes.has(type)
+              return (
+                <button
+                  key={type}
+                  onClick={() => toggleType(type)}
+                  className={`rounded-full border px-3 py-1 text-xs transition ${
+                    active
+                      ? "border-indigo-600 bg-indigo-600 text-white"
+                      : "border-gray-200 bg-gray-50 text-gray-700 hover:border-gray-400"
+                  }`}
+                >
+                  {type}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {(selectedTypes.size > 0 || minAge !== "" || maxAge !== "") && (
           <p className="text-xs text-gray-400">
-            แสดง {Array.from(new Set(filtered.map((r) => r.ประเภทยานพาหนะ))).length} จาก {allTypes.length} ประเภทรถ ({filtered.length} แถว)
+            แสดง {filtered.length} แถว จากทั้งหมด {data.length} แถว
+            {(minAge !== "" || maxAge !== "") && (
+              <span className="ml-2">· อายุรถ {minAge || "0"}–{maxAge || "∞"} ปี</span>
+            )}
           </p>
         )}
       </div>
@@ -195,8 +253,8 @@ export default function TruckYearCostPage() {
           </div>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="text-sm font-semibold">เฉลี่ย / คัน vs ปีรถ</p>
-              <p className="text-xs text-gray-400">X = ปีรถ &nbsp;·&nbsp; Y = เฉลี่ย/คัน (บาท)</p>
+              <p className="text-sm font-semibold">เฉลี่ย / คัน vs อายุรถ</p>
+              <p className="text-xs text-gray-400">X = อายุรถ (ปัจจุบัน − ปีรถ) &nbsp;·&nbsp; Y = เฉลี่ย/คัน (บาท)</p>
             </div>
             <div className="flex flex-wrap gap-4 text-xs text-gray-500">
               <div className="flex items-center gap-1.5">
@@ -227,7 +285,7 @@ export default function TruckYearCostPage() {
 
               <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
                 <p className="text-xs text-gray-500">
-                  ปี {trendInsight.maxYear} (ใหม่สุด) vs ปี {trendInsight.minYear} (เก่าสุด)
+                  รถอายุ {trendInsight.minAge} ปี (ใหม่สุด) vs {trendInsight.maxAge} ปี (เก่าสุด)
                 </p>
                 <p className="mt-1 text-lg font-bold tabular-nums text-gray-800">
                   ต่างกัน {fmt(Math.abs(trendInsight.totalDiff))} บาท
@@ -237,16 +295,31 @@ export default function TruckYearCostPage() {
                 </p>
               </div>
 
-              <div className="rounded-lg border border-orange-200 bg-orange-50 px-4 py-3">
-                <p className="text-xs text-gray-500">ค่าซ่อมเพิ่มขึ้นเฉลี่ยต่อปีอายุรถ</p>
-                <p className="mt-1 text-lg font-bold tabular-nums text-orange-700">
-                  {trendInsight.yearSpan > 0
-                    ? (Math.abs(trendInsight.pct) / trendInsight.yearSpan).toFixed(1)
-                    : "—"}% / ปี
+              <div className="rounded-lg border border-orange-200 bg-orange-50 px-4 py-3 space-y-1">
+                <div className="flex items-center gap-1.5">
+                  <p className="text-xs text-gray-500">ค่าซ่อมเพิ่มขึ้นเฉลี่ยต่อปีอายุรถ</p>
+                  <span className="group relative cursor-default inline-flex">
+                    <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-orange-200 text-[10px] font-bold leading-none text-orange-700">i</span>
+                    <div className="pointer-events-none absolute right-0 top-6 z-50 hidden w-72 rounded-xl border border-orange-100 bg-white p-4 text-left font-normal shadow-xl group-hover:block">
+                      <p className="text-sm font-semibold text-gray-900 mb-2">ทำไมใช้ slope ÷ mean?</p>
+                      <div className="space-y-2 text-sm text-gray-600">
+                        <p>วิธีนี้เรียกว่า <span className="font-semibold text-gray-800">Relative Rate of Change</span></p>
+                        <p>แทนที่จะหาร endpoint ของ trend line (ซึ่งอาจต่ำหรือสูงผิดปกติ) เราหารด้วย <span className="font-medium">ค่าเฉลี่ยจริงของทุกจุด</span> แทน</p>
+                        <div className="rounded-lg bg-orange-50 px-3 py-2 text-xs">
+                          <p className="font-medium text-gray-700">สูตร</p>
+                          <p className="mt-0.5 text-gray-600">{fmt(Math.abs(trendInsight.slope))} ÷ {fmt(trendInsight.meanCost)} × 100</p>
+                          <p className="mt-0.5 font-bold text-orange-700">= {Math.abs(trendInsight.pctPerYear).toFixed(1)}% ต่อปี</p>
+                        </div>
+                        <p className="text-xs text-gray-500">ความหมาย: ทุกๆ 1 ปีที่รถอายุมากขึ้น ค่าซ่อมเพิ่มขึ้น <span className="font-semibold">{Math.abs(trendInsight.pctPerYear).toFixed(1)}%</span> ของค่าเฉลี่ยทั้งกลุ่ม — ตัวเลขนี้เสถียรกว่าและเปรียบเทียบข้ามกลุ่มรถได้ครับ</p>
+                      </div>
+                    </div>
+                  </span>
+                </div>
+                <p className="text-lg font-bold tabular-nums text-orange-700">
+                  {Math.abs(trendInsight.pctPerYear).toFixed(1)}% / ปี
                 </p>
-                <p className="mt-0.5 text-xs text-gray-400">
-                  รวม {trendInsight.yearSpan} ปี เพิ่มขึ้น {Math.abs(trendInsight.pct).toFixed(1)}%
-                  &nbsp;({Math.abs(trendInsight.pct).toFixed(1)}% ÷ {trendInsight.yearSpan} ปี)
+                <p className="text-xs text-gray-400">
+                  slope ({fmt(Math.abs(trendInsight.slope))}) ÷ mean ({fmt(trendInsight.meanCost)}) × 100
                 </p>
               </div>
             </div>
@@ -259,17 +332,18 @@ export default function TruckYearCostPage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                 <XAxis
                   type="number"
-                  dataKey="ปี"
+                  dataKey="truck_age"
                   domain={["auto", "auto"]}
                   allowDuplicatedCategory={false}
                   ticks={xTicks}
-                  tickFormatter={(v) => String(Math.round(v))}
+                  tickFormatter={(v) => `${Math.round(v)} ปี`}
                   angle={-40}
                   textAnchor="end"
                   height={48}
                   axisLine={{ stroke: "#374151", strokeWidth: 1.5 }}
                   tickLine={{ stroke: "#374151" }}
                   tick={{ fontSize: 12, fill: "#111827", fontWeight: 600 }}
+                  label={{ value: "อายุรถ (ปี)", position: "insideBottom", offset: -8, fontSize: 11, fill: "#6b7280" }}
                 />
                 <YAxis
                   type="number"
@@ -291,12 +365,12 @@ export default function TruckYearCostPage() {
                   cursor={{ strokeDasharray: "3 3" }}
                   content={({ active, payload }) => {
                     if (!active || !payload?.length) return null
-                    const d = payload[0].payload as TruckYearRow
+                    const d = payload[0].payload as TruckYearRow & { truck_age: number }
                     if (!d.ประเภทยานพาหนะ) return null
                     return (
                       <div className="rounded-lg border bg-white p-3 text-xs shadow-lg space-y-1 max-w-[220px]">
                         <p className="font-semibold text-sm leading-tight">{d.ประเภทยานพาหนะ}</p>
-                        <p className="text-gray-500">ปีรถ: <span className="font-medium text-gray-800">{d.ปี}</span></p>
+                        <p className="text-gray-500">อายุรถ: <span className="font-medium text-gray-800">{d.truck_age} ปี</span> <span className="text-gray-400">(ปีรถ {d.ปี})</span></p>
                         <p className="text-gray-500">เฉลี่ย/คัน: <span className="font-medium text-gray-800">{fmt(d.avg_cost_per_ทะเบียน)}</span></p>
                         <p className="text-gray-500">จำนวนคัน: <span className="font-medium text-gray-800">{fmtInt(d.count_ทะเบียน)}</span></p>
                         <p className="text-gray-500">ต้นทุนรวม: <span className="font-medium text-gray-800">{fmt(d.total_cost)}</span></p>
@@ -304,7 +378,7 @@ export default function TruckYearCostPage() {
                     )
                   }}
                 />
-                <Scatter data={filtered} fill="#4f46e5" fillOpacity={0.75} r={5} />
+                <Scatter data={filteredWithAge} fill="#4f46e5" fillOpacity={0.75} r={5} />
                 <Line
                   data={trendData}
                   type="linear"
@@ -351,6 +425,10 @@ export default function TruckYearCostPage() {
                     <div className="text-xs font-normal text-gray-400">Model Year</div>
                   </th>
                   <th className="whitespace-nowrap px-4 py-3 text-right font-semibold">
+                    <div>อายุรถ</div>
+                    <div className="text-xs font-normal text-gray-400">{CURRENT_YEAR} − ปีรถ</div>
+                  </th>
+                  <th className="whitespace-nowrap px-4 py-3 text-right font-semibold">
                     <div>ต้นทุนรวม</div>
                     <div className="text-xs font-normal text-gray-400">Actual Total Cost</div>
                   </th>
@@ -394,7 +472,7 @@ export default function TruckYearCostPage() {
               <tbody>
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="px-4 py-10 text-center text-gray-400">ไม่มีข้อมูล</td>
+                    <td colSpan={9} className="px-4 py-10 text-center text-gray-400">ไม่มีข้อมูล</td>
                   </tr>
                 )}
                 {filtered.map((row, i) => {
@@ -406,6 +484,9 @@ export default function TruckYearCostPage() {
                         <span className="block max-w-[180px] truncate">{row.ประเภทยานพาหนะ}</span>
                       </td>
                       <td className="whitespace-nowrap px-4 py-2.5 text-right tabular-nums">{row.ปี}</td>
+                      <td className="whitespace-nowrap px-4 py-2.5 text-right tabular-nums font-medium text-gray-700">
+                        {CURRENT_YEAR - row.ปี} ปี
+                      </td>
                       <td className="whitespace-nowrap px-4 py-2.5 text-right tabular-nums">{fmt(row.total_cost)}</td>
                       <td className="whitespace-nowrap px-4 py-2.5 text-right tabular-nums">{fmtInt(row.count_ทะเบียน)}</td>
                       <td className="whitespace-nowrap px-4 py-2.5 text-right tabular-nums">{fmt(row.avg_cost_per_ทะเบียน)}</td>
@@ -420,6 +501,7 @@ export default function TruckYearCostPage() {
                 {filtered.length > 0 && (
                   <tr className="border-t-2 border-gray-400 bg-gray-100 font-bold">
                     <td className="sticky left-0 z-10 bg-gray-100 px-4 py-3">รวม</td>
+                    <td className="px-4 py-3" />
                     <td className="px-4 py-3" />
                     <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{fmt(totals.total_cost)}</td>
                     <td className="px-4 py-3" />
