@@ -28,6 +28,7 @@ type GroupEntry = {
   products:    ProductEntry[]
   yearly:      Record<string, number>
   total_cost:  number
+  total_qty:   number
 }
 
 type SupplierEntry = {
@@ -35,6 +36,7 @@ type SupplierEntry = {
   groups:        GroupEntry[]
   yearly:        Record<string, number>
   total_cost:    number
+  total_qty:     number
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -101,20 +103,23 @@ function buildTree(rows: RawRow[]): SupplierEntry[] {
 
       const grpYearly: Record<string, number> = {}
       let grpTotal = 0
+      let grpQty   = 0
       for (const p of products) {
         for (const [y, c] of Object.entries(p.yearly)) {
           grpYearly[y] = (grpYearly[y] ?? 0) + c
           supYearly[y] = (supYearly[y] ?? 0) + c
         }
         grpTotal += p.total_cost
+        grpQty   += p.total_qty
         supTotal += p.total_cost
       }
 
-      groups.push({ กลุ่มสินค้า: grpName, products, yearly: grpYearly, total_cost: grpTotal })
+      groups.push({ กลุ่มสินค้า: grpName, products, yearly: grpYearly, total_cost: grpTotal, total_qty: grpQty })
     }
 
+    const supQty = groups.reduce((s, g) => s + g.total_qty, 0)
     groups.sort((a, b) => b.total_cost - a.total_cost)
-    suppliers.push({ ซัพพลายเออร์: supName, groups, yearly: supYearly, total_cost: supTotal })
+    suppliers.push({ ซัพพลายเออร์: supName, groups, yearly: supYearly, total_cost: supTotal, total_qty: supQty })
   }
 
   suppliers.sort((a, b) => b.total_cost - a.total_cost)
@@ -319,6 +324,11 @@ function ProductRow({
       <span className="tabular-nums text-right text-xs font-semibold text-gray-700 shrink-0" style={{ width: colW }}>
         {fmt(product.total_cost)}
       </span>
+
+      {/* Qty */}
+      <span className="tabular-nums text-right text-xs text-emerald-600 shrink-0 w-20">
+        {product.total_qty ? product.total_qty.toLocaleString() : <span className="text-gray-200">—</span>}
+      </span>
     </div>
   )
 }
@@ -376,6 +386,11 @@ function GroupSection({
           style={{ width: colW }}
         >
           {fmtM(group.total_cost)}
+        </span>
+
+        {/* Qty */}
+        <span className="tabular-nums text-right text-xs font-semibold text-emerald-600 shrink-0 w-20">
+          {group.total_qty ? group.total_qty.toLocaleString() : <span className="text-gray-200">—</span>}
         </span>
       </button>
 
@@ -454,6 +469,11 @@ function SupplierBlock({
         >
           ฿{fmtM(grandTotal)}
         </span>
+
+        {/* Qty */}
+        <span className="tabular-nums text-right text-xs font-bold text-emerald-600 shrink-0 w-20">
+          {supplier.total_qty ? supplier.total_qty.toLocaleString() : <span className="text-gray-300">—</span>}
+        </span>
       </button>
 
       {/* Groups */}
@@ -496,6 +516,9 @@ function ColumnHeaders({ years, colW }: { years: string[]; colW: string }) {
         style={{ width: colW }}
       >
         รวม
+      </span>
+      <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-600 text-right shrink-0 w-20">
+        จำนวน
       </span>
     </div>
   )
@@ -564,6 +587,7 @@ export default function SupplierAnalysisPage() {
   const colW = years.length <= 3 ? "88px" : years.length <= 5 ? "76px" : "64px"
 
   const grandTotal  = suppliers.reduce((s, x) => s + x.total_cost, 0)
+  const grandQty    = suppliers.reduce((s, x) => s + x.total_qty,  0)
   const grandYearly = useMemo(() => {
     const map: Record<string, number> = {}
     for (const s of suppliers)
@@ -723,6 +747,9 @@ export default function SupplierAnalysisPage() {
               style={{ width: colW }}
             >
               ฿{fmtM(grandTotal)}
+            </span>
+            <span className="tabular-nums text-right text-xs font-bold text-emerald-200 shrink-0 w-20">
+              {grandQty.toLocaleString()}
             </span>
           </div>
 
