@@ -16,6 +16,7 @@ import {
   ClipboardList,
   Warehouse,
   TrendingUp,
+  Users,
 } from "lucide-react"
 import { ThemeToggle } from "./theme-toggle"
 
@@ -70,6 +71,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/stock-budget-ladkrabang", label: "Stock Budget", icon: PackageSearch },
       { href: "/stock-result-summary", label: "Stock Summary", icon: ClipboardList },
       { href: "/price-benchmark", label: "Price Benchmark", icon: TrendingUp },
+      { href: "/supplier-analysis", label: "Supplier Analysis", icon: Users },
     ],
   },
 ]
