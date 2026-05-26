@@ -1766,7 +1766,7 @@ export default function CostPage() {
 
               {detailData.length > 0 ? (() => {
                 const q = detailFilter.toLowerCase().trim()
-                const isFiltering = !!q || workshopFilter !== "all"
+                const isFiltering = !!q   // only text search triggers auto-expand
                 const filtered = detailData.filter((r) => {
                   if (q) {
                     const plateOk = (r.plate || "").toLowerCase().includes(q)
