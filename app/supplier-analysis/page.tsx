@@ -16,11 +16,12 @@ type RawRow = {
 }
 
 type ProductEntry = {
-  รหัสสินค้า: string
-  ชื่อสินค้า: string
-  yearly:     Record<string, number>  // year → cost
-  total_cost: number
-  total_qty:  number
+  รหัสสินค้า:  string
+  ชื่อสินค้า:  string
+  yearly:      Record<string, number>  // year → cost
+  yearly_qty:  Record<string, number>  // year → qty
+  total_cost:  number
+  total_qty:   number
 }
 
 type GroupEntry = {
@@ -79,14 +80,16 @@ function buildTree(rows: RawRow[]): SupplierEntry[] {
         รหัสสินค้า: r.รหัสสินค้า,
         ชื่อสินค้า: r.ชื่อสินค้า,
         yearly:     {},
+        yearly_qty: {},
         total_cost: 0,
         total_qty:  0,
       })
     }
     const prod = productMap.get(r.รหัสสินค้า)!
-    prod.yearly[r.year]  = (prod.yearly[r.year]  ?? 0) + r.total_cost
-    prod.total_cost      += r.total_cost
-    prod.total_qty       += r.total_qty
+    prod.yearly[r.year]     = (prod.yearly[r.year]     ?? 0) + r.total_cost
+    prod.yearly_qty[r.year] = (prod.yearly_qty[r.year] ?? 0) + r.total_qty
+    prod.total_cost         += r.total_cost
+    prod.total_qty          += r.total_qty
   }
 
   // Build nested entries, sort by total_cost desc at every level
@@ -316,13 +319,43 @@ function ProductRow({
       </span>
 
       {/* Year columns */}
-      {years.map(y => (
-        <YearCell key={y} value={product.yearly[y]} years={years} colW={colW} />
-      ))}
+      {years.map(y => {
+        const cost = product.yearly[y]
+        const qty  = product.yearly_qty[y]
+        const avg  = cost && qty ? cost / qty : null
+        return (
+          <span
+            key={y}
+            className="flex flex-col items-end shrink-0 text-xs"
+            style={{ width: colW }}
+          >
+            <span className="tabular-nums text-gray-700">
+              {cost ? fmt(cost) : <span className="text-gray-200">—</span>}
+            </span>
+            {qty ? (
+              <span className="tabular-nums text-[9px] text-gray-400 leading-tight">
+                ({qty.toLocaleString()}qty)
+              </span>
+            ) : null}
+            {avg ? (
+              <span className="tabular-nums text-[9px] text-amber-500 leading-tight">
+                ฿{avg % 1 === 0 ? avg.toLocaleString() : avg.toFixed(1)}
+              </span>
+            ) : null}
+          </span>
+        )
+      })}
 
       {/* Total */}
-      <span className="tabular-nums text-right text-xs font-semibold text-gray-700 shrink-0" style={{ width: colW }}>
-        {fmt(product.total_cost)}
+      <span className="flex flex-col items-end tabular-nums text-right text-xs font-semibold text-gray-700 shrink-0" style={{ width: colW }}>
+        <span>{fmt(product.total_cost)}</span>
+        {product.total_qty && product.total_cost ? (
+          <span className="text-[9px] text-amber-500 font-normal leading-tight">
+            avg ฿{(product.total_cost / product.total_qty % 1 === 0
+              ? (product.total_cost / product.total_qty).toLocaleString()
+              : (product.total_cost / product.total_qty).toFixed(1))}
+          </span>
+        ) : null}
       </span>
 
       {/* Qty */}
