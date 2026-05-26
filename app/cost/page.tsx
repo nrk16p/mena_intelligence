@@ -256,6 +256,7 @@ export default function CostPage() {
   const [detailData, setDetailData]         = useState<PlateDetailRow[]>([])
   const [detailLoading, setDetailLoading]   = useState(false)
   const [detailFilter, setDetailFilter]     = useState("")
+  const [workshopFilter, setWorkshopFilter] = useState<"all" | "อู่ใน" | "อู่นอก">("all")
   const [breakdownCurrDetail, setBreakdownCurrDetail] = useState<PlateDetailRow[]>([])
   const [breakdownPrevDetail, setBreakdownPrevDetail] = useState<PlateDetailRow[]>([])
   const [breakdownLoading, setBreakdownLoading]       = useState(false)
@@ -1726,14 +1727,34 @@ export default function CostPage() {
 
             {/* ── Transaction detail table ──────────────────────────────── */}
             <div className="rounded-2xl border bg-white p-5">
-              <div className="mb-3 flex flex-wrap items-center gap-3">
+              <div className="mb-3 flex flex-wrap items-center gap-2">
                 <p className="text-xs font-semibold text-gray-700">Transaction Detail — All Plates by Month</p>
-                <input
-                  value={detailFilter}
-                  onChange={(e) => setDetailFilter(e.target.value)}
-                  placeholder="Filter plate / WD…"
-                  className="ml-auto w-44 rounded-xl border px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gray-300"
-                />
+                <div className="ml-auto flex items-center gap-2">
+                  {/* อู่ filter */}
+                  <div className="flex rounded-xl border border-gray-200 overflow-hidden text-[10px] font-semibold">
+                    {(["all", "อู่ใน", "อู่นอก"] as const).map((v) => (
+                      <button
+                        key={v}
+                        onClick={() => setWorkshopFilter(v)}
+                        className={`px-2.5 py-1.5 transition ${
+                          workshopFilter === v
+                            ? v === "อู่นอก" ? "bg-orange-500 text-white"
+                            : v === "อู่ใน"  ? "bg-sky-500 text-white"
+                            : "bg-gray-900 text-white"
+                            : "bg-white text-gray-500 hover:bg-gray-50"
+                        } border-r last:border-r-0 border-gray-200`}
+                      >
+                        {v === "all" ? "ทั้งหมด" : v}
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    value={detailFilter}
+                    onChange={(e) => setDetailFilter(e.target.value)}
+                    placeholder="Filter plate / WD…"
+                    className="w-40 rounded-xl border px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gray-300"
+                  />
+                </div>
                 <button
                   onClick={loadDetail}
                   disabled={detailLoading}
@@ -1744,12 +1765,21 @@ export default function CostPage() {
               </div>
 
               {detailData.length > 0 ? (() => {
-                const q = detailFilter.toLowerCase()
-                const filtered = detailData.filter((r) =>
-                  !q ||
-                  (r.plate ?? "").toLowerCase().includes(q) ||
-                  (r.wd   ?? "").toLowerCase().includes(q)
-                )
+                const q = detailFilter.toLowerCase().trim()
+                const isFiltering = !!q || workshopFilter !== "all"
+                const filtered = detailData.filter((r) => {
+                  if (q) {
+                    const plateOk = (r.plate || "").toLowerCase().includes(q)
+                    const wdOk    = (r.wd    || "").toLowerCase().includes(q)
+                    if (!plateOk && !wdOk) return false
+                  }
+                  if (workshopFilter !== "all") {
+                    const hasOutside = r.lines.some(l => (l.ชื่อสินค้า || "").includes("ค่าแรง"))
+                    if (workshopFilter === "อู่นอก" && !hasOutside) return false
+                    if (workshopFilter === "อู่ใน"  &&  hasOutside) return false
+                  }
+                  return true
+                })
 
                 const CG_ORDER = ["CM", "PM", "AC", "T -", "Tools", "Other"]
                 const cgSort = (a: string, b: string) => {
@@ -1759,21 +1789,23 @@ export default function CostPage() {
                 }
 
                 // ── Build month → costGroup → plate → lines ─────────────────
-                type CgPlate = { wd: string; lines: DetailLine[]; subtotal: number }
+                type CgPlate = { wd: string; lines: DetailLine[]; subtotal: number; isOutside: boolean }
                 type CgData  = { costGroup: string; plates: Map<string, CgPlate>; totalCost: number; totalRecords: number }
                 const hierarchy = new Map<string, Map<string, CgData>>()
 
                 filtered.forEach((plateRow) => {
+                  // classify the whole transaction — does this plate visit have any ค่าแรง?
+                  const plateIsOutside = plateRow.lines.some(l => (l.ชื่อสินค้า || "").includes("ค่าแรง"))
                   if (!hierarchy.has(plateRow.month_year)) hierarchy.set(plateRow.month_year, new Map())
                   const mMap = hierarchy.get(plateRow.month_year)!
                   plateRow.lines.forEach((line) => {
                     const cg = getCostGroup(line.จุดประสงค์ || "")
                     if (!mMap.has(cg)) mMap.set(cg, { costGroup: cg, plates: new Map(), totalCost: 0, totalRecords: 0 })
                     const cgData = mMap.get(cg)!
-                    if (!cgData.plates.has(plateRow.plate)) cgData.plates.set(plateRow.plate, { wd: plateRow.wd, lines: [], subtotal: 0 })
+                    if (!cgData.plates.has(plateRow.plate)) cgData.plates.set(plateRow.plate, { wd: plateRow.wd, lines: [], subtotal: 0, isOutside: plateIsOutside })
                     const pd = cgData.plates.get(plateRow.plate)!
                     pd.lines.push(line)
-                    pd.subtotal     += line.cost
+                    pd.subtotal         += line.cost
                     cgData.totalCost    += line.cost
                     cgData.totalRecords += line.records
                   })
@@ -1783,7 +1815,7 @@ export default function CostPage() {
                 type FlatRow =
                   | { kind: "month";     month_year: string; plateCount: number; totalCost: number; totalRecords: number }
                   | { kind: "costgroup"; cgKey: string; costGroup: string; plateCount: number; totalCost: number }
-                  | { kind: "plate";     groupKey: string; plate: string; wd: string; lines: DetailLine[]; subtotal: number }
+                  | { kind: "plate";     groupKey: string; plate: string; wd: string; lines: DetailLine[]; subtotal: number; isOutside: boolean }
                   | { kind: "line";      line: DetailLine; rowKey: string }
 
                 const flat: FlatRow[] = []
@@ -1793,15 +1825,15 @@ export default function CostPage() {
 
                   flat.push({ kind: "month", month_year, plateCount: mPlates.size, totalCost: mTotal, totalRecords: mRecords })
 
-                  if (expandedMonths.has(month_year)) {
+                  if (isFiltering || expandedMonths.has(month_year)) {
                     Array.from(mMap.values()).sort((a, b) => cgSort(a.costGroup, b.costGroup)).forEach((cgData) => {
                       const cgKey = `${month_year}|${cgData.costGroup}`
                       flat.push({ kind: "costgroup", cgKey, costGroup: cgData.costGroup, plateCount: cgData.plates.size, totalCost: cgData.totalCost })
 
-                      if (expandedCostGroups.has(cgKey)) {
+                      if (isFiltering || expandedCostGroups.has(cgKey)) {
                         Array.from(cgData.plates.entries()).sort((a, b) => b[1].subtotal - a[1].subtotal).forEach(([plate, pd]) => {
                           const groupKey = `${cgKey}|${plate}`
-                          flat.push({ kind: "plate", groupKey, plate, wd: pd.wd, lines: pd.lines, subtotal: pd.subtotal })
+                          flat.push({ kind: "plate", groupKey, plate, wd: pd.wd, lines: pd.lines, subtotal: pd.subtotal, isOutside: pd.isOutside })
                           if (expandedPlates.has(groupKey)) {
                             pd.lines.forEach((line, li) => flat.push({ kind: "line", line, rowKey: `${groupKey}-${li}` }))
                           }
@@ -1872,11 +1904,15 @@ export default function CostPage() {
                           if (row.kind === "plate") {
                             const open = expandedPlates.has(row.groupKey)
                             const recCount = row.lines.reduce((s, l) => s + l.records, 0)
+                            const hasOutside = row.isOutside
                             return (
                               <tr key={row.groupKey} onClick={() => togglePlate(row.groupKey)}
                                   className="cursor-pointer select-none border-b border-gray-100 bg-gray-50 hover:bg-gray-100 transition">
                                 <td className="py-2 pl-8 font-medium text-gray-600">{row.wd || "—"}</td>
                                 <td className="py-2 font-semibold text-gray-800">
+                                  <span className={`inline-block mr-1.5 rounded px-1 py-0.5 text-[9px] font-bold leading-none ${hasOutside ? "bg-orange-100 text-orange-600" : "bg-sky-100 text-sky-600"}`}>
+                                    {hasOutside ? "อู่นอก" : "อู่ใน"}
+                                  </span>
                                   {row.plate || "—"}
                                   <span className="ml-1.5 text-[10px] font-normal text-gray-400">
                                     {open ? "▲" : "▼"} {row.lines.length}
