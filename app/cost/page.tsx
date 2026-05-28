@@ -674,7 +674,7 @@ export default function CostPage() {
     }
 
     breakdownCurrDetail.forEach((plateRow) => {
-      plateRow.lines.forEach((line) => {
+      ;(plateRow.lines || []).forEach((line) => {
         if (!shouldIncludeBreakdownLine(line)) return
 
         const usage = getLineUsage(line)
@@ -690,7 +690,7 @@ export default function CostPage() {
     breakdownPrevDetail.forEach((plateRow) => {
       const alignedMonth = shiftYear(plateRow.month_year, 1)
 
-      plateRow.lines.forEach((line) => {
+      ;(plateRow.lines || []).forEach((line) => {
         if (!shouldIncludeBreakdownLine(line)) return
 
         const usage = getLineUsage(line)
@@ -1068,7 +1068,7 @@ export default function CostPage() {
         // Find the lines for this plate
         const plateRows = detailData.filter((r) => r.plate === plate)
         const itemMap = new Map<string, { name: string; cost: number }>()
-        plateRows.forEach((r) => r.lines.forEach((l) => {
+        plateRows.forEach((r) => (r.lines || []).forEach((l) => {
           const key = l.รหัสสินค้า || l.ชื่อสินค้า || "unknown"
           if (!itemMap.has(key)) itemMap.set(key, { name: l.ชื่อสินค้า || l.รหัสสินค้า || "", cost: 0 })
           itemMap.get(key)!.cost += l.cost
@@ -1774,7 +1774,7 @@ export default function CostPage() {
                     if (!plateOk && !wdOk) return false
                   }
                   if (workshopFilter !== "all") {
-                    const hasOutside = r.lines.some(l => (l.ชื่อสินค้า || "").includes("ค่าแรง"))
+                    const hasOutside = (r.lines || []).some(l => (l.ชื่อสินค้า || "").includes("ค่าแรง"))
                     if (workshopFilter === "อู่นอก" && !hasOutside) return false
                     if (workshopFilter === "อู่ใน"  &&  hasOutside) return false
                   }
@@ -1795,10 +1795,10 @@ export default function CostPage() {
 
                 filtered.forEach((plateRow) => {
                   // classify the whole transaction — does this plate visit have any ค่าแรง?
-                  const plateIsOutside = plateRow.lines.some(l => (l.ชื่อสินค้า || "").includes("ค่าแรง"))
+                  const plateIsOutside = (plateRow.lines || []).some(l => (l.ชื่อสินค้า || "").includes("ค่าแรง"))
                   if (!hierarchy.has(plateRow.month_year)) hierarchy.set(plateRow.month_year, new Map())
                   const mMap = hierarchy.get(plateRow.month_year)!
-                  plateRow.lines.forEach((line) => {
+                  ;(plateRow.lines || []).forEach((line) => {
                     const cg = getCostGroup(line.จุดประสงค์ || "")
                     if (!mMap.has(cg)) mMap.set(cg, { costGroup: cg, plates: new Map(), totalCost: 0, totalRecords: 0 })
                     const cgData = mMap.get(cg)!

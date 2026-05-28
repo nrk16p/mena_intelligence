@@ -17,6 +17,7 @@ import {
   Warehouse,
   TrendingUp,
   Users,
+  FileText,
 } from "lucide-react"
 import { ThemeToggle } from "./theme-toggle"
 
@@ -57,6 +58,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/repair-cost", label: "Repair Cost", icon: Calculator },
       { href: "/cost", label: "Cost Monitoring", icon: Warehouse },
+      { href: "/transaction-detail", label: "Transaction Detail", icon: FileText },
     ],
   },
   {
