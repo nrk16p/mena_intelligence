@@ -181,40 +181,48 @@ function ZoneDetail({ raw, zoneColors, thresholds }: {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Zone avg */}
-        <ChartCard title="① ค่าเฉลี่ยเที่ยววิ่งต่อวัน แยกตามโซน">
-          <ResponsiveContainer width="100%" height={Math.max(260, zoneSummary.length * 34)}>
-            <BarChart layout="vertical" data={zoneSummary} margin={{ left: 10, right: 55, top: 4, bottom: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="currentColor" className="text-gray-100 dark:text-white/5" />
-              <XAxis type="number" domain={[0, Math.ceil(zoneSummary[0].avg + 1)]} tick={{ fontSize: 10 }} />
-              <YAxis type="category" dataKey="Zone" tick={{ fontSize: 10 }} width={120} />
-              <Tooltip content={<ZoneTip />} />
-              {thresholds.map(t => (
-                <ReferenceLine key={t} x={t} stroke={t <= 3.5 ? "#EF4444" : "#10B981"} strokeDasharray="4 3" strokeWidth={1.2} />
-              ))}
-              <Bar dataKey="avg" radius={[0, 4, 4, 0]}>
-                <LabelList dataKey="avg" position="right" formatter={(v: unknown) => typeof v === "number" ? v.toFixed(2) : ""} style={{ fontSize: 10, fill: "#6b7280" }} />
-                {zoneSummary.map((d, i) => <Cell key={i} fill={zoneColors[d.Zone] ?? "#94a3b8"} />)}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartCard>
+        {/* shared height so both X-axes sit at the same level */}
+        {(() => {
+          const chartH = Math.max(320, zoneSummary.length * 34 + 70)
+          return (
+            <>
+              {/* Zone avg */}
+              <ChartCard title="① ค่าเฉลี่ยเที่ยววิ่งต่อวัน แยกตามโซน">
+                <ResponsiveContainer width="100%" height={chartH}>
+                  <BarChart layout="vertical" data={zoneSummary} margin={{ left: 10, right: 55, top: 4, bottom: 50 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="currentColor" className="text-gray-100 dark:text-white/5" />
+                    <XAxis type="number" domain={[0, Math.ceil(zoneSummary[0].avg + 1)]} tick={{ fontSize: 10 }} />
+                    <YAxis type="category" dataKey="Zone" tick={{ fontSize: 10 }} width={120} />
+                    <Tooltip content={<ZoneTip />} />
+                    {thresholds.map(t => (
+                      <ReferenceLine key={t} x={t} stroke={t <= 3.5 ? "#EF4444" : "#10B981"} strokeDasharray="4 3" strokeWidth={1.2} />
+                    ))}
+                    <Bar dataKey="avg" radius={[0, 4, 4, 0]}>
+                      <LabelList dataKey="avg" position="right" formatter={(v: unknown) => typeof v === "number" ? v.toFixed(2) : ""} style={{ fontSize: 10, fill: "#6b7280" }} />
+                      {zoneSummary.map((d, i) => <Cell key={i} fill={zoneColors[d.Zone] ?? "#94a3b8"} />)}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartCard>
 
-        {/* Zone count */}
-        <ChartCard title="② จำนวนแพล้นท์ในแต่ละโซน">
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={zoneSummary} margin={{ top: 4, right: 20, bottom: 30, left: 10 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="currentColor" className="text-gray-100 dark:text-white/5" />
-              <XAxis dataKey="Zone" tick={{ fontSize: 9 }} angle={-15} textAnchor="end" />
-              <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
-              <Tooltip content={<ZoneTip />} />
-              <Bar dataKey="count" radius={[4, 4, 0, 0]}>
-                <LabelList dataKey="count" position="top" formatter={(v: unknown) => `${v}`} style={{ fontSize: 10, fill: "#6b7280" }} />
-                {zoneSummary.map((d, i) => <Cell key={i} fill={zoneColors[d.Zone] ?? "#94a3b8"} />)}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartCard>
+              {/* Zone count */}
+              <ChartCard title="② จำนวนแพล้นท์ในแต่ละโซน">
+                <ResponsiveContainer width="100%" height={chartH}>
+                  <BarChart data={zoneSummary} margin={{ top: 4, right: 20, bottom: 50, left: 10 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="currentColor" className="text-gray-100 dark:text-white/5" />
+                    <XAxis dataKey="Zone" tick={{ fontSize: 9 }} angle={-20} textAnchor="end" interval={0} />
+                    <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                    <Tooltip content={<ZoneTip />} />
+                    <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                      <LabelList dataKey="count" position="top" formatter={(v: unknown) => `${v}`} style={{ fontSize: 10, fill: "#6b7280" }} />
+                      {zoneSummary.map((d, i) => <Cell key={i} fill={zoneColors[d.Zone] ?? "#94a3b8"} />)}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartCard>
+            </>
+          )
+        })()}
       </div>
 
       {/* Per plant */}
