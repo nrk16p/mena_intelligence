@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useState } from "react"
+import { useSession, signOut } from "next-auth/react"
 import {
   BarChart3,
   Calculator,
@@ -18,6 +19,7 @@ import {
   TrendingUp,
   Users,
   FileText,
+  LogOut,
 } from "lucide-react"
 import { ThemeToggle } from "./theme-toggle"
 
@@ -81,7 +83,8 @@ const NAV_GROUPS: NavGroup[] = [
 
 export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false)
-  const pathname = usePathname()
+  const pathname   = usePathname()
+  const { data: session } = useSession()
 
   function isActive(href: string, exact?: boolean) {
     if (exact) return pathname === href
@@ -169,8 +172,50 @@ export function Sidebar() {
       {/* Footer */}
       <div className="border-t border-gray-200 dark:border-white/8 px-2 py-3 space-y-1">
         <ThemeToggle collapsed={collapsed} />
+
+        {/* User info + logout */}
+        {session?.user && (
+          collapsed ? (
+            <button
+              onClick={() => signOut({ callbackUrl: "/login" })}
+              title="Sign out"
+              className="flex w-full items-center justify-center rounded-lg py-2 text-gray-400 hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-500 transition-colors"
+            >
+              <LogOut size={15} />
+            </button>
+          ) : (
+            <div className="mt-1 rounded-xl border border-gray-100 dark:border-white/6 bg-gray-50 dark:bg-white/3 px-3 py-2.5">
+              <div className="flex items-center gap-2.5 mb-2">
+                {session.user.image ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={session.user.image} alt="" className="h-7 w-7 rounded-full ring-1 ring-gray-200 dark:ring-white/10" />
+                ) : (
+                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500 text-white text-xs font-bold">
+                    {session.user.name?.[0] ?? "?"}
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <p className="text-[12px] font-semibold text-gray-800 dark:text-white truncate leading-tight">
+                    {session.user.name?.split(" ")[0]}
+                  </p>
+                  <p className="text-[10px] text-gray-400 dark:text-gray-500 truncate leading-tight">
+                    {session.user.email}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => signOut({ callbackUrl: "/login" })}
+                className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-gray-200 dark:border-white/8 py-1.5 text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-500 hover:border-red-200 dark:hover:border-red-800/40 transition-colors"
+              >
+                <LogOut size={11} />
+                Sign out
+              </button>
+            </div>
+          )
+        )}
+
         {!collapsed && (
-          <p className="px-2.5 pt-1 text-[10px] text-gray-400 dark:text-gray-600">
+          <p className="px-1 pt-1 text-[10px] text-gray-400 dark:text-gray-600">
             Mena Transport · v1.0
           </p>
         )}
