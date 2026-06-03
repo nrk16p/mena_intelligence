@@ -5,6 +5,7 @@ import { AppShell } from "@/components/app-shell"
 export const metadata = {
   title: "Mena Intelligence",
   description: "Fleet Analytics & Allocation Platform",
+  icons: { icon: "/logo.svg" },
 }
 
 export default function RootLayout({

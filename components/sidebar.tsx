@@ -21,6 +21,33 @@ import {
   FileText,
   LogOut,
 } from "lucide-react"
+
+function MenaLogo({ size = 28 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="8" fill="url(#mena-g)" />
+      {/* Route arc */}
+      <path d="M7 22 C7 15 14 10 25 10" stroke="white" strokeWidth="1.8" strokeLinecap="round" opacity="0.55" fill="none" />
+      {/* Origin dot */}
+      <circle cx="7" cy="22" r="2.2" fill="white" opacity="0.85" />
+      {/* Destination dot */}
+      <circle cx="25" cy="10" r="2.2" fill="white" opacity="0.85" />
+      {/* Truck cab */}
+      <rect x="10" y="17.5" width="5" height="5" rx="1" fill="white" opacity="0.85" />
+      {/* Truck body */}
+      <rect x="14" y="15.5" width="9" height="7" rx="1" fill="white" />
+      {/* Wheels */}
+      <circle cx="12.5" cy="23.2" r="1.4" fill="url(#mena-g)" />
+      <circle cx="20.5" cy="23.2" r="1.4" fill="url(#mena-g)" />
+      <defs>
+        <linearGradient id="mena-g" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#059669" />
+          <stop offset="100%" stopColor="#065f46" />
+        </linearGradient>
+      </defs>
+    </svg>
+  )
+}
 import { ThemeToggle } from "./theme-toggle"
 
 type NavItem = {
@@ -106,9 +133,7 @@ export function Sidebar() {
         {!collapsed ? (
           <>
             <Link href="/" className="flex items-center gap-2.5">
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-gray-800 to-gray-950 dark:from-white dark:to-gray-300 text-white dark:text-gray-900 text-xs font-bold shadow-sm">
-                M
-              </div>
+              <MenaLogo size={28} />
               <div className="leading-tight">
                 <p className="text-[13px] font-semibold tracking-tight text-gray-900 dark:text-white">Mena Intel</p>
                 <p className="text-[10px] text-gray-400 dark:text-gray-500">Fleet Platform</p>
@@ -123,9 +148,7 @@ export function Sidebar() {
           </>
         ) : (
           <button onClick={() => setCollapsed(false)} className="group flex flex-col items-center gap-0.5">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-gray-800 to-gray-950 dark:from-white dark:to-gray-300 text-white dark:text-gray-900 text-xs font-bold shadow-sm">
-              M
-            </div>
+            <MenaLogo size={28} />
             <ChevronRight size={10} className="text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300" />
           </button>
         )}
