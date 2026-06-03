@@ -183,11 +183,11 @@ function ZoneDetail({ raw, zoneColors, thresholds }: {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Zone avg */}
         <ChartCard title="① ค่าเฉลี่ยเที่ยววิ่งต่อวัน แยกตามโซน">
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart layout="vertical" data={zoneSummary} margin={{ left: 20, right: 50, top: 4, bottom: 4 }}>
+          <ResponsiveContainer width="100%" height={Math.max(260, zoneSummary.length * 34)}>
+            <BarChart layout="vertical" data={zoneSummary} margin={{ left: 10, right: 55, top: 4, bottom: 4 }}>
               <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="currentColor" className="text-gray-100 dark:text-white/5" />
               <XAxis type="number" domain={[0, Math.ceil(zoneSummary[0].avg + 1)]} tick={{ fontSize: 10 }} />
-              <YAxis type="category" dataKey="Zone" tick={{ fontSize: 10 }} width={90} />
+              <YAxis type="category" dataKey="Zone" tick={{ fontSize: 10 }} width={120} />
               <Tooltip content={<ZoneTip />} />
               {thresholds.map(t => (
                 <ReferenceLine key={t} x={t} stroke={t <= 3.5 ? "#EF4444" : "#10B981"} strokeDasharray="4 3" strokeWidth={1.2} />
