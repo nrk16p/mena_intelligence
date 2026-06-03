@@ -25,7 +25,7 @@ function LoginContent() {
   if (status === "loading") {
     return (
       <div className="fixed inset-0 flex items-center justify-center" style={bgStyle}>
-        <div className="absolute inset-0 bg-black/40" />
+        <div className="absolute inset-0 bg-black/20" />
         <div className="relative z-10 text-[10px] tracking-[0.3em] text-white/50 uppercase">
           Loading
         </div>
@@ -35,8 +35,8 @@ function LoginContent() {
 
   return (
     <div className="fixed inset-0 flex items-center justify-center" style={bgStyle}>
-      {/* dark overlay */}
-      <div className="absolute inset-0 bg-black/45" />
+      {/* overlay */}
+      <div className="absolute inset-0 bg-black/20" />
 
       {/* green glow */}
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
