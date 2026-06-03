@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { useEffect, Suspense } from "react"
 
 const bgStyle: React.CSSProperties = {
-  backgroundImage: "url('/mena-data-login.png')",
+  backgroundImage: "url('/mena-intel-login.png')",
   backgroundSize: "cover",
   backgroundPosition: "center",
   backgroundRepeat: "no-repeat",
