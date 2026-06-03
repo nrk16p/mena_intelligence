@@ -1,5 +1,6 @@
 import "./globals.css"
-import { Sidebar } from "../components/sidebar"
+import { Providers } from "@/components/providers"
+import { AppShell } from "@/components/app-shell"
 
 export const metadata = {
   title: "Mena Intelligence",
@@ -21,8 +22,9 @@ export default function RootLayout({
         />
       </head>
       <body className="flex h-screen overflow-hidden bg-[#f5f5f7] dark:bg-[#0a0a10]">
-        <Sidebar />
-        <main className="flex-1 overflow-y-auto px-8 py-7">{children}</main>
+        <Providers>
+          <AppShell>{children}</AppShell>
+        </Providers>
       </body>
     </html>
   )
