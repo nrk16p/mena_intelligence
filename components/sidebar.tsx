@@ -64,7 +64,8 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Mixer",
     items: [
-      { href: "/asia-incentive", label: "Asia Incentive", icon: Trophy },
+      { href: "/asia-incentive",       label: "Asia Incentive",       icon: Trophy },
+      { href: "/asia-plant-analysis",  label: "Asia Plant Analysis",  icon: BarChart3 },
     ],
   },
   {
