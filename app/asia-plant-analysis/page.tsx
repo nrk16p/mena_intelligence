@@ -250,7 +250,7 @@ export default function AsiaPlantAnalysisPage() {
             <tbody>
               {data
                 .filter(d => !highlight || d.quadrant === highlight)
-                .sort((a, b) => b.avg_trip - a.avg_trip)
+                .sort((a, b) => a.Zone.localeCompare(b.Zone) || a.แพล้นท์.localeCompare(b.แพล้นท์, "th"))
                 .map((d, i) => {
                   const cfg = QUADRANT_CONFIG[d.quadrant as keyof typeof QUADRANT_CONFIG]
                   return (
