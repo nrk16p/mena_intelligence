@@ -1,6 +1,8 @@
 "use client"
 
 import Link from "next/link"
+import { useEffect, useState } from "react"
+import { useSession } from "next-auth/react"
 import {
   BarChart3,
   Calculator,
@@ -14,6 +16,108 @@ import {
   Activity,
   Layers,
 } from "lucide-react"
+
+// ── Weather helpers ────────────────────────────────────────────
+type Weather = { temp: number; code: number; humidity: number; wind: number }
+
+function weatherIcon(code: number): string {
+  if (code === 0)                    return "☀️"
+  if (code <= 2)                     return "⛅"
+  if (code === 3)                    return "☁️"
+  if (code <= 48)                    return "🌫️"
+  if (code <= 67)                    return "🌧️"
+  if (code <= 77)                    return "❄️"
+  if (code <= 82)                    return "🌦️"
+  if (code <= 99)                    return "⛈️"
+  return "🌤️"
+}
+
+function weatherDesc(code: number): string {
+  if (code === 0)                    return "แดดจัด"
+  if (code <= 2)                     return "มีเมฆบางส่วน"
+  if (code === 3)                    return "มืดครึ้ม"
+  if (code <= 48)                    return "หมอก"
+  if (code <= 55)                    return "ฝนปรอยๆ"
+  if (code <= 67)                    return "ฝนตก"
+  if (code <= 77)                    return "หิมะ"
+  if (code <= 82)                    return "ฝนตกหนัก"
+  if (code <= 99)                    return "พายุฝนฟ้าคะนอง"
+  return "สภาพอากาศไม่แน่นอน"
+}
+
+function greeting(hour: number): string {
+  if (hour < 12) return "อรุณสวัสดิ์"
+  if (hour < 17) return "สวัสดีตอนบ่าย"
+  if (hour < 21) return "สวัสดีตอนเย็น"
+  return "ราตรีสวัสดิ์"
+}
+
+// ── Welcome card ───────────────────────────────────────────────
+function WelcomeCard() {
+  const { data: session } = useSession()
+  const [now,     setNow]     = useState(new Date())
+  const [weather, setWeather] = useState<Weather | null>(null)
+
+  // Live clock — tick every second
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  // Bangkok weather via Open-Meteo (free, no key)
+  useEffect(() => {
+    fetch("https://api.open-meteo.com/v1/forecast?latitude=13.7563&longitude=100.5018&current=temperature_2m,weather_code,relative_humidity_2m,wind_speed_10m&timezone=Asia%2FBangkok")
+      .then(r => r.json())
+      .then(d => setWeather({
+        temp:     Math.round(d.current.temperature_2m),
+        code:     d.current.weather_code,
+        humidity: d.current.relative_humidity_2m,
+        wind:     Math.round(d.current.wind_speed_10m),
+      }))
+      .catch(() => {})
+  }, [])
+
+  const firstName = session?.user?.name?.split(" ")[0] ?? "คุณ"
+  const hour      = now.getHours()
+
+  const dateStr = now.toLocaleDateString("th-TH", {
+    weekday: "long", year: "numeric", month: "long", day: "numeric",
+  })
+  const timeStr = now.toLocaleTimeString("th-TH", {
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  })
+
+  return (
+    <div className="rounded-2xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#161b27] px-6 py-5 flex flex-wrap items-center justify-between gap-4">
+      {/* Greeting */}
+      <div>
+        <p className="text-xs text-gray-400 dark:text-gray-500 mb-0.5">{dateStr}</p>
+        <h2 className="text-xl font-bold text-gray-900 dark:text-white">
+          {greeting(hour)}, <span className="text-emerald-500">{firstName}</span> 👋
+        </h2>
+        <p className="text-2xl font-mono font-semibold text-gray-700 dark:text-gray-300 mt-1 tracking-tight">
+          {timeStr}
+        </p>
+      </div>
+
+      {/* Weather */}
+      {weather ? (
+        <div className="flex items-center gap-4 rounded-xl border border-gray-100 dark:border-white/6 bg-gray-50 dark:bg-white/3 px-5 py-3">
+          <span className="text-4xl">{weatherIcon(weather.code)}</span>
+          <div>
+            <p className="text-2xl font-bold text-gray-900 dark:text-white leading-none">{weather.temp}°C</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{weatherDesc(weather.code)}</p>
+            <p className="text-[11px] text-gray-400 dark:text-gray-600 mt-1">
+              💧 {weather.humidity}% &nbsp;·&nbsp; 💨 {weather.wind} km/h &nbsp;·&nbsp; กรุงเทพฯ
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-gray-100 dark:border-white/6 bg-gray-50 dark:bg-white/3 px-5 py-3 w-40 h-16 animate-pulse" />
+      )}
+    </div>
+  )
+}
 
 type Module = {
   href: string
@@ -151,7 +255,9 @@ const STATS = [
 
 export default function Home() {
   return (
-    <div className="min-h-full max-w-5xl mx-auto space-y-12 pb-16">
+    <div className="min-h-full max-w-5xl mx-auto space-y-8 pb-16">
+
+      <WelcomeCard />
 
       {/* Hero */}
       <div className="pt-4 space-y-6">
