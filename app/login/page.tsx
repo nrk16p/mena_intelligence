@@ -1,8 +1,8 @@
 "use client"
 
+import React, { useEffect, Suspense } from "react"
 import { signIn, useSession } from "next-auth/react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { useEffect, Suspense } from "react"
 
 function LoginContent() {
   const { status } = useSession()
@@ -15,25 +15,39 @@ function LoginContent() {
     if (status === "authenticated") router.replace(callbackUrl)
   }, [status, router, callbackUrl])
 
+  const bgStyle: React.CSSProperties = {
+    backgroundImage: "url('/mena-login.png')",
+    backgroundSize: "cover",
+    backgroundPosition: "center",
+    backgroundRepeat: "no-repeat",
+    backgroundPositionX: "left",
+  }
+
   if (status === "loading") {
     return (
-      <div className="fixed inset-0 flex items-center justify-center bg-[#0a0a10]">
-        <p className="text-[11px] tracking-[0.3em] text-white/30 uppercase">Loading</p>
+      <div className="fixed inset-0 flex items-center justify-center" style={bgStyle}>
+        <div className="absolute inset-0 bg-black/20" />
+        <p className="relative z-10 text-[11px] tracking-[0.3em] text-white/40 uppercase">Loading</p>
       </div>
     )
   }
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center bg-gradient-to-br from-[#0a0a10] via-[#0d1117] to-[#0a0f1e]">
-      <div className="w-full max-w-xs px-6">
-        <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md px-6 py-8">
+    <div className="fixed inset-0 flex items-center justify-center" style={bgStyle}>
+      <div className="absolute inset-0 bg-black/15" />
+      <div className="relative z-10 w-full max-w-xs px-6" style={{ transform: "scale(1.25)" }}>
+        <div className="rounded-2xl border border-white/10 bg-white/8 backdrop-blur-md px-6 py-8">
           {/* Brand */}
           <div className="mb-6 text-center">
-            <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-gray-700 to-gray-900 text-white font-bold text-lg shadow-lg">
-              M
+            <h1 className="text-2xl font-extrabold tracking-[0.15em] bg-clip-text text-transparent bg-linear-to-r from-emerald-700 via-emerald-500 to-emerald-400 uppercase mb-1">
+              Mena Intel
+            </h1>
+            <div className="flex items-center justify-center gap-2 my-2">
+              <div className="h-px w-8 bg-emerald-400/35" />
+              <div className="h-1 w-1 rounded-full bg-emerald-400/70" />
+              <div className="h-px w-8 bg-emerald-400/35" />
             </div>
-            <h1 className="text-xl font-bold tracking-tight text-white">Mena Intelligence</h1>
-            <p className="mt-1 text-sm text-white/50">Fleet Analytics Platform</p>
+            <p className="text-sm font-medium text-black/60">Fleet Analytics Platform</p>
           </div>
 
           {error && (
