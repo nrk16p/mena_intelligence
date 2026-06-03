@@ -394,8 +394,29 @@ export default function AsiaPlantAnalysisPage() {
                 )}
               </ScatterChart>
             </ResponsiveContainer>
+            {/* Median explanation */}
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="rounded-lg bg-gray-50 dark:bg-white/4 border border-gray-200 dark:border-white/8 px-4 py-3">
+                <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-0.5">เส้นแนวตั้ง — avg_trip</p>
+                <p className="text-lg font-bold text-gray-900 dark:text-white">{medTrip.toFixed(2)} เที่ยว/วัน</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
+                  แพล้นท์ครึ่งหนึ่งวิ่ง<span className="font-semibold text-gray-700 dark:text-gray-300">มากกว่า</span> {medTrip.toFixed(2)} เที่ยว/วัน
+                  &nbsp;— อีกครึ่งวิ่ง<span className="font-semibold text-gray-700 dark:text-gray-300">น้อยกว่า</span>
+                  <br />แพล้นท์ที่อยู่ <span className="font-semibold text-gray-700 dark:text-gray-300">ขวาของเส้น</span> = วิ่งได้มากกว่าค่ากลาง
+                </p>
+              </div>
+              <div className="rounded-lg bg-gray-50 dark:bg-white/4 border border-gray-200 dark:border-white/8 px-4 py-3">
+                <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-0.5">เส้นแนวนอน — รายได้/วัน/คัน</p>
+                <p className="text-lg font-bold text-gray-900 dark:text-white">{medRev.toLocaleString("th-TH", { minimumFractionDigits: 0 })} ฿</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
+                  แพล้นท์ครึ่งหนึ่งสร้างรายได้<span className="font-semibold text-gray-700 dark:text-gray-300">มากกว่า</span> {medRev.toLocaleString("th-TH", { minimumFractionDigits: 0 })} ฿/วัน/คัน
+                  &nbsp;— อีกครึ่ง<span className="font-semibold text-gray-700 dark:text-gray-300">น้อยกว่า</span>
+                  <br />แพล้นท์ที่อยู่ <span className="font-semibold text-gray-700 dark:text-gray-300">บนเส้น</span> = รายได้ดีกว่าค่ากลาง
+                </p>
+              </div>
+            </div>
             <p className="text-[11px] text-gray-400 dark:text-gray-600 mt-2 text-center">
-              มัธยฐาน avg_trip: <strong>{medTrip.toFixed(2)}</strong> · มัธยฐาน รายได้: <strong>{medRev.toLocaleString("th-TH", { minimumFractionDigits: 0 })}</strong> ฿
+              เส้นประสีเทาในกราฟแบ่งแพล้นท์ออกเป็น 4 กลุ่มตามค่ามัธยฐาน (ค่ากลางของข้อมูล)
             </p>
           </div>
 
