@@ -1124,6 +1124,39 @@ export default function AsiaIncentiveDashboardPage() {
 
   const dataAsOfText = getDataAsOfText()
 
+  function exportMonthlySummary() {
+    const rows = sortedData.map((row) => ({
+      driver_id: row.driver_id || "",
+      driver_name: row.driver_name || "",
+      แพล้นท์: row.แพล้นท์ || "",
+      รหัส: row.รหัส || "",
+      สถานะ: row.สถานะ || "",
+      วันทำงานจริง: row.working_days_value,
+      มาสาย: row.late_days_value,
+      วันทำงานนับสิทธิ์: row.incentive_working_days,
+      AC: row.total_ac_value,
+      NC: row.total_nc_value,
+      ผ่านเงื่อนไข_AC_NC: row.is_eligible ? "ผ่าน" : "ไม่ผ่าน",
+      GPM_Trip_actual: row.trip_value,
+      GPM_Q_actual: row.q_value,
+      เงินวันทำงาน: row.work_incentive,
+      ระดับวันทำงาน: row.work_level,
+      เงินเที่ยวงาน: row.trip_incentive,
+      ระดับเที่ยวงาน: row.trip_level,
+      เงินคิวงาน: row.q_incentive,
+      รวม_Incentive: row.total_incentive,
+    }))
+
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, "Monthly Summary")
+    const buf = XLSX.write(wb, { bookType: "xlsx", type: "array" })
+    saveAs(
+      new Blob([buf], { type: "application/octet-stream" }),
+      `monthly-summary-${mmyy.replace("/", "-")}.xlsx`
+    )
+  }
+
   function exportToExcel() {
     const rows = sortedData.map((row) => ({
       driver_id: row.driver_id || "",
@@ -1405,10 +1438,17 @@ export default function AsiaIncentiveDashboardPage() {
               </div>
 
               <button
+                onClick={exportMonthlySummary}
+                className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700"
+              >
+                Export Monthly Summary
+              </button>
+
+              <button
                 onClick={exportToExcel}
                 className="rounded-xl bg-green-600 px-3 py-2 text-xs font-medium text-white hover:bg-green-700"
               >
-                Export Excel
+                Export Full Detail
               </button>
             </div>
           </div>
