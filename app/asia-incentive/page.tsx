@@ -3,6 +3,8 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import * as XLSX from "xlsx"
+import { saveAs } from "file-saver"
 
 type AsiaIncentiveRow = {
   fleet?: string
@@ -1122,6 +1124,46 @@ export default function AsiaIncentiveDashboardPage() {
 
   const dataAsOfText = getDataAsOfText()
 
+  function exportToExcel() {
+    const rows = sortedData.map((row) => ({
+      driver_id: row.driver_id || "",
+      driver_name: row.driver_name || "",
+      แพล้นท์: row.แพล้นท์ || "",
+      รหัส: row.รหัส || "",
+      สถานะพนักงาน: row.สถานะ || "",
+      ผ่าน_AC_NC: row.is_eligible ? "ผ่าน" : "ไม่ผ่าน",
+      AC: row.total_ac_value,
+      NC: row.total_nc_value,
+      วันทำงานจริง: row.working_days_value,
+      วันทำงานนับสิทธิ์: row.incentive_working_days,
+      มาสาย: row.late_days_value,
+      ไม่ได้นับสิทธิ์_หยุด: row.missed_days_so_far,
+      สูงสุดเดือนนี้: row.max_possible_working_days,
+      GPM_Trip: row.trip_value,
+      GPM_Q: row.q_value,
+      Avg_Trip_per_day: Number(row.avg_trip_per_day.toFixed(2)),
+      Avg_Q_per_day: Number(row.avg_q_per_day.toFixed(2)),
+      Trip_at_28: Number(row.projected_trip_28.toFixed(2)),
+      Q_at_28: Number(row.projected_q_28.toFixed(2)),
+      Trip_at_Max: Number(row.projected_trip_max.toFixed(2)),
+      Q_at_Max: Number(row.projected_q_max.toFixed(2)),
+      เงินวันทำงานMax: row.projected_work_incentive_max_days,
+      เงินเที่ยวงานMax: row.projected_trip_incentive_max,
+      เงินคิวงานMax: row.projected_q_incentive_max,
+      คาดการณ์รวมสูงสุด: row.projected_total_incentive_max_possible,
+      สถานะ_Incentive: row.status_label,
+    }))
+
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, "Asia Incentive")
+    const buf = XLSX.write(wb, { bookType: "xlsx", type: "array" })
+    saveAs(
+      new Blob([buf], { type: "application/octet-stream" }),
+      `asia-incentive-${mmyy.replace("/", "-")}.xlsx`
+    )
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="mx-auto w-full max-w-[1600px] space-y-5 px-3 py-4 lg:px-5">
@@ -1361,6 +1403,13 @@ export default function AsiaIncentiveDashboardPage() {
                 Sort: {sortKey} /{" "}
                 {sortDirection === "asc" ? "น้อยไปมาก" : "มากไปน้อย"}
               </div>
+
+              <button
+                onClick={exportToExcel}
+                className="rounded-xl bg-green-600 px-3 py-2 text-xs font-medium text-white hover:bg-green-700"
+              >
+                Export Excel
+              </button>
             </div>
           </div>
 
