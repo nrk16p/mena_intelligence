@@ -965,6 +965,7 @@ export default function AsiaIncentiveDashboardPage() {
   )
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc")
   const [activeTab, setActiveTab] = useState<"projection" | "summary">("projection")
+  const [filterMinWork15, setFilterMinWork15] = useState(false)
 
   function handleSort(key: SortKey) {
     if (sortKey === key) {
@@ -1066,7 +1067,9 @@ export default function AsiaIncentiveDashboardPage() {
               matchCondition(row, condition)
             )
 
-      return matchPlant && matchStatus && matchSearch && matchConditions
+      const matchMinWork = filterMinWork15 ? row.working_days_value > 15 : true
+
+      return matchPlant && matchStatus && matchSearch && matchConditions && matchMinWork
     })
   }, [
     calculatedData,
@@ -1074,6 +1077,7 @@ export default function AsiaIncentiveDashboardPage() {
     selectedStatus,
     search,
     conditionFilters,
+    filterMinWork15,
   ])
 
   const sortedData = useMemo(() => {
@@ -1475,6 +1479,19 @@ export default function AsiaIncentiveDashboardPage() {
                   </button>
                 )
               })}
+
+              <button
+                type="button"
+                onClick={() => setFilterMinWork15((v) => !v)}
+                className={`rounded-full border px-3 py-2 text-xs transition ${
+                  filterMinWork15
+                    ? "border-black bg-black text-white"
+                    : "bg-white hover:bg-gray-50"
+                }`}
+                title="วันทำงานจริงมากกว่า 15 วัน"
+              >
+                {filterMinWork15 ? "✓ " : ""}วันทำงาน &gt; 15 วัน
+              </button>
             </div>
 
             {conditionFilters.length > 0 && (
@@ -1503,6 +1520,7 @@ export default function AsiaIncentiveDashboardPage() {
                 setSelectedStatus("")
                 setConditionFilters([])
                 setSearch("")
+                setFilterMinWork15(false)
                 setSortKey("projected_total_incentive_max_possible")
                 setSortDirection("desc")
               }}
