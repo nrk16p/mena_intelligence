@@ -2102,7 +2102,6 @@ export default function AsiaIncentiveDashboardPage() {
                       <th className="pb-2 text-right text-xs font-semibold text-gray-400">จำนวนคน</th>
                       <th className="pb-2 text-right text-xs font-semibold text-gray-400">% จากทั้งหมด</th>
                       <th className="pb-2 text-right text-xs font-semibold text-gray-400">รวมเงิน (บาท)</th>
-                      <th className="pb-2 text-right text-xs font-semibold text-gray-400">เฉลี่ย/คน</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
@@ -2110,7 +2109,6 @@ export default function AsiaIncentiveDashboardPage() {
                       const pct = monthlySummaryStats.totalDrivers > 0
                         ? (row.count / monthlySummaryStats.totalDrivers) * 100
                         : 0
-                      const avg = row.count > 0 ? row.baht / row.count : 0
                       return (
                         <tr key={row.label} className="hover:bg-gray-50">
                           <td className="py-2.5 pr-4">
@@ -2136,9 +2134,6 @@ export default function AsiaIncentiveDashboardPage() {
                           <td className="py-2.5 text-right font-medium text-gray-700">
                             {formatMoney(row.baht)}
                           </td>
-                          <td className="py-2.5 text-right text-gray-500">
-                            {formatMoney(avg)}
-                          </td>
                         </tr>
                       )
                     })}
@@ -2149,7 +2144,6 @@ export default function AsiaIncentiveDashboardPage() {
                       <td className="py-2 text-right text-xs font-bold">{formatNumber(monthlySummaryStats.totalDrivers)} คน</td>
                       <td />
                       <td className="py-2 text-right text-xs font-bold text-green-700">{formatMoney(monthlySummaryStats.totalIncentive)}</td>
-                      <td />
                     </tr>
                   </tfoot>
                 </table>
