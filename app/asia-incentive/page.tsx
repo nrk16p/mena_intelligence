@@ -1153,6 +1153,12 @@ export default function AsiaIncentiveDashboardPage() {
       qLevelMap.set(level, { count: cur.count + 1, baht: cur.baht + r.q_incentive })
     }
 
+    const gotWork  = filteredData.filter((r) => r.work_incentive > 0)
+    const gotTrip  = filteredData.filter((r) => r.trip_incentive > 0)
+    const gotQ     = filteredData.filter((r) => r.q_incentive > 0)
+    const gotAll3  = filteredData.filter((r) => r.work_incentive > 0 && r.trip_incentive > 0 && r.q_incentive > 0)
+    const gotAny   = filteredData.filter((r) => r.total_incentive > 0)
+
     return {
       totalDrivers: filteredData.length,
       eligibleDrivers: eligible.length,
@@ -1163,6 +1169,43 @@ export default function AsiaIncentiveDashboardPage() {
       workLevels: Array.from(workLevelMap.entries()).sort((a, b) => b[1].baht - a[1].baht),
       tripLevels: Array.from(tripLevelMap.entries()).sort((a, b) => b[1].baht - a[1].baht),
       qLevels: Array.from(qLevelMap.entries()).sort((a, b) => b[1].baht - a[1].baht),
+      rewardSummary: [
+        {
+          label: "รางวัลวันทำงาน",
+          count: gotWork.length,
+          baht: gotWork.reduce((s, r) => s + r.work_incentive, 0),
+          color: "bg-gray-900",
+          textColor: "text-gray-900",
+        },
+        {
+          label: "รางวัลเที่ยวงาน",
+          count: gotTrip.length,
+          baht: gotTrip.reduce((s, r) => s + r.trip_incentive, 0),
+          color: "bg-blue-600",
+          textColor: "text-blue-700",
+        },
+        {
+          label: "รางวัลคิว",
+          count: gotQ.length,
+          baht: gotQ.reduce((s, r) => s + r.q_incentive, 0),
+          color: "bg-orange-500",
+          textColor: "text-orange-600",
+        },
+        {
+          label: "ได้ครบทั้ง 3 รางวัล",
+          count: gotAll3.length,
+          baht: gotAll3.reduce((s, r) => s + r.total_incentive, 0),
+          color: "bg-green-600",
+          textColor: "text-green-700",
+        },
+        {
+          label: "ได้รับรางวัล (อย่างน้อย 1)",
+          count: gotAny.length,
+          baht: gotAny.reduce((s, r) => s + r.total_incentive, 0),
+          color: "bg-teal-600",
+          textColor: "text-teal-700",
+        },
+      ],
     }
   }, [filteredData])
 
@@ -2046,6 +2089,71 @@ export default function AsiaIncentiveDashboardPage() {
                   <p className="text-xs text-muted-foreground">{card.unit}</p>
                 </div>
               ))}
+            </div>
+
+            {/* Reward headcount summary */}
+            <div className="rounded-2xl border bg-white p-4 shadow-sm">
+              <h3 className="mb-4 text-sm font-semibold">สรุปยอด — คนที่ได้รับในแต่ละรางวัล</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="pb-2 text-left text-xs font-semibold text-gray-400">รางวัล</th>
+                      <th className="pb-2 text-right text-xs font-semibold text-gray-400">จำนวนคน</th>
+                      <th className="pb-2 text-right text-xs font-semibold text-gray-400">% จากทั้งหมด</th>
+                      <th className="pb-2 text-right text-xs font-semibold text-gray-400">รวมเงิน (บาท)</th>
+                      <th className="pb-2 text-right text-xs font-semibold text-gray-400">เฉลี่ย/คน</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {monthlySummaryStats.rewardSummary.map((row) => {
+                      const pct = monthlySummaryStats.totalDrivers > 0
+                        ? (row.count / monthlySummaryStats.totalDrivers) * 100
+                        : 0
+                      const avg = row.count > 0 ? row.baht / row.count : 0
+                      return (
+                        <tr key={row.label} className="hover:bg-gray-50">
+                          <td className="py-2.5 pr-4">
+                            <div className="flex items-center gap-2">
+                              <div className={`h-2.5 w-2.5 rounded-full ${row.color}`} />
+                              <span className={`font-medium ${row.textColor}`}>{row.label}</span>
+                            </div>
+                          </td>
+                          <td className="py-2.5 text-right font-bold text-gray-900">
+                            {formatNumber(row.count)} คน
+                          </td>
+                          <td className="py-2.5 text-right text-gray-500">
+                            <div className="flex items-center justify-end gap-2">
+                              <div className="h-1.5 w-20 overflow-hidden rounded-full bg-gray-100">
+                                <div
+                                  className={`h-full rounded-full ${row.color}`}
+                                  style={{ width: `${Math.min(pct, 100)}%` }}
+                                />
+                              </div>
+                              <span className="w-10 text-right text-xs">{pct.toFixed(1)}%</span>
+                            </div>
+                          </td>
+                          <td className="py-2.5 text-right font-medium text-gray-700">
+                            {formatMoney(row.baht)}
+                          </td>
+                          <td className="py-2.5 text-right text-gray-500">
+                            {formatMoney(avg)}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                  <tfoot className="border-t-2">
+                    <tr>
+                      <td className="py-2 text-xs font-semibold text-gray-600">ทั้งหมด</td>
+                      <td className="py-2 text-right text-xs font-bold">{formatNumber(monthlySummaryStats.totalDrivers)} คน</td>
+                      <td />
+                      <td className="py-2 text-right text-xs font-bold text-green-700">{formatMoney(monthlySummaryStats.totalIncentive)}</td>
+                      <td />
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
             </div>
 
             {/* Breakdown Cards */}
