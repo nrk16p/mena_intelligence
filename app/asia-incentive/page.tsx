@@ -1146,6 +1146,13 @@ export default function AsiaIncentiveDashboardPage() {
       tripLevelMap.set(level, { count: cur.count + 1, baht: cur.baht + r.trip_incentive })
     }
 
+    const qLevelMap = new Map<string, { count: number; baht: number }>()
+    for (const r of filteredData) {
+      const level = r.q_level
+      const cur = qLevelMap.get(level) ?? { count: 0, baht: 0 }
+      qLevelMap.set(level, { count: cur.count + 1, baht: cur.baht + r.q_incentive })
+    }
+
     return {
       totalDrivers: filteredData.length,
       eligibleDrivers: eligible.length,
@@ -1155,6 +1162,7 @@ export default function AsiaIncentiveDashboardPage() {
       avgIncentive,
       workLevels: Array.from(workLevelMap.entries()).sort((a, b) => b[1].baht - a[1].baht),
       tripLevels: Array.from(tripLevelMap.entries()).sort((a, b) => b[1].baht - a[1].baht),
+      qLevels: Array.from(qLevelMap.entries()).sort((a, b) => b[1].baht - a[1].baht),
     }
   }, [filteredData])
 
@@ -2041,7 +2049,7 @@ export default function AsiaIncentiveDashboardPage() {
             </div>
 
             {/* Breakdown Cards */}
-            <div className="grid gap-4 lg:grid-cols-2">
+            <div className="grid gap-4 lg:grid-cols-3">
               <div className="rounded-2xl border bg-white p-4 shadow-sm">
                 <h3 className="mb-3 text-sm font-semibold">รางวัลวันทำงาน — แบ่งตามระดับ</h3>
                 <div className="space-y-2">
@@ -2077,6 +2085,27 @@ export default function AsiaIncentiveDashboardPage() {
                         </div>
                         <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
                           <div className="h-full rounded-full bg-blue-600" style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border bg-white p-4 shadow-sm">
+                <h3 className="mb-3 text-sm font-semibold">รางวัลคิว — แบ่งตามระดับ</h3>
+                <div className="space-y-2">
+                  {monthlySummaryStats.qLevels.map(([level, data]) => {
+                    const maxBaht = Math.max(...monthlySummaryStats.qLevels.map((x) => x[1].baht), 1)
+                    const pct = (data.baht / maxBaht) * 100
+                    return (
+                      <div key={level}>
+                        <div className="mb-0.5 flex justify-between text-xs">
+                          <span className="font-medium text-gray-700">{level}</span>
+                          <span className="text-muted-foreground">{data.count} คน · {formatMoney(data.baht)} บาท</span>
+                        </div>
+                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
+                          <div className="h-full rounded-full bg-orange-500" style={{ width: `${pct}%` }} />
                         </div>
                       </div>
                     )
