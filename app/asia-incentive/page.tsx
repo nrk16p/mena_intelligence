@@ -964,6 +964,7 @@ export default function AsiaIncentiveDashboardPage() {
     "projected_total_incentive_max_possible"
   )
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc")
+  const [activeTab, setActiveTab] = useState<"projection" | "summary">("projection")
 
   function handleSort(key: SortKey) {
     if (sortKey === key) {
@@ -1124,6 +1125,43 @@ export default function AsiaIncentiveDashboardPage() {
 
   const dataAsOfText = getDataAsOfText()
 
+  const monthlySummaryStats = useMemo(() => {
+    const eligible = filteredData.filter((r) => r.is_eligible)
+    const totalIncentive = filteredData.reduce((s, r) => s + r.total_incentive, 0)
+    const totalTrip = filteredData.reduce((s, r) => s + r.trip_value, 0)
+    const totalQ = filteredData.reduce((s, r) => s + r.q_value, 0)
+    const avgIncentive = eligible.length > 0 ? totalIncentive / eligible.length : 0
+
+    const workLevelMap = new Map<string, { count: number; baht: number }>()
+    for (const r of filteredData) {
+      const level = r.work_level
+      const cur = workLevelMap.get(level) ?? { count: 0, baht: 0 }
+      workLevelMap.set(level, { count: cur.count + 1, baht: cur.baht + r.work_incentive })
+    }
+
+    const tripLevelMap = new Map<string, { count: number; baht: number }>()
+    for (const r of filteredData) {
+      const level = r.trip_level
+      const cur = tripLevelMap.get(level) ?? { count: 0, baht: 0 }
+      tripLevelMap.set(level, { count: cur.count + 1, baht: cur.baht + r.trip_incentive })
+    }
+
+    return {
+      totalDrivers: filteredData.length,
+      eligibleDrivers: eligible.length,
+      totalIncentive,
+      totalTrip,
+      totalQ,
+      avgIncentive,
+      workLevels: Array.from(workLevelMap.entries()).sort((a, b) => b[1].baht - a[1].baht),
+      tripLevels: Array.from(tripLevelMap.entries()).sort((a, b) => b[1].baht - a[1].baht),
+    }
+  }, [filteredData])
+
+  const summaryTableData = useMemo(() => {
+    return [...filteredData].sort((a, b) => b.total_incentive - a.total_incentive)
+  }, [filteredData])
+
   function exportMonthlySummary() {
     const rows = sortedData.map((row) => ({
       driver_id: row.driver_id || "",
@@ -1226,6 +1264,32 @@ export default function AsiaIncentiveDashboardPage() {
             </button>
           </div>
         </div>
+
+        {/* Tab navigation */}
+        <div className="flex gap-1 rounded-2xl border bg-white p-1.5 shadow-sm">
+          <button
+            onClick={() => setActiveTab("projection")}
+            className={`flex-1 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
+              activeTab === "projection"
+                ? "bg-black text-white"
+                : "text-gray-500 hover:bg-gray-50 hover:text-gray-900"
+            }`}
+          >
+            ยอดคาดการณ์
+          </button>
+          <button
+            onClick={() => setActiveTab("summary")}
+            className={`flex-1 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
+              activeTab === "summary"
+                ? "bg-black text-white"
+                : "text-gray-500 hover:bg-gray-50 hover:text-gray-900"
+            }`}
+          >
+            Monthly Summary
+          </button>
+        </div>
+
+        {activeTab === "projection" && <>
 
         <div className="rounded-2xl border bg-yellow-50 p-4 text-sm text-yellow-900">
           <div className="font-semibold">เงื่อนไขรางวัล 3 ส่วน</div>
@@ -1952,6 +2016,170 @@ export default function AsiaIncentiveDashboardPage() {
             </table>
           </div>
         </div>
+
+        </> /* end projection tab */}
+
+        {activeTab === "summary" && (
+          <div className="space-y-5">
+
+            {/* KPI Cards */}
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+              {[
+                { label: "คนขับทั้งหมด", value: formatNumber(monthlySummaryStats.totalDrivers), unit: "คน", color: "text-gray-900" },
+                { label: "รวมเงิน Incentive", value: formatMoney(monthlySummaryStats.totalIncentive), unit: "บาท", color: "text-green-700" },
+                { label: "เฉลี่ยต่อคน (eligible)", value: formatMoney(monthlySummaryStats.avgIncentive), unit: "บาท", color: "text-blue-700" },
+                { label: "Trip รวม", value: formatNumber(monthlySummaryStats.totalTrip), unit: "เที่ยว", color: "text-purple-700" },
+                { label: "Q รวม", value: formatNumber(monthlySummaryStats.totalQ), unit: "คิว", color: "text-orange-700" },
+                { label: "ผ่านเงื่อนไข AC/NC", value: `${formatNumber(monthlySummaryStats.eligibleDrivers)} / ${formatNumber(monthlySummaryStats.totalDrivers)}`, unit: "คน", color: "text-teal-700" },
+              ].map((card) => (
+                <div key={card.label} className="rounded-2xl border bg-white p-4 shadow-sm">
+                  <p className="text-xs text-muted-foreground">{card.label}</p>
+                  <p className={`mt-1 text-xl font-bold ${card.color}`}>{card.value}</p>
+                  <p className="text-xs text-muted-foreground">{card.unit}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Breakdown Cards */}
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="rounded-2xl border bg-white p-4 shadow-sm">
+                <h3 className="mb-3 text-sm font-semibold">รางวัลวันทำงาน — แบ่งตามระดับ</h3>
+                <div className="space-y-2">
+                  {monthlySummaryStats.workLevels.map(([level, data]) => {
+                    const maxBaht = Math.max(...monthlySummaryStats.workLevels.map((x) => x[1].baht), 1)
+                    const pct = (data.baht / maxBaht) * 100
+                    return (
+                      <div key={level}>
+                        <div className="mb-0.5 flex justify-between text-xs">
+                          <span className="font-medium text-gray-700">{level}</span>
+                          <span className="text-muted-foreground">{data.count} คน · {formatMoney(data.baht)} บาท</span>
+                        </div>
+                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
+                          <div className="h-full rounded-full bg-black" style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border bg-white p-4 shadow-sm">
+                <h3 className="mb-3 text-sm font-semibold">รางวัลเที่ยวงาน — แบ่งตามระดับ</h3>
+                <div className="space-y-2">
+                  {monthlySummaryStats.tripLevels.map(([level, data]) => {
+                    const maxBaht = Math.max(...monthlySummaryStats.tripLevels.map((x) => x[1].baht), 1)
+                    const pct = (data.baht / maxBaht) * 100
+                    return (
+                      <div key={level}>
+                        <div className="mb-0.5 flex justify-between text-xs">
+                          <span className="font-medium text-gray-700">{level}</span>
+                          <span className="text-muted-foreground">{data.count} คน · {formatMoney(data.baht)} บาท</span>
+                        </div>
+                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
+                          <div className="h-full rounded-full bg-blue-600" style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Summary Table */}
+            <div className="overflow-hidden rounded-2xl border bg-white shadow-sm">
+              <div className="flex flex-col justify-between gap-3 border-b p-4 lg:flex-row lg:items-center">
+                <div>
+                  <h2 className="font-semibold">Monthly Summary — Actual Performance</h2>
+                  <p className="text-sm text-muted-foreground">
+                    ข้อมูลจริงเดือน {mmyy} · {formatNumber(summaryTableData.length)} คน · เรียงตามรวม Incentive มากไปน้อย
+                  </p>
+                </div>
+                <button
+                  onClick={exportMonthlySummary}
+                  className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-medium text-white hover:bg-blue-700"
+                >
+                  Export Monthly Summary
+                </button>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="min-w-[900px] w-full text-xs">
+                  <thead className="sticky top-0 z-10 bg-gray-50">
+                    <tr className="border-b">
+                      <th className="px-3 py-3 text-left font-semibold text-gray-500">Driver</th>
+                      <th className="px-3 py-3 text-left font-semibold text-gray-500">แพล้นท์</th>
+                      <th className="px-3 py-3 text-left font-semibold text-gray-500">สถานะ</th>
+                      <th className="px-3 py-3 text-right font-semibold text-gray-500">วันทำงาน</th>
+                      <th className="px-3 py-3 text-right font-semibold text-gray-500">มาสาย</th>
+                      <th className="px-3 py-3 text-right font-semibold text-gray-500">GPM Trip</th>
+                      <th className="px-3 py-3 text-right font-semibold text-gray-500">GPM Q</th>
+                      <th className="px-3 py-3 text-right font-semibold text-gray-500">เงินวัน</th>
+                      <th className="px-3 py-3 text-right font-semibold text-gray-500">เงินเที่ยว</th>
+                      <th className="px-3 py-3 text-right font-semibold text-gray-500">เงินคิว</th>
+                      <th className="px-3 py-3 text-right font-semibold text-gray-900">รวม Incentive</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {summaryTableData.map((row) => (
+                      <tr key={row.driver_id} className="border-b hover:bg-gray-50">
+                        <td className="px-3 py-2">
+                          <div className="font-medium text-gray-900">{row.driver_name || "—"}</div>
+                          <div className="text-muted-foreground">{row.driver_id || "—"}</div>
+                        </td>
+                        <td className="px-3 py-2 text-gray-700">{row.แพล้นท์ || "—"}</td>
+                        <td className="px-3 py-2">
+                          {row.is_eligible ? (
+                            <span className="inline-flex rounded-full bg-green-50 px-2 py-0.5 text-[10px] font-medium text-green-700">ผ่าน</span>
+                          ) : (
+                            <span className="inline-flex rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-700">ไม่ผ่าน</span>
+                          )}
+                          <div className="mt-0.5 text-[10px] text-muted-foreground">{row.สถานะ || ""}</div>
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <div className="font-medium">{formatNumber(row.incentive_working_days)}</div>
+                          <div className="text-muted-foreground">{row.work_level}</div>
+                        </td>
+                        <td className={`px-3 py-2 text-right ${row.late_days_value > 0 ? "font-medium text-orange-600" : "text-gray-400"}`}>
+                          {formatNumber(row.late_days_value)}
+                        </td>
+                        <td className="px-3 py-2 text-right font-medium text-gray-900">{formatNumber(row.trip_value)}</td>
+                        <td className="px-3 py-2 text-right font-medium text-gray-900">{formatNumber(row.q_value)}</td>
+                        <td className="px-3 py-2 text-right text-gray-700">{formatMoney(row.work_incentive)}</td>
+                        <td className="px-3 py-2 text-right text-gray-700">{formatMoney(row.trip_incentive)}</td>
+                        <td className="px-3 py-2 text-right text-gray-700">{formatMoney(row.q_incentive)}</td>
+                        <td className="px-3 py-2 text-right">
+                          <span className={`text-sm font-bold ${row.total_incentive > 0 ? "text-green-700" : "text-gray-400"}`}>
+                            {formatMoney(row.total_incentive)}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                    {summaryTableData.length === 0 && !loading && (
+                      <tr>
+                        <td colSpan={11} className="px-4 py-10 text-center text-muted-foreground">No data</td>
+                      </tr>
+                    )}
+                  </tbody>
+                  {summaryTableData.length > 0 && (
+                    <tfoot className="border-t-2 bg-gray-50">
+                      <tr>
+                        <td colSpan={5} className="px-3 py-2 text-xs font-semibold text-gray-600">รวมทั้งหมด ({formatNumber(summaryTableData.length)} คน)</td>
+                        <td className="px-3 py-2 text-right text-xs font-bold text-purple-700">{formatNumber(monthlySummaryStats.totalTrip)}</td>
+                        <td className="px-3 py-2 text-right text-xs font-bold text-orange-700">{formatNumber(monthlySummaryStats.totalQ)}</td>
+                        <td className="px-3 py-2 text-right text-xs font-bold">{formatMoney(summaryTableData.reduce((s, r) => s + r.work_incentive, 0))}</td>
+                        <td className="px-3 py-2 text-right text-xs font-bold">{formatMoney(summaryTableData.reduce((s, r) => s + r.trip_incentive, 0))}</td>
+                        <td className="px-3 py-2 text-right text-xs font-bold">{formatMoney(summaryTableData.reduce((s, r) => s + r.q_incentive, 0))}</td>
+                        <td className="px-3 py-2 text-right text-sm font-bold text-green-700">{formatMoney(monthlySummaryStats.totalIncentive)}</td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            </div>
+
+          </div>
+        )}
+
       </div>
     </div>
   )
