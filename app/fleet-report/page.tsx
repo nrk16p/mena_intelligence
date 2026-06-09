@@ -255,229 +255,235 @@ export default function FleetReportPage() {
 
       {loading && <div className="print:hidden text-center py-10 text-gray-400 text-sm">Loading…</div>}
 
-      {/* ── Slide wrapper — scales 680×382 to fit screen ── */}
+      {/* ── Slide: full width, 16:9 aspect ratio ── */}
       {!loading && (
-        <div className="flex justify-center">
-          <div style={{width:"100%", maxWidth:"1360px"}}>
-            {/* scale container: render at 680px, zoom 2× for display */}
-            <div style={{position:"relative", paddingBottom:"56.18%"}}>
-              <div style={{position:"absolute", top:0, left:0, width:"200%", height:"200%", transform:"scale(0.5)", transformOrigin:"top left"}}>
+        <div style={{
+          width:"100%", aspectRatio:"16/9",
+          background:"#ffffff", fontFamily:"'Inter',ui-sans-serif,system-ui,sans-serif",
+          color:"#1a1a1a", padding:"16px 24px 14px",
+          display:"grid", gridTemplateRows:"auto auto 1fr", gap:"10px",
+          boxSizing:"border-box", overflow:"hidden",
+        }}>
 
-                {/* ══ SLIDE 1360×764 (2× for display, printed at 680×382) ══ */}
-                <div style={{
-                  width:"1360px", height:"764px",
-                  background:"#ffffff", fontFamily:"'Inter',ui-sans-serif,system-ui,sans-serif",
-                  color:"#1a1a1a", padding:"28px 40px 24px",
-                  display:"grid", gridTemplateRows:"auto auto 1fr", gap:"14px",
-                  boxSizing:"border-box",
-                }}>
-
-                  {/* ── HEADER ── */}
-                  <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", borderBottom:"1.5px solid #e5e7eb", paddingBottom:"10px"}}>
-                    <div style={{display:"flex", alignItems:"center", gap:"12px"}}>
-                      <div style={{width:"6px", height:"28px", background:"#185FA5", borderRadius:"3px"}} />
-                      <span style={{fontSize:"28px", fontWeight:600, letterSpacing:"-0.3px"}}>Fleet Performance &amp; Cost Summary</span>
-                      <span style={{fontSize:"22px", color:"#9ca3af", fontWeight:400}}>{cy} vs {by}</span>
-                    </div>
-                    <div style={{textAlign:"right"}}>
-                      <div style={{fontSize:"18px", color:"#6b7280"}}>{periodLabel}</div>
-                      <div style={{fontSize:"15px", color:"#9ca3af"}}>Base year: {by}</div>
-                    </div>
-                  </div>
-
-                  {/* ── KPI ROW ── */}
-                  <div style={{display:"grid", gridTemplateColumns:"repeat(4,minmax(0,1fr))", gap:"12px"}}>
-                    {[
-                      { label:"Avg BD% — ML Fleet",              value: mlAvg>0?fmtPct(mlAvg):"—",  valColor: bdColorClass(mlAvg),                                    sub: mlYoyAvg!==0?`YoY ${sign(mlYoyAvg)}${fmtPct(mlYoyAvg,1)}  ·  ${mlBD26.toLocaleString()} events`:"—", subColor: mlYoyAvg>0?"red":"green" },
-                      { label:"Avg BD% — MS Fleet",              value: msAvg>0?fmtPct(msAvg):"—",  valColor: bdColorClass(msAvg),                                    sub: msYoyAvg!==0?`YoY ${sign(msYoyAvg)}${fmtPct(msYoyAvg,1)}  ·  ${msBD26.toLocaleString()} events`:"—", subColor: msYoyAvg>0?"red":"green" },
-                      { label:"YTD Cost — ลาดกระบัง & ขอนแก่น", value: lbYTD26>0?fmtM(lbYTD26):"—", valColor: lbRisk==="red"?"red":lbRisk==="warn"?"amber":"green",  sub: lbPct!==0?`${sign(lbPct)}${fmtPct(lbPct,1)} vs LY  ·  Base ${fmtM(lbYTD25)}`:"—", subColor: lbPct>0?"red":lbPct<0?"green":"amber" },
-                      { label:"YTD Cost — สระบุรี & DIST",        value: sbYTD26>0?fmtM(sbYTD26):"—", valColor: sbRisk==="red"?"red":sbRisk==="warn"?"amber":"green", sub: sbPct!==0?`${sign(sbPct)}${fmtPct(sbPct,1)} vs LY  ·  Base ${fmtM(sbYTD25)}`:"—", subColor: sbPct>0?"red":sbPct<0?"green":"amber" },
-                    ].map((kpi, i) => (
-                      <div key={i} style={{background:"#f9fafb", borderRadius:"10px", padding:"10px 16px", display:"flex", flexDirection:"column", justifyContent:"center"}}>
-                        <div style={{fontSize:"16px", color:"#9ca3af", marginBottom:"3px", fontWeight:500, letterSpacing:"0.02em"}}>{kpi.label}</div>
-                        <div style={{fontSize:"36px", fontWeight:600, lineHeight:1.1, color: kpi.valColor==="red"?"#E24B4A":kpi.valColor==="amber"?"#BA7517":"#3B6D11"}}>{kpi.value}</div>
-                        <div style={{fontSize:"16px", marginTop:"3px", color: kpi.subColor==="red"?"#E24B4A":kpi.subColor==="green"?"#3B6D11":"#BA7517"}}>{kpi.sub}</div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* ── MAIN GRID (4 cards) ── */}
-                  <div style={{display:"grid", gridTemplateColumns:"repeat(4,minmax(0,1fr))", gap:"12px", minHeight:0}}>
-
-                    {/* ML Fleet card */}
-                    <div style={{background:"#fff", border:"1px solid #e5e7eb", borderRadius:"12px", padding:"14px 18px", overflow:"hidden", display:"flex", flexDirection:"column"}}>
-                      <div style={{fontSize:"20px", fontWeight:500, marginBottom:"10px", display:"flex", alignItems:"center", gap:"8px"}}>
-                        ML Fleet
-                        <span style={{fontSize:"18px", padding:"2px 10px", borderRadius:"6px", fontWeight:500,
-                          background: mlRisk==="red"?"#FCEBEB":mlRisk==="warn"?"#FAEEDA":"#EAF3DE",
-                          color:      mlRisk==="red"?"#A32D2D":mlRisk==="warn"?"#854F0B":"#3B6D11"}}>
-                          {riskBadge(mlRisk).label}
-                        </span>
-                      </div>
-                      {[
-                        { label:"Best",   val: mlBest?.p26!=null  ? `${MONTH_SHORT[mlBest.mm]}  — ${fmtPct(mlBest.p26)}`  : "—", color:"green" },
-                        { label:"Worst",  val: mlWorst?.p26!=null ? `${MONTH_SHORT[mlWorst.mm]} — ${fmtPct(mlWorst.p26)}` : "—", color:"red"   },
-                        { label:"Trucks", val: mlTrucks.length ? `${mlTrucks[0]} → ${mlTrucks[mlTrucks.length-1]}` : "—", color:"" },
-                      ].map(row => (
-                        <div key={row.label} style={{display:"flex", justifyContent:"space-between", fontSize:"19px", padding:"4px 0", borderBottom:"1px solid #f3f4f6"}}>
-                          <span style={{color:"#9ca3af"}}>{row.label}</span>
-                          <span style={{color: row.color==="green"?"#3B6D11":row.color==="red"?"#E24B4A":"#1a1a1a"}}>{row.val}</span>
-                        </div>
-                      ))}
-                      <table style={{width:"100%", borderCollapse:"collapse", fontSize:"20px", marginTop:"8px"}}>
-                        <thead>
-                          <tr>
-                            {["Mo",cy.slice(2),by.slice(2),"YoY"].map(h=>(
-                              <th key={h} style={{textAlign:"left", fontWeight:500, color:"#9ca3af", fontSize:"18px", padding:"4px 8px", borderBottom:"1px solid #e5e7eb"}}>{h}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {mlRows.map(r => (
-                            <tr key={r.mm}>
-                              <td style={{padding:"6px 8px", borderBottom:"1px solid #f3f4f6"}}>{MONTH_SHORT[r.mm]}</td>
-                              <td style={{padding:"6px 8px", borderBottom:"1px solid #f3f4f6", color: r.p26!=null?( r.p26>=10?"#E24B4A":r.p26>=5?"#BA7517":"#3B6D11" ):"#9ca3af"}}>{r.p26!=null?fmtPct(r.p26):"—"}</td>
-                              <td style={{padding:"6px 8px", borderBottom:"1px solid #f3f4f6", color:"#6b7280"}}>{r.p25!=null?fmtPct(r.p25):"—"}</td>
-                              <td style={{padding:"6px 8px", borderBottom:"1px solid #f3f4f6", color: r.yoy!=null?(r.yoy>0?"#E24B4A":"#3B6D11"):"#9ca3af"}}>{r.yoy!=null?`${sign(r.yoy)}${fmtPct(r.yoy,0)}`:"—"}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    {/* MS Fleet card */}
-                    <div style={{background:"#fff", border:"1px solid #e5e7eb", borderRadius:"12px", padding:"14px 18px", overflow:"hidden", display:"flex", flexDirection:"column"}}>
-                      <div style={{fontSize:"20px", fontWeight:500, marginBottom:"10px", display:"flex", alignItems:"center", gap:"8px"}}>
-                        MS Fleet
-                        <span style={{fontSize:"18px", padding:"2px 10px", borderRadius:"6px", fontWeight:500,
-                          background: msRisk==="red"?"#FCEBEB":msRisk==="warn"?"#FAEEDA":"#EAF3DE",
-                          color:      msRisk==="red"?"#A32D2D":msRisk==="warn"?"#854F0B":"#3B6D11"}}>
-                          {riskBadge(msRisk).label}
-                        </span>
-                      </div>
-                      {[
-                        { label:"Best",   val: msBest?.p26!=null  ? `${MONTH_SHORT[msBest.mm]}  — ${fmtPct(msBest.p26)}`  : "—", color:"green" },
-                        { label:"Worst",  val: msWorst?.p26!=null ? `${MONTH_SHORT[msWorst.mm]} — ${fmtPct(msWorst.p26)}` : "—", color:"red"   },
-                        { label:"Trucks", val: msTrucks.length ? `${msTrucks[0]} → ${msTrucks[msTrucks.length-1]}` : "—", color:"" },
-                      ].map(row => (
-                        <div key={row.label} style={{display:"flex", justifyContent:"space-between", fontSize:"19px", padding:"4px 0", borderBottom:"1px solid #f3f4f6"}}>
-                          <span style={{color:"#9ca3af"}}>{row.label}</span>
-                          <span style={{color: row.color==="green"?"#3B6D11":row.color==="red"?"#E24B4A":"#1a1a1a"}}>{row.val}</span>
-                        </div>
-                      ))}
-                      <table style={{width:"100%", borderCollapse:"collapse", fontSize:"20px", marginTop:"8px"}}>
-                        <thead>
-                          <tr>
-                            {["Mo",cy.slice(2),by.slice(2),"YoY"].map(h=>(
-                              <th key={h} style={{textAlign:"left", fontWeight:500, color:"#9ca3af", fontSize:"18px", padding:"4px 8px", borderBottom:"1px solid #e5e7eb"}}>{h}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {msRows.map(r => (
-                            <tr key={r.mm}>
-                              <td style={{padding:"5px 8px", borderBottom:"1px solid #f3f4f6"}}>{MONTH_SHORT[r.mm]}</td>
-                              <td style={{padding:"5px 8px", borderBottom:"1px solid #f3f4f6", color: r.p26!=null?(r.p26>=10?"#E24B4A":r.p26>=5?"#BA7517":"#3B6D11"):"#9ca3af"}}>{r.p26!=null?fmtPct(r.p26):"—"}</td>
-                              <td style={{padding:"5px 8px", borderBottom:"1px solid #f3f4f6", color:"#6b7280"}}>{r.p25!=null?fmtPct(r.p25):"—"}</td>
-                              <td style={{padding:"5px 8px", borderBottom:"1px solid #f3f4f6", color: r.yoy!=null?(r.yoy>0?"#E24B4A":"#3B6D11"):"#9ca3af"}}>{r.yoy!=null?`${sign(r.yoy)}${fmtPct(r.yoy,0)}`:"—"}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    {/* LB Cost card */}
-                    <div style={{background:"#fff", border:"1px solid #e5e7eb", borderRadius:"12px", padding:"14px 18px", overflow:"hidden", display:"flex", flexDirection:"column"}}>
-                      <div style={{fontSize:"20px", fontWeight:500, marginBottom:"10px", display:"flex", alignItems:"center", gap:"8px"}}>
-                        ลาดกระบัง &amp; ขอนแก่น
-                        <span style={{fontSize:"18px", padding:"2px 10px", borderRadius:"6px", fontWeight:500,
-                          background: lbRisk==="red"?"#FCEBEB":lbRisk==="warn"?"#FAEEDA":"#EAF3DE",
-                          color:      lbRisk==="red"?"#A32D2D":lbRisk==="warn"?"#854F0B":"#3B6D11"}}>
-                          {sign(lbPct)}{fmtPct(lbPct,1)}
-                        </span>
-                      </div>
-                      {[
-                        { label:`YTD ${cy}`, val: fmtM(lbYTD26), color: lbRisk==="red"?"red":lbRisk==="warn"?"amber":"" },
-                        { label:`YTD ${by}`, val: fmtM(lbYTD25), color:"" },
-                      ].map(row => (
-                        <div key={row.label} style={{display:"flex", justifyContent:"space-between", fontSize:"19px", padding:"4px 0", borderBottom:"1px solid #f3f4f6"}}>
-                          <span style={{color:"#9ca3af"}}>{row.label}</span>
-                          <span style={{fontWeight:500, color: row.color==="red"?"#E24B4A":row.color==="amber"?"#BA7517":"#1a1a1a"}}>{row.val}</span>
-                        </div>
-                      ))}
-                      <table style={{width:"100%", borderCollapse:"collapse", fontSize:"20px", marginTop:"8px"}}>
-                        <thead>
-                          <tr>
-                            {["Mo",cy.slice(2),"Diff","%"].map(h=>(
-                              <th key={h} style={{textAlign:"left", fontWeight:500, color:"#9ca3af", fontSize:"18px", padding:"4px 8px", borderBottom:"1px solid #e5e7eb"}}>{h}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {lbRows.map(r => (
-                            <tr key={r.mm}>
-                              <td style={{padding:"5px 8px", borderBottom:"1px solid #f3f4f6"}}>{MONTH_SHORT[r.mm]}</td>
-                              <td style={{padding:"5px 8px", borderBottom:"1px solid #f3f4f6"}}>{r.c26>0?fmtM(r.c26):"—"}</td>
-                              <td style={{padding:"5px 8px", borderBottom:"1px solid #f3f4f6", color: r.diff>0?"#E24B4A":r.diff<0?"#3B6D11":"#BA7517"}}>{r.c26>0?`${r.diff<0?"–":"+"}${fmtK(Math.abs(r.diff))}`:"—"}</td>
-                              <td style={{padding:"5px 8px", borderBottom:"1px solid #f3f4f6", color: r.pct>0?"#E24B4A":r.pct<0?"#3B6D11":"#BA7517"}}>{r.c26>0?`${sign(r.pct)}${fmtPct(r.pct,1)}`:"—"}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    {/* SB Cost card */}
-                    <div style={{background:"#fff", border:"1px solid #e5e7eb", borderRadius:"12px", padding:"14px 18px", overflow:"hidden", display:"flex", flexDirection:"column"}}>
-                      <div style={{fontSize:"20px", fontWeight:500, marginBottom:"10px", display:"flex", alignItems:"center", gap:"8px"}}>
-                        สระบุรี &amp; DIST
-                        <span style={{fontSize:"18px", padding:"2px 10px", borderRadius:"6px", fontWeight:500,
-                          background: sbRisk==="red"?"#FCEBEB":sbRisk==="warn"?"#FAEEDA":"#EAF3DE",
-                          color:      sbRisk==="red"?"#A32D2D":sbRisk==="warn"?"#854F0B":"#3B6D11"}}>
-                          {sign(sbPct)}{fmtPct(sbPct,1)}
-                        </span>
-                      </div>
-                      {[
-                        { label:`YTD ${cy}`, val: fmtM(sbYTD26), color: sbRisk==="red"?"red":"" },
-                        { label:`YTD ${by}`, val: fmtM(sbYTD25), color:"" },
-                      ].map(row => (
-                        <div key={row.label} style={{display:"flex", justifyContent:"space-between", fontSize:"19px", padding:"4px 0", borderBottom:"1px solid #f3f4f6"}}>
-                          <span style={{color:"#9ca3af"}}>{row.label}</span>
-                          <span style={{fontWeight:500, color: row.color==="red"?"#E24B4A":"#1a1a1a"}}>{row.val}</span>
-                        </div>
-                      ))}
-                      <table style={{width:"100%", borderCollapse:"collapse", fontSize:"20px", marginTop:"8px"}}>
-                        <thead>
-                          <tr>
-                            {["Mo",cy.slice(2),"Diff","%"].map(h=>(
-                              <th key={h} style={{textAlign:"left", fontWeight:500, color:"#9ca3af", fontSize:"18px", padding:"4px 8px", borderBottom:"1px solid #e5e7eb"}}>{h}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {sbRows.map(r => (
-                            <tr key={r.mm}>
-                              <td style={{padding:"5px 8px", borderBottom:"1px solid #f3f4f6"}}>{MONTH_SHORT[r.mm]}</td>
-                              <td style={{padding:"5px 8px", borderBottom:"1px solid #f3f4f6"}}>{r.c26>0?fmtM(r.c26):"—"}</td>
-                              <td style={{padding:"5px 8px", borderBottom:"1px solid #f3f4f6", color: r.diff>0?"#E24B4A":r.diff<0?"#3B6D11":"#BA7517"}}>{r.c26>0?`${r.diff<0?"–":"+"}${fmtK(Math.abs(r.diff))}`:"—"}</td>
-                              <td style={{padding:"5px 8px", borderBottom:"1px solid #f3f4f6", color: r.pct>0?"#E24B4A":r.pct<0?"#3B6D11":"#BA7517"}}>{r.c26>0?`${sign(r.pct)}${fmtPct(r.pct,1)}`:"—"}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-
-                  </div>{/* /main-grid */}
-
-                </div>{/* /slide */}
-              </div>
+          {/* ── HEADER ── */}
+          <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", borderBottom:"1px solid #e5e7eb", paddingBottom:"8px"}}>
+            <div style={{display:"flex", alignItems:"center", gap:"8px"}}>
+              <div style={{width:"4px", height:"20px", background:"#185FA5", borderRadius:"2px", flexShrink:0}} />
+              <span style={{fontSize:"18px", fontWeight:600, letterSpacing:"-0.2px"}}>Fleet Performance &amp; Cost Summary</span>
+              <span style={{fontSize:"14px", color:"#9ca3af", fontWeight:400}}>{cy} vs {by}</span>
+            </div>
+            <div style={{textAlign:"right"}}>
+              <div style={{fontSize:"13px", color:"#6b7280"}}>{periodLabel}</div>
+              <div style={{fontSize:"11px", color:"#9ca3af"}}>Base year: {by}</div>
             </div>
           </div>
+
+          {/* ── KPI ROW ── */}
+          <div style={{display:"grid", gridTemplateColumns:"repeat(4,minmax(0,1fr))", gap:"10px"}}>
+            {[
+              { label:"Avg BD% — ML Fleet",              value: mlAvg>0?fmtPct(mlAvg):"—",    valColor: bdColorClass(mlAvg),                                   sub: mlYoyAvg!==0?`YoY ${sign(mlYoyAvg)}${fmtPct(mlYoyAvg,1)}  ·  ${mlBD26.toLocaleString()} events`:"—", subColor: mlYoyAvg>0?"red":"green" },
+              { label:"Avg BD% — MS Fleet",              value: msAvg>0?fmtPct(msAvg):"—",    valColor: bdColorClass(msAvg),                                   sub: msYoyAvg!==0?`YoY ${sign(msYoyAvg)}${fmtPct(msYoyAvg,1)}  ·  ${msBD26.toLocaleString()} events`:"—", subColor: msYoyAvg>0?"red":"green" },
+              { label:"YTD Cost — ลาดกระบัง & ขอนแก่น", value: lbYTD26>0?fmtM(lbYTD26):"—", valColor: lbRisk==="red"?"red":lbRisk==="warn"?"amber":"green", sub: lbPct!==0?`${sign(lbPct)}${fmtPct(lbPct,1)} vs LY  ·  Base ${fmtM(lbYTD25)}`:"—", subColor: lbPct>0?"red":lbPct<0?"green":"amber" },
+              { label:"YTD Cost — สระบุรี & DIST",        value: sbYTD26>0?fmtM(sbYTD26):"—", valColor: sbRisk==="red"?"red":sbRisk==="warn"?"amber":"green", sub: sbPct!==0?`${sign(sbPct)}${fmtPct(sbPct,1)} vs LY  ·  Base ${fmtM(sbYTD25)}`:"—", subColor: sbPct>0?"red":sbPct<0?"green":"amber" },
+            ].map((kpi, i) => (
+              <div key={i} style={{background:"#f9fafb", borderRadius:"8px", padding:"8px 14px", display:"flex", flexDirection:"column", justifyContent:"center"}}>
+                <div style={{fontSize:"11px", color:"#9ca3af", marginBottom:"2px", fontWeight:500, letterSpacing:"0.03em"}}>{kpi.label}</div>
+                <div style={{fontSize:"22px", fontWeight:600, lineHeight:1.1, color: kpi.valColor==="red"?"#E24B4A":kpi.valColor==="amber"?"#BA7517":"#3B6D11"}}>{kpi.value}</div>
+                <div style={{fontSize:"11px", marginTop:"2px", color: kpi.subColor==="red"?"#E24B4A":kpi.subColor==="green"?"#3B6D11":"#BA7517"}}>{kpi.sub}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* ── MAIN: 2 sections × 2 cards ── */}
+          <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:"14px", minHeight:0}}>
+
+            {/* ── BREAKDOWN RATE section ── */}
+            <div style={{display:"flex", flexDirection:"column", gap:"5px", minHeight:0}}>
+              <div style={{display:"flex", alignItems:"center", gap:"6px"}}>
+                <div style={{width:"3px", height:"13px", background:"#185FA5", borderRadius:"1px", flexShrink:0}} />
+                <span style={{fontSize:"10px", fontWeight:600, color:"#6b7280", letterSpacing:"0.07em", textTransform:"uppercase" as const}}>Breakdown Rate</span>
+              </div>
+              <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:"8px", flex:1, minHeight:0}}>
+
+                {/* ML Fleet card */}
+                <div style={{background:"#fff", border:"1px solid #e5e7eb", borderRadius:"8px", padding:"10px 14px", overflow:"hidden", display:"flex", flexDirection:"column"}}>
+                  <div style={{fontSize:"13px", fontWeight:500, marginBottom:"6px", display:"flex", alignItems:"center", gap:"6px"}}>
+                    ML Fleet
+                    <span style={{fontSize:"11px", padding:"1px 7px", borderRadius:"4px", fontWeight:500,
+                      background: mlRisk==="red"?"#FCEBEB":mlRisk==="warn"?"#FAEEDA":"#EAF3DE",
+                      color:      mlRisk==="red"?"#A32D2D":mlRisk==="warn"?"#854F0B":"#3B6D11"}}>
+                      {riskBadge(mlRisk).label}
+                    </span>
+                  </div>
+                  {[
+                    { label:"Best",   val: mlBest?.p26!=null  ? `${MONTH_SHORT[mlBest.mm]} — ${fmtPct(mlBest.p26)}`   : "—", color:"green" },
+                    { label:"Worst",  val: mlWorst?.p26!=null ? `${MONTH_SHORT[mlWorst.mm]} — ${fmtPct(mlWorst.p26)}` : "—", color:"red"   },
+                    { label:"Trucks", val: mlTrucks.length ? `${mlTrucks[0]} → ${mlTrucks[mlTrucks.length-1]}` : "—",         color:""      },
+                  ].map(row => (
+                    <div key={row.label} style={{display:"flex", justifyContent:"space-between", fontSize:"12px", padding:"3px 0", borderBottom:"1px solid #f3f4f6"}}>
+                      <span style={{color:"#9ca3af"}}>{row.label}</span>
+                      <span style={{color: row.color==="green"?"#3B6D11":row.color==="red"?"#E24B4A":"#1a1a1a"}}>{row.val}</span>
+                    </div>
+                  ))}
+                  <table style={{width:"100%", borderCollapse:"collapse", fontSize:"12px", marginTop:"5px"}}>
+                    <thead><tr>
+                      {["Mo",cy.slice(2),by.slice(2),"YoY"].map(h=>(
+                        <th key={h} style={{textAlign:"left", fontWeight:500, color:"#9ca3af", fontSize:"11px", padding:"3px 6px", borderBottom:"1px solid #e5e7eb"}}>{h}</th>
+                      ))}
+                    </tr></thead>
+                    <tbody>
+                      {mlRows.map(r => (
+                        <tr key={r.mm}>
+                          <td style={{padding:"3px 6px", borderBottom:"1px solid #f3f4f6"}}>{MONTH_SHORT[r.mm]}</td>
+                          <td style={{padding:"3px 6px", borderBottom:"1px solid #f3f4f6", color: r.p26!=null?(r.p26>=10?"#E24B4A":r.p26>=5?"#BA7517":"#3B6D11"):"#9ca3af"}}>{r.p26!=null?fmtPct(r.p26):"—"}</td>
+                          <td style={{padding:"3px 6px", borderBottom:"1px solid #f3f4f6", color:"#6b7280"}}>{r.p25!=null?fmtPct(r.p25):"—"}</td>
+                          <td style={{padding:"3px 6px", borderBottom:"1px solid #f3f4f6", color: r.yoy!=null?(r.yoy>0?"#E24B4A":"#3B6D11"):"#9ca3af"}}>{r.yoy!=null?`${sign(r.yoy)}${fmtPct(r.yoy,0)}`:"—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* MS Fleet card */}
+                <div style={{background:"#fff", border:"1px solid #e5e7eb", borderRadius:"8px", padding:"10px 14px", overflow:"hidden", display:"flex", flexDirection:"column"}}>
+                  <div style={{fontSize:"13px", fontWeight:500, marginBottom:"6px", display:"flex", alignItems:"center", gap:"6px"}}>
+                    MS Fleet
+                    <span style={{fontSize:"11px", padding:"1px 7px", borderRadius:"4px", fontWeight:500,
+                      background: msRisk==="red"?"#FCEBEB":msRisk==="warn"?"#FAEEDA":"#EAF3DE",
+                      color:      msRisk==="red"?"#A32D2D":msRisk==="warn"?"#854F0B":"#3B6D11"}}>
+                      {riskBadge(msRisk).label}
+                    </span>
+                  </div>
+                  {[
+                    { label:"Best",   val: msBest?.p26!=null  ? `${MONTH_SHORT[msBest.mm]} — ${fmtPct(msBest.p26)}`   : "—", color:"green" },
+                    { label:"Worst",  val: msWorst?.p26!=null ? `${MONTH_SHORT[msWorst.mm]} — ${fmtPct(msWorst.p26)}` : "—", color:"red"   },
+                    { label:"Trucks", val: msTrucks.length ? `${msTrucks[0]} → ${msTrucks[msTrucks.length-1]}` : "—",         color:""      },
+                  ].map(row => (
+                    <div key={row.label} style={{display:"flex", justifyContent:"space-between", fontSize:"12px", padding:"3px 0", borderBottom:"1px solid #f3f4f6"}}>
+                      <span style={{color:"#9ca3af"}}>{row.label}</span>
+                      <span style={{color: row.color==="green"?"#3B6D11":row.color==="red"?"#E24B4A":"#1a1a1a"}}>{row.val}</span>
+                    </div>
+                  ))}
+                  <table style={{width:"100%", borderCollapse:"collapse", fontSize:"12px", marginTop:"5px"}}>
+                    <thead><tr>
+                      {["Mo",cy.slice(2),by.slice(2),"YoY"].map(h=>(
+                        <th key={h} style={{textAlign:"left", fontWeight:500, color:"#9ca3af", fontSize:"11px", padding:"3px 6px", borderBottom:"1px solid #e5e7eb"}}>{h}</th>
+                      ))}
+                    </tr></thead>
+                    <tbody>
+                      {msRows.map(r => (
+                        <tr key={r.mm}>
+                          <td style={{padding:"3px 6px", borderBottom:"1px solid #f3f4f6"}}>{MONTH_SHORT[r.mm]}</td>
+                          <td style={{padding:"3px 6px", borderBottom:"1px solid #f3f4f6", color: r.p26!=null?(r.p26>=10?"#E24B4A":r.p26>=5?"#BA7517":"#3B6D11"):"#9ca3af"}}>{r.p26!=null?fmtPct(r.p26):"—"}</td>
+                          <td style={{padding:"3px 6px", borderBottom:"1px solid #f3f4f6", color:"#6b7280"}}>{r.p25!=null?fmtPct(r.p25):"—"}</td>
+                          <td style={{padding:"3px 6px", borderBottom:"1px solid #f3f4f6", color: r.yoy!=null?(r.yoy>0?"#E24B4A":"#3B6D11"):"#9ca3af"}}>{r.yoy!=null?`${sign(r.yoy)}${fmtPct(r.yoy,0)}`:"—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+              </div>
+            </div>
+
+            {/* ── COST MONITORING section ── */}
+            <div style={{display:"flex", flexDirection:"column", gap:"5px", minHeight:0}}>
+              <div style={{display:"flex", alignItems:"center", gap:"6px"}}>
+                <div style={{width:"3px", height:"13px", background:"#BA7517", borderRadius:"1px", flexShrink:0}} />
+                <span style={{fontSize:"10px", fontWeight:600, color:"#6b7280", letterSpacing:"0.07em", textTransform:"uppercase" as const}}>Cost Monitoring</span>
+              </div>
+              <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:"8px", flex:1, minHeight:0}}>
+
+                {/* LB Cost card */}
+                <div style={{background:"#fff", border:"1px solid #e5e7eb", borderRadius:"8px", padding:"10px 14px", overflow:"hidden", display:"flex", flexDirection:"column"}}>
+                  <div style={{fontSize:"13px", fontWeight:500, marginBottom:"6px", display:"flex", alignItems:"center", gap:"6px"}}>
+                    ลาดกระบัง &amp; ขอนแก่น
+                    <span style={{fontSize:"11px", padding:"1px 7px", borderRadius:"4px", fontWeight:500,
+                      background: lbRisk==="red"?"#FCEBEB":lbRisk==="warn"?"#FAEEDA":"#EAF3DE",
+                      color:      lbRisk==="red"?"#A32D2D":lbRisk==="warn"?"#854F0B":"#3B6D11"}}>
+                      {sign(lbPct)}{fmtPct(lbPct,1)}
+                    </span>
+                  </div>
+                  {/* 3 rows to match BD cards — spacer keeps table level */}
+                  {[
+                    { label:`YTD ${cy}`, val: lbYTD26>0?fmtM(lbYTD26):"—", color: lbRisk==="red"?"red":lbRisk==="warn"?"amber":"", bold:true  },
+                    { label:`YTD ${by}`, val: lbYTD25>0?fmtM(lbYTD25):"—", color:"",                                                 bold:true  },
+                    { label:"",          val: "",                             color:"",                                                 bold:false },
+                  ].map((row, i) => (
+                    <div key={i} style={{display:"flex", justifyContent:"space-between", fontSize:"12px", padding:"3px 0", borderBottom:"1px solid #f3f4f6"}}>
+                      <span style={{color:"#9ca3af"}}>{row.label}</span>
+                      <span style={{fontWeight: row.bold?500:400, color: row.color==="red"?"#E24B4A":row.color==="amber"?"#BA7517":"#1a1a1a"}}>{row.val}</span>
+                    </div>
+                  ))}
+                  <table style={{width:"100%", borderCollapse:"collapse", fontSize:"12px", marginTop:"5px"}}>
+                    <thead><tr>
+                      {["Mo",cy.slice(2),"Diff","%"].map(h=>(
+                        <th key={h} style={{textAlign:"left", fontWeight:500, color:"#9ca3af", fontSize:"11px", padding:"3px 6px", borderBottom:"1px solid #e5e7eb"}}>{h}</th>
+                      ))}
+                    </tr></thead>
+                    <tbody>
+                      {lbRows.map(r => (
+                        <tr key={r.mm}>
+                          <td style={{padding:"3px 6px", borderBottom:"1px solid #f3f4f6"}}>{MONTH_SHORT[r.mm]}</td>
+                          <td style={{padding:"3px 6px", borderBottom:"1px solid #f3f4f6"}}>{r.c26>0?fmtM(r.c26):"—"}</td>
+                          <td style={{padding:"3px 6px", borderBottom:"1px solid #f3f4f6", color: r.diff>0?"#E24B4A":r.diff<0?"#3B6D11":"#BA7517"}}>{r.c26>0?`${r.diff<0?"–":"+"}${fmtK(Math.abs(r.diff))}`:"—"}</td>
+                          <td style={{padding:"3px 6px", borderBottom:"1px solid #f3f4f6", color: r.pct>0?"#E24B4A":r.pct<0?"#3B6D11":"#BA7517"}}>{r.c26>0?`${sign(r.pct)}${fmtPct(r.pct,1)}`:"—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* SB Cost card */}
+                <div style={{background:"#fff", border:"1px solid #e5e7eb", borderRadius:"8px", padding:"10px 14px", overflow:"hidden", display:"flex", flexDirection:"column"}}>
+                  <div style={{fontSize:"13px", fontWeight:500, marginBottom:"6px", display:"flex", alignItems:"center", gap:"6px"}}>
+                    สระบุรี &amp; DIST
+                    <span style={{fontSize:"11px", padding:"1px 7px", borderRadius:"4px", fontWeight:500,
+                      background: sbRisk==="red"?"#FCEBEB":sbRisk==="warn"?"#FAEEDA":"#EAF3DE",
+                      color:      sbRisk==="red"?"#A32D2D":sbRisk==="warn"?"#854F0B":"#3B6D11"}}>
+                      {sign(sbPct)}{fmtPct(sbPct,1)}
+                    </span>
+                  </div>
+                  {[
+                    { label:`YTD ${cy}`, val: sbYTD26>0?fmtM(sbYTD26):"—", color: sbRisk==="red"?"red":"", bold:true  },
+                    { label:`YTD ${by}`, val: sbYTD25>0?fmtM(sbYTD25):"—", color:"",                        bold:true  },
+                    { label:"",          val: "",                             color:"",                        bold:false },
+                  ].map((row, i) => (
+                    <div key={i} style={{display:"flex", justifyContent:"space-between", fontSize:"12px", padding:"3px 0", borderBottom:"1px solid #f3f4f6"}}>
+                      <span style={{color:"#9ca3af"}}>{row.label}</span>
+                      <span style={{fontWeight: row.bold?500:400, color: row.color==="red"?"#E24B4A":"#1a1a1a"}}>{row.val}</span>
+                    </div>
+                  ))}
+                  <table style={{width:"100%", borderCollapse:"collapse", fontSize:"12px", marginTop:"5px"}}>
+                    <thead><tr>
+                      {["Mo",cy.slice(2),"Diff","%"].map(h=>(
+                        <th key={h} style={{textAlign:"left", fontWeight:500, color:"#9ca3af", fontSize:"11px", padding:"3px 6px", borderBottom:"1px solid #e5e7eb"}}>{h}</th>
+                      ))}
+                    </tr></thead>
+                    <tbody>
+                      {sbRows.map(r => (
+                        <tr key={r.mm}>
+                          <td style={{padding:"3px 6px", borderBottom:"1px solid #f3f4f6"}}>{MONTH_SHORT[r.mm]}</td>
+                          <td style={{padding:"3px 6px", borderBottom:"1px solid #f3f4f6"}}>{r.c26>0?fmtM(r.c26):"—"}</td>
+                          <td style={{padding:"3px 6px", borderBottom:"1px solid #f3f4f6", color: r.diff>0?"#E24B4A":r.diff<0?"#3B6D11":"#BA7517"}}>{r.c26>0?`${r.diff<0?"–":"+"}${fmtK(Math.abs(r.diff))}`:"—"}</td>
+                          <td style={{padding:"3px 6px", borderBottom:"1px solid #f3f4f6", color: r.pct>0?"#E24B4A":r.pct<0?"#3B6D11":"#BA7517"}}>{r.c26>0?`${sign(r.pct)}${fmtPct(r.pct,1)}`:"—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+              </div>
+            </div>
+
+          </div>{/* /main sections */}
+
         </div>
       )}
 
       <style>{`
         @media print {
-          @page { size: 680px 382px; margin: 0; }
+          @page { size: A4 landscape; margin: 0; }
           body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
           .print\\:hidden { display: none !important; }
         }
