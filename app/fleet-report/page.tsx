@@ -312,8 +312,8 @@ export default function FleetReportPage() {
           {/* ── KPI ROW ── */}
           <div style={{display:"grid", gridTemplateColumns:"repeat(4,minmax(0,1fr))", gap:"10px"}}>
             {[
-              { label:"Avg BD% — Mixer Large (ML)",         value: mlAvg>0?fmtPct(mlAvg):"—",    valColor: bdColorClass(mlAvg),                                   sub: mlYoyAvg!==0?`YoY ${sign(mlYoyAvg)}${fmtPct(mlYoyAvg,1)}  ·  ${mlBD26.toLocaleString()}`:"—", subColor: mlYoyAvg>0?"red":"green" },
-              { label:"Avg BD% — Mixer Small (MS)",         value: msAvg>0?fmtPct(msAvg):"—",    valColor: bdColorClass(msAvg),                                   sub: msYoyAvg!==0?`YoY ${sign(msYoyAvg)}${fmtPct(msYoyAvg,1)}  ·  ${msBD26.toLocaleString()}`:"—", subColor: msYoyAvg>0?"red":"green" },
+              { label:"Avg BD% — Mixer Large (ML)",         value: mlAvg>0?fmtPct(mlAvg):"—",    valColor: bdColorClass(mlAvg),                                   sub: mlYoyAvg!==0?`YoY ${sign(mlYoyAvg)}${fmtPct(mlYoyAvg,1)}`:"—", subColor: mlYoyAvg>0?"red":"green" },
+              { label:"Avg BD% — Mixer Small (MS)",         value: msAvg>0?fmtPct(msAvg):"—",    valColor: bdColorClass(msAvg),                                   sub: msYoyAvg!==0?`YoY ${sign(msYoyAvg)}${fmtPct(msYoyAvg,1)}`:"—", subColor: msYoyAvg>0?"red":"green" },
               { label:"YTD Cost — ลาดกระบัง & ขอนแก่น", value: lbYTD26>0?fmtM(lbYTD26):"—", valColor: lbRisk==="red"?"red":lbRisk==="warn"?"amber":"green", sub: lbPct!==0?`${sign(lbPct)}${fmtPct(lbPct,1)} vs LY  ·  Base ${fmtM(lbYTD25)}`:"—", subColor: lbPct>0?"red":lbPct<0?"green":"amber" },
               { label:"YTD Cost — สระบุรี & DIST",        value: sbYTD26>0?fmtM(sbYTD26):"—", valColor: sbRisk==="red"?"red":sbRisk==="warn"?"amber":"green", sub: sbPct!==0?`${sign(sbPct)}${fmtPct(sbPct,1)} vs LY  ·  Base ${fmtM(sbYTD25)}`:"—", subColor: sbPct>0?"red":sbPct<0?"green":"amber" },
             ].map((kpi, i) => (
