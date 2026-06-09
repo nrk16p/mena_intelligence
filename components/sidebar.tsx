@@ -14,7 +14,6 @@ import {
   Trophy,
   PackageSearch,
   LayoutDashboard,
-  ClipboardList,
   Warehouse,
   TrendingUp,
   Users,
@@ -103,7 +102,6 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Procurement",
     items: [
       { href: "/stock-budget-ladkrabang", label: "Stock Budget", icon: PackageSearch },
-      { href: "/stock-result-summary", label: "Stock Summary", icon: ClipboardList },
       { href: "/price-benchmark", label: "Price Benchmark", icon: TrendingUp },
       { href: "/supplier-analysis", label: "Supplier Analysis", icon: Users },
     ],
