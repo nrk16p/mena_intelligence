@@ -64,8 +64,8 @@ export default function FleetReportPage() {
       const [r1,r2,r3,r4] = await Promise.all([
         fetch(`/api/truck-utilize/breakdown?start=${fromMM}-${yy}&end=${toMM}-${yy}`),
         fetch(`/api/truck-utilize/breakdown?start=${fromMM}-${yyBase}&end=${toMM}-${yyBase}`),
-        fetch(`/api/cost/summary?group_by=คลังสินค้า&start=${cy}-${fromMM}&end=${cy}-${toMM}`),
-        fetch(`/api/cost/summary?group_by=คลังสินค้า&start=${by}-${fromMM}&end=${by}-${toMM}`),
+        fetch(`/api/cost/summary?group_by=${encodeURIComponent("คลังสินค้า")}&start=${cy}-${fromMM}&end=${cy}-${toMM}`),
+        fetch(`/api/cost/summary?group_by=${encodeURIComponent("คลังสินค้า")}&start=${by}-${fromMM}&end=${by}-${toMM}`),
       ]);
       const [j1,j2,j3,j4] = await Promise.all([r1.json(),r2.json(),r3.json(),r4.json()]);
       if (j1.success) setBd26(j1.data);
