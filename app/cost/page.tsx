@@ -212,14 +212,9 @@ export default function CostPage() {
   const todayYear = todayYM.split("-")[0]
 
   // ── Password gate ─────────────────────────────────────────────────────────
-  const [authed, setAuthed]         = useState(false)
+  const [authed, setAuthed]         = useState(true)
   const [pwInput, setPwInput]       = useState("")
   const [pwError, setPwError]       = useState(false)
-
-  // Check sessionStorage on mount (persist within same browser session)
-  React.useEffect(() => {
-    if (sessionStorage.getItem(COST_SESSION_KEY) === "1") setAuthed(true)
-  }, [])
 
   function submitPassword(e: React.FormEvent) {
     e.preventDefault()

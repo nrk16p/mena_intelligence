@@ -89,13 +89,9 @@ export default function TransactionDetailPage() {
   const todayYear = todayYM.split("-")[0]
 
   // ── Password gate ─────────────────────────────────────────────────────────
-  const [authed, setAuthed]   = useState(false)
+  const [authed, setAuthed]   = useState(true)
   const [pwInput, setPwInput] = useState("")
   const [pwError, setPwError] = useState(false)
-
-  useEffect(() => {
-    if (sessionStorage.getItem(COST_SESSION_KEY) === "1") setAuthed(true)
-  }, [])
 
   function submitPassword(e: React.FormEvent) {
     e.preventDefault()
