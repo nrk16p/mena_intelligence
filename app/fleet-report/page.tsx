@@ -263,42 +263,49 @@ export default function FleetReportPage() {
             <div style={{position:"relative", paddingBottom:"56.18%"}}>
               <div style={{position:"absolute", top:0, left:0, width:"200%", height:"200%", transform:"scale(0.5)", transformOrigin:"top left"}}>
 
-                {/* ══ SLIDE 680×382 ══ */}
+                {/* ══ SLIDE 1360×764 (2× for display, printed at 680×382) ══ */}
                 <div style={{
                   width:"1360px", height:"764px",
                   background:"#ffffff", fontFamily:"'Inter',ui-sans-serif,system-ui,sans-serif",
-                  color:"#1a1a1a", padding:"32px 40px",
-                  display:"grid", gridTemplateRows:"auto auto 1fr auto", gap:"16px",
+                  color:"#1a1a1a", padding:"28px 40px 24px",
+                  display:"grid", gridTemplateRows:"auto auto 1fr", gap:"14px",
                   boxSizing:"border-box",
                 }}>
 
                   {/* ── HEADER ── */}
-                  <div style={{display:"flex", justifyContent:"space-between", alignItems:"baseline", borderBottom:"1px solid #e5e7eb", paddingBottom:"12px"}}>
-                    <span style={{fontSize:"30px", fontWeight:500}}>Fleet Performance &amp; Cost Summary — {cy} vs {by}</span>
-                    <span style={{fontSize:"20px", color:"#6b7280"}}>{periodLabel} &nbsp;|&nbsp; Base: {by}</span>
+                  <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", borderBottom:"1.5px solid #e5e7eb", paddingBottom:"10px"}}>
+                    <div style={{display:"flex", alignItems:"center", gap:"12px"}}>
+                      <div style={{width:"6px", height:"28px", background:"#185FA5", borderRadius:"3px"}} />
+                      <span style={{fontSize:"28px", fontWeight:600, letterSpacing:"-0.3px"}}>Fleet Performance &amp; Cost Summary</span>
+                      <span style={{fontSize:"22px", color:"#9ca3af", fontWeight:400}}>{cy} vs {by}</span>
+                    </div>
+                    <div style={{textAlign:"right"}}>
+                      <div style={{fontSize:"18px", color:"#6b7280"}}>{periodLabel}</div>
+                      <div style={{fontSize:"15px", color:"#9ca3af"}}>Base year: {by}</div>
+                    </div>
                   </div>
 
                   {/* ── KPI ROW ── */}
-                  <div style={{display:"grid", gridTemplateColumns:"repeat(4,minmax(0,1fr))", gap:"14px"}}>
+                  <div style={{display:"grid", gridTemplateColumns:"repeat(4,minmax(0,1fr))", gap:"12px"}}>
                     {[
-                      { label:`Avg BD% — ML Fleet`, value: mlAvg>0?fmtPct(mlAvg):"—", valColor: bdColorClass(mlAvg), sub: mlYoyAvg!==0?`${sign(mlYoyAvg)}${fmtPct(mlYoyAvg,1)} YoY  |  ${mlBD26.toLocaleString()} events`:"—", subColor: mlYoyAvg>0?"red":"green" },
-                      { label:`Avg BD% — MS Fleet`, value: msAvg>0?fmtPct(msAvg):"—", valColor: bdColorClass(msAvg), sub: msYoyAvg!==0?`${sign(msYoyAvg)}${fmtPct(msYoyAvg,1)} YoY  |  ${msBD26.toLocaleString()} events`:"—", subColor: msYoyAvg>0?"red":"green" },
-                      { label:`YTD Cost — ลาดกระบัง & ขอนแก่น`, value: lbYTD26>0?fmtM(lbYTD26):"—", valColor: lbRisk==="red"?"red":lbRisk==="warn"?"amber":"green", sub: lbPct!==0?`${sign(lbPct)}${fmtPct(lbPct,1)} vs LY  |  Base: ${fmtM(lbYTD25)}`:"—", subColor: lbPct>0?"red":lbPct<0?"green":"amber" },
-                      { label:`YTD Cost — สระบุรี & DIST`, value: sbYTD26>0?fmtM(sbYTD26):"—", valColor: sbRisk==="red"?"red":sbRisk==="warn"?"amber":"green", sub: sbPct!==0?`${sign(sbPct)}${fmtPct(sbPct,1)} vs LY  |  Base: ${fmtM(sbYTD25)}`:"—", subColor: sbPct>0?"red":sbPct<0?"green":"amber" },
+                      { label:"Avg BD% — ML Fleet",              value: mlAvg>0?fmtPct(mlAvg):"—",  valColor: bdColorClass(mlAvg),                                    sub: mlYoyAvg!==0?`YoY ${sign(mlYoyAvg)}${fmtPct(mlYoyAvg,1)}  ·  ${mlBD26.toLocaleString()} events`:"—", subColor: mlYoyAvg>0?"red":"green" },
+                      { label:"Avg BD% — MS Fleet",              value: msAvg>0?fmtPct(msAvg):"—",  valColor: bdColorClass(msAvg),                                    sub: msYoyAvg!==0?`YoY ${sign(msYoyAvg)}${fmtPct(msYoyAvg,1)}  ·  ${msBD26.toLocaleString()} events`:"—", subColor: msYoyAvg>0?"red":"green" },
+                      { label:"YTD Cost — ลาดกระบัง & ขอนแก่น", value: lbYTD26>0?fmtM(lbYTD26):"—", valColor: lbRisk==="red"?"red":lbRisk==="warn"?"amber":"green",  sub: lbPct!==0?`${sign(lbPct)}${fmtPct(lbPct,1)} vs LY  ·  Base ${fmtM(lbYTD25)}`:"—", subColor: lbPct>0?"red":lbPct<0?"green":"amber" },
+                      { label:"YTD Cost — สระบุรี & DIST",        value: sbYTD26>0?fmtM(sbYTD26):"—", valColor: sbRisk==="red"?"red":sbRisk==="warn"?"amber":"green", sub: sbPct!==0?`${sign(sbPct)}${fmtPct(sbPct,1)} vs LY  ·  Base ${fmtM(sbYTD25)}`:"—", subColor: sbPct>0?"red":sbPct<0?"green":"amber" },
                     ].map((kpi, i) => (
-                      <div key={i} style={{background:"#f9fafb", borderRadius:"12px", padding:"12px 18px"}}>
-                        <div style={{fontSize:"18px", color:"#6b7280", marginBottom:"4px"}}>{kpi.label}</div>
-                        <div style={{fontSize:"34px", fontWeight:500, lineHeight:1, color: kpi.valColor==="red"?"#E24B4A":kpi.valColor==="amber"?"#BA7517":"#3B6D11"}}>{kpi.value}</div>
-                        <div style={{fontSize:"18px", marginTop:"4px", color: kpi.subColor==="red"?"#E24B4A":kpi.subColor==="green"?"#3B6D11":"#BA7517"}}>{kpi.sub}</div>
+                      <div key={i} style={{background:"#f9fafb", borderRadius:"10px", padding:"10px 16px", display:"flex", flexDirection:"column", justifyContent:"center"}}>
+                        <div style={{fontSize:"16px", color:"#9ca3af", marginBottom:"3px", fontWeight:500, letterSpacing:"0.02em"}}>{kpi.label}</div>
+                        <div style={{fontSize:"36px", fontWeight:600, lineHeight:1.1, color: kpi.valColor==="red"?"#E24B4A":kpi.valColor==="amber"?"#BA7517":"#3B6D11"}}>{kpi.value}</div>
+                        <div style={{fontSize:"16px", marginTop:"3px", color: kpi.subColor==="red"?"#E24B4A":kpi.subColor==="green"?"#3B6D11":"#BA7517"}}>{kpi.sub}</div>
                       </div>
                     ))}
                   </div>
 
                   {/* ── MAIN GRID (4 cards) ── */}
-                  <div style={{display:"grid", gridTemplateColumns:"repeat(4,minmax(0,1fr))", gap:"14px"}}>
+                  <div style={{display:"grid", gridTemplateColumns:"repeat(4,minmax(0,1fr))", gap:"12px", minHeight:0}}>
 
                     {/* ML Fleet card */}
-                    <div style={{background:"#fff", border:"1px solid #e5e7eb", borderRadius:"16px", padding:"14px 18px", overflow:"hidden"}}>
+                    <div style={{background:"#fff", border:"1px solid #e5e7eb", borderRadius:"12px", padding:"14px 18px", overflow:"hidden", display:"flex", flexDirection:"column"}}>
                       <div style={{fontSize:"20px", fontWeight:500, marginBottom:"10px", display:"flex", alignItems:"center", gap:"8px"}}>
                         ML Fleet
                         <span style={{fontSize:"18px", padding:"2px 10px", borderRadius:"6px", fontWeight:500,
@@ -328,10 +335,10 @@ export default function FleetReportPage() {
                         <tbody>
                           {mlRows.map(r => (
                             <tr key={r.mm}>
-                              <td style={{padding:"5px 8px", borderBottom:"1px solid #f3f4f6"}}>{MONTH_SHORT[r.mm]}</td>
-                              <td style={{padding:"5px 8px", borderBottom:"1px solid #f3f4f6", color: r.p26!=null?( r.p26>=10?"#E24B4A":r.p26>=5?"#BA7517":"#3B6D11" ):"#9ca3af"}}>{r.p26!=null?fmtPct(r.p26):"—"}</td>
-                              <td style={{padding:"5px 8px", borderBottom:"1px solid #f3f4f6", color:"#6b7280"}}>{r.p25!=null?fmtPct(r.p25):"—"}</td>
-                              <td style={{padding:"5px 8px", borderBottom:"1px solid #f3f4f6", color: r.yoy!=null?(r.yoy>0?"#E24B4A":"#3B6D11"):"#9ca3af"}}>{r.yoy!=null?`${sign(r.yoy)}${fmtPct(r.yoy,0)}`:"—"}</td>
+                              <td style={{padding:"6px 8px", borderBottom:"1px solid #f3f4f6"}}>{MONTH_SHORT[r.mm]}</td>
+                              <td style={{padding:"6px 8px", borderBottom:"1px solid #f3f4f6", color: r.p26!=null?( r.p26>=10?"#E24B4A":r.p26>=5?"#BA7517":"#3B6D11" ):"#9ca3af"}}>{r.p26!=null?fmtPct(r.p26):"—"}</td>
+                              <td style={{padding:"6px 8px", borderBottom:"1px solid #f3f4f6", color:"#6b7280"}}>{r.p25!=null?fmtPct(r.p25):"—"}</td>
+                              <td style={{padding:"6px 8px", borderBottom:"1px solid #f3f4f6", color: r.yoy!=null?(r.yoy>0?"#E24B4A":"#3B6D11"):"#9ca3af"}}>{r.yoy!=null?`${sign(r.yoy)}${fmtPct(r.yoy,0)}`:"—"}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -339,7 +346,7 @@ export default function FleetReportPage() {
                     </div>
 
                     {/* MS Fleet card */}
-                    <div style={{background:"#fff", border:"1px solid #e5e7eb", borderRadius:"16px", padding:"14px 18px", overflow:"hidden"}}>
+                    <div style={{background:"#fff", border:"1px solid #e5e7eb", borderRadius:"12px", padding:"14px 18px", overflow:"hidden", display:"flex", flexDirection:"column"}}>
                       <div style={{fontSize:"20px", fontWeight:500, marginBottom:"10px", display:"flex", alignItems:"center", gap:"8px"}}>
                         MS Fleet
                         <span style={{fontSize:"18px", padding:"2px 10px", borderRadius:"6px", fontWeight:500,
@@ -380,7 +387,7 @@ export default function FleetReportPage() {
                     </div>
 
                     {/* LB Cost card */}
-                    <div style={{background:"#fff", border:"1px solid #e5e7eb", borderRadius:"16px", padding:"14px 18px", overflow:"hidden"}}>
+                    <div style={{background:"#fff", border:"1px solid #e5e7eb", borderRadius:"12px", padding:"14px 18px", overflow:"hidden", display:"flex", flexDirection:"column"}}>
                       <div style={{fontSize:"20px", fontWeight:500, marginBottom:"10px", display:"flex", alignItems:"center", gap:"8px"}}>
                         ลาดกระบัง &amp; ขอนแก่น
                         <span style={{fontSize:"18px", padding:"2px 10px", borderRadius:"6px", fontWeight:500,
@@ -420,7 +427,7 @@ export default function FleetReportPage() {
                     </div>
 
                     {/* SB Cost card */}
-                    <div style={{background:"#fff", border:"1px solid #e5e7eb", borderRadius:"16px", padding:"14px 18px", overflow:"hidden"}}>
+                    <div style={{background:"#fff", border:"1px solid #e5e7eb", borderRadius:"12px", padding:"14px 18px", overflow:"hidden", display:"flex", flexDirection:"column"}}>
                       <div style={{fontSize:"20px", fontWeight:500, marginBottom:"10px", display:"flex", alignItems:"center", gap:"8px"}}>
                         สระบุรี &amp; DIST
                         <span style={{fontSize:"18px", padding:"2px 10px", borderRadius:"6px", fontWeight:500,
@@ -460,20 +467,6 @@ export default function FleetReportPage() {
                     </div>
 
                   </div>{/* /main-grid */}
-
-                  {/* ── INSIGHTS ── */}
-                  <div style={{display:"grid", gridTemplateColumns:"repeat(4,minmax(0,1fr))", gap:"14px"}}>
-                    {insights.map((ins, i) => (
-                      <div key={i} style={{
-                        borderLeft: `4px solid ${ins.type==="red"?"#E24B4A":ins.type==="warn"?"#BA7517":"#639922"}`,
-                        background:"#f9fafb", borderRadius:"0 10px 10px 0",
-                        padding:"10px 14px", fontSize:"18px", lineHeight:1.5,
-                      }}>
-                        <strong style={{fontWeight:500, display:"block", marginBottom:"2px", fontSize:"19px"}}>{ins.title}</strong>
-                        {ins.body}
-                      </div>
-                    ))}
-                  </div>
 
                 </div>{/* /slide */}
               </div>
