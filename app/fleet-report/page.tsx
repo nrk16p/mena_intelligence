@@ -125,6 +125,11 @@ export default function FleetReportPage() {
     if (!r || !Number(r.truck_count)) return null;
     return Number(r.breakdown_count) / (Number(r.truck_count) * daysInMY(`${mm}-${yyS}`)) * 100;
   }
+  function getBDCount(data: BDRow[], fleet: string, mm: string, yyS: string) {
+    const r = data.find(r => String(r.fleet_group_id) === fleet && r.month_year === `${mm}-${yyS}`);
+    if (!r) return null;
+    return Number(r.breakdown_count) / daysInMY(`${mm}-${yyS}`);
+  }
   function getTrucks(data: BDRow[], fleet: string, mm: string, yyS: string) {
     return Number(data.find(r => String(r.fleet_group_id) === fleet && r.month_year === `${mm}-${yyS}`)?.truck_count ?? 0);
   }
@@ -141,13 +146,17 @@ export default function FleetReportPage() {
     const p26 = getBD(bd26, FLEET_ML, mm, yy);
     const p25 = getBD(bd25, FLEET_ML, mm, yyBase);
     const yoy = p26 != null && p25 != null && p25 > 0 ? (p26-p25)/p25*100 : null;
-    return { mm, p26, p25, yoy };
+    const n26 = getBDCount(bd26, FLEET_ML, mm, yy);
+    const n25 = getBDCount(bd25, FLEET_ML, mm, yyBase);
+    return { mm, p26, p25, yoy, n26, n25 };
   });
   const msRows = monthRange.map(mm => {
     const p26 = getBD(bd26, FLEET_MS, mm, yy);
     const p25 = getBD(bd25, FLEET_MS, mm, yyBase);
     const yoy = p26 != null && p25 != null && p25 > 0 ? (p26-p25)/p25*100 : null;
-    return { mm, p26, p25, yoy };
+    const n26 = getBDCount(bd26, FLEET_MS, mm, yy);
+    const n25 = getBDCount(bd25, FLEET_MS, mm, yyBase);
+    return { mm, p26, p25, yoy, n26, n25 };
   });
 
   // Averages & totals
@@ -361,8 +370,14 @@ export default function FleetReportPage() {
                       {mlRows.map(r => (
                         <tr key={r.mm}>
                           <td style={{padding:"3px 6px", borderBottom:"1px solid #f3f4f6"}}>{MONTH_SHORT[r.mm]}</td>
-                          <td style={{padding:"3px 6px", borderBottom:"1px solid #f3f4f6", color: r.p26!=null?(r.p26>=10?"#E24B4A":r.p26>=5?"#BA7517":"#3B6D11"):"#9ca3af"}}>{r.p26!=null?fmtPct(r.p26):"—"}</td>
-                          <td style={{padding:"3px 6px", borderBottom:"1px solid #f3f4f6", color:"#6b7280"}}>{r.p25!=null?fmtPct(r.p25):"—"}</td>
+                          <td style={{padding:"3px 6px", borderBottom:"1px solid #f3f4f6", color: r.p26!=null?(r.p26>=10?"#E24B4A":r.p26>=5?"#BA7517":"#3B6D11"):"#9ca3af"}}>
+                            {r.p26!=null?fmtPct(r.p26):"—"}
+                            {r.n26!=null&&<div style={{fontSize:"10px", color:"#9ca3af", lineHeight:1.2}}>{r.n26.toFixed(1)}</div>}
+                          </td>
+                          <td style={{padding:"3px 6px", borderBottom:"1px solid #f3f4f6", color:"#6b7280"}}>
+                            {r.p25!=null?fmtPct(r.p25):"—"}
+                            {r.n25!=null&&<div style={{fontSize:"10px", color:"#d1d5db", lineHeight:1.2}}>{r.n25.toFixed(1)}</div>}
+                          </td>
                           <td style={{padding:"3px 6px", borderBottom:"1px solid #f3f4f6", color: r.yoy!=null?(r.yoy>0?"#E24B4A":"#3B6D11"):"#9ca3af"}}>{r.yoy!=null?`${sign(r.yoy)}${fmtPct(r.yoy,0)}`:"—"}</td>
                         </tr>
                       ))}
@@ -395,8 +410,14 @@ export default function FleetReportPage() {
                       {msRows.map(r => (
                         <tr key={r.mm}>
                           <td style={{padding:"3px 6px", borderBottom:"1px solid #f3f4f6"}}>{MONTH_SHORT[r.mm]}</td>
-                          <td style={{padding:"3px 6px", borderBottom:"1px solid #f3f4f6", color: r.p26!=null?(r.p26>=10?"#E24B4A":r.p26>=5?"#BA7517":"#3B6D11"):"#9ca3af"}}>{r.p26!=null?fmtPct(r.p26):"—"}</td>
-                          <td style={{padding:"3px 6px", borderBottom:"1px solid #f3f4f6", color:"#6b7280"}}>{r.p25!=null?fmtPct(r.p25):"—"}</td>
+                          <td style={{padding:"3px 6px", borderBottom:"1px solid #f3f4f6", color: r.p26!=null?(r.p26>=10?"#E24B4A":r.p26>=5?"#BA7517":"#3B6D11"):"#9ca3af"}}>
+                            {r.p26!=null?fmtPct(r.p26):"—"}
+                            {r.n26!=null&&<div style={{fontSize:"10px", color:"#9ca3af", lineHeight:1.2}}>{r.n26.toFixed(1)}</div>}
+                          </td>
+                          <td style={{padding:"3px 6px", borderBottom:"1px solid #f3f4f6", color:"#6b7280"}}>
+                            {r.p25!=null?fmtPct(r.p25):"—"}
+                            {r.n25!=null&&<div style={{fontSize:"10px", color:"#d1d5db", lineHeight:1.2}}>{r.n25.toFixed(1)}</div>}
+                          </td>
                           <td style={{padding:"3px 6px", borderBottom:"1px solid #f3f4f6", color: r.yoy!=null?(r.yoy>0?"#E24B4A":"#3B6D11"):"#9ca3af"}}>{r.yoy!=null?`${sign(r.yoy)}${fmtPct(r.yoy,0)}`:"—"}</td>
                         </tr>
                       ))}
