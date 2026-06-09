@@ -353,7 +353,7 @@ export default function FleetReportPage() {
                   {[
                     { label:"Best",   val: mlBest?.p26!=null  ? `${MONTH_SHORT[mlBest.mm]} — ${fmtPct(mlBest.p26)}`   : "—", color:"green" },
                     { label:"Worst",  val: mlWorst?.p26!=null ? `${MONTH_SHORT[mlWorst.mm]} — ${fmtPct(mlWorst.p26)}` : "—", color:"red"   },
-                    { label:"Trucks", val: mlTrucks.length ? `${mlTrucks[0]} → ${mlTrucks[mlTrucks.length-1]}` : "—",         color:""      },
+                    { label:"Trucks", val: mlTrucks.length ? `${mlTrucks[mlTrucks.length-1]}` : "—",         color:""      },
                   ].map(row => (
                     <div key={row.label} style={{display:"flex", justifyContent:"space-between", fontSize:"12px", padding:"3px 0", borderBottom:"1px solid #f3f4f6"}}>
                       <span style={{color:"#9ca3af"}}>{row.label}</span>
@@ -393,7 +393,7 @@ export default function FleetReportPage() {
                   {[
                     { label:"Best",   val: msBest?.p26!=null  ? `${MONTH_SHORT[msBest.mm]} — ${fmtPct(msBest.p26)}`   : "—", color:"green" },
                     { label:"Worst",  val: msWorst?.p26!=null ? `${MONTH_SHORT[msWorst.mm]} — ${fmtPct(msWorst.p26)}` : "—", color:"red"   },
-                    { label:"Trucks", val: msTrucks.length ? `${msTrucks[0]} → ${msTrucks[msTrucks.length-1]}` : "—",         color:""      },
+                    { label:"Trucks", val: msTrucks.length ? `${msTrucks[msTrucks.length-1]}` : "—",         color:""      },
                   ].map(row => (
                     <div key={row.label} style={{display:"flex", justifyContent:"space-between", fontSize:"12px", padding:"3px 0", borderBottom:"1px solid #f3f4f6"}}>
                       <span style={{color:"#9ca3af"}}>{row.label}</span>
