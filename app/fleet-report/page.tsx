@@ -1,6 +1,37 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 
+// ── Truck icons ───────────────────────────────────────────────────────────────
+function IconMixer({ size = 15, color = "currentColor" }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 22 16" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{flexShrink:0}}>
+      {/* cab */}
+      <rect x="0.5" y="3" width="7" height="9" rx="1"/>
+      <path d="M7 3h3l2 4v5H7V3z"/>
+      {/* mixer drum */}
+      <circle cx="17" cy="7" r="4.5"/>
+      <path d="M17 2.5v9M12.5 7h9"/>
+      {/* wheels */}
+      <circle cx="3" cy="13.5" r="1.5" fill={color} stroke="none"/>
+      <circle cx="17" cy="13.5" r="1.5" fill={color} stroke="none"/>
+    </svg>
+  );
+}
+function IconTrailer({ size = 15, color = "currentColor" }: { size?: number; color?: string }) {
+  return (
+    <svg width={size + 6} height={size} viewBox="0 0 26 16" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{flexShrink:0}}>
+      {/* trailer box */}
+      <rect x="0.5" y="3" width="16" height="9" rx="1"/>
+      {/* cab */}
+      <path d="M16 5h5l2 4v4h-7V5z"/>
+      {/* wheels */}
+      <circle cx="4" cy="13.5" r="1.5" fill={color} stroke="none"/>
+      <circle cx="12" cy="13.5" r="1.5" fill={color} stroke="none"/>
+      <circle cx="22" cy="13.5" r="1.5" fill={color} stroke="none"/>
+    </svg>
+  );
+}
+
 // ── Config ────────────────────────────────────────────────────────────────────
 const FLEET_ML  = "1";
 const FLEET_MS  = "2";
@@ -298,22 +329,18 @@ export default function FleetReportPage() {
           <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:"14px", minHeight:0}}>
 
             {/* ── BREAKDOWN RATE section ── */}
-            <div style={{display:"flex", flexDirection:"column", gap:"5px", minHeight:0}}>
+            <div style={{display:"flex", flexDirection:"column", gap:"6px", minHeight:0, background:"#f0fdf4", borderRadius:"10px", padding:"8px 10px"}}>
               <div style={{display:"flex", alignItems:"center", gap:"6px"}}>
-                <div style={{width:"3px", height:"13px", background:"#185FA5", borderRadius:"1px", flexShrink:0}} />
-                <span style={{fontSize:"10px", fontWeight:600, color:"#6b7280", letterSpacing:"0.07em", textTransform:"uppercase" as const}}>Breakdown Rate</span>
+                <div style={{width:"3px", height:"13px", background:"#16a34a", borderRadius:"1px", flexShrink:0}} />
+                <span style={{fontSize:"10px", fontWeight:600, color:"#16a34a", letterSpacing:"0.07em", textTransform:"uppercase" as const}}>Breakdown Rate</span>
               </div>
               <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:"8px", flex:1, minHeight:0}}>
 
                 {/* ML Fleet card */}
-                <div style={{background:"#fff", border:"1px solid #e5e7eb", borderRadius:"8px", padding:"10px 14px", overflow:"hidden", display:"flex", flexDirection:"column"}}>
-                  <div style={{fontSize:"13px", fontWeight:500, marginBottom:"6px", display:"flex", alignItems:"center", gap:"6px"}}>
+                <div style={{background:"#fff", border:"1px solid #bbf7d0", borderLeft:"3px solid #16a34a", borderRadius:"8px", padding:"10px 14px", overflow:"hidden", display:"flex", flexDirection:"column"}}>
+                  <div style={{fontSize:"13px", fontWeight:600, marginBottom:"6px", display:"flex", alignItems:"center", gap:"6px", color:"#15803d"}}>
+                    <IconMixer color="#16a34a" />
                     ML Fleet
-                    <span style={{fontSize:"11px", padding:"1px 7px", borderRadius:"4px", fontWeight:500,
-                      background: mlRisk==="red"?"#FCEBEB":mlRisk==="warn"?"#FAEEDA":"#EAF3DE",
-                      color:      mlRisk==="red"?"#A32D2D":mlRisk==="warn"?"#854F0B":"#3B6D11"}}>
-                      {riskBadge(mlRisk).label}
-                    </span>
                   </div>
                   {[
                     { label:"Best",   val: mlBest?.p26!=null  ? `${MONTH_SHORT[mlBest.mm]} — ${fmtPct(mlBest.p26)}`   : "—", color:"green" },
@@ -345,14 +372,10 @@ export default function FleetReportPage() {
                 </div>
 
                 {/* MS Fleet card */}
-                <div style={{background:"#fff", border:"1px solid #e5e7eb", borderRadius:"8px", padding:"10px 14px", overflow:"hidden", display:"flex", flexDirection:"column"}}>
-                  <div style={{fontSize:"13px", fontWeight:500, marginBottom:"6px", display:"flex", alignItems:"center", gap:"6px"}}>
+                <div style={{background:"#fff", border:"1px solid #bbf7d0", borderLeft:"3px solid #16a34a", borderRadius:"8px", padding:"10px 14px", overflow:"hidden", display:"flex", flexDirection:"column"}}>
+                  <div style={{fontSize:"13px", fontWeight:600, marginBottom:"6px", display:"flex", alignItems:"center", gap:"6px", color:"#15803d"}}>
+                    <IconTrailer color="#16a34a" />
                     MS Fleet
-                    <span style={{fontSize:"11px", padding:"1px 7px", borderRadius:"4px", fontWeight:500,
-                      background: msRisk==="red"?"#FCEBEB":msRisk==="warn"?"#FAEEDA":"#EAF3DE",
-                      color:      msRisk==="red"?"#A32D2D":msRisk==="warn"?"#854F0B":"#3B6D11"}}>
-                      {riskBadge(msRisk).label}
-                    </span>
                   </div>
                   {[
                     { label:"Best",   val: msBest?.p26!=null  ? `${MONTH_SHORT[msBest.mm]} — ${fmtPct(msBest.p26)}`   : "—", color:"green" },
@@ -387,15 +410,15 @@ export default function FleetReportPage() {
             </div>
 
             {/* ── COST MONITORING section ── */}
-            <div style={{display:"flex", flexDirection:"column", gap:"5px", minHeight:0}}>
+            <div style={{display:"flex", flexDirection:"column", gap:"6px", minHeight:0, background:"#eff6ff", borderRadius:"10px", padding:"8px 10px"}}>
               <div style={{display:"flex", alignItems:"center", gap:"6px"}}>
-                <div style={{width:"3px", height:"13px", background:"#BA7517", borderRadius:"1px", flexShrink:0}} />
-                <span style={{fontSize:"10px", fontWeight:600, color:"#6b7280", letterSpacing:"0.07em", textTransform:"uppercase" as const}}>Cost Monitoring</span>
+                <div style={{width:"3px", height:"13px", background:"#185FA5", borderRadius:"1px", flexShrink:0}} />
+                <span style={{fontSize:"10px", fontWeight:600, color:"#185FA5", letterSpacing:"0.07em", textTransform:"uppercase" as const}}>Cost Monitoring</span>
               </div>
               <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:"8px", flex:1, minHeight:0}}>
 
                 {/* LB Cost card */}
-                <div style={{background:"#fff", border:"1px solid #e5e7eb", borderRadius:"8px", padding:"10px 14px", overflow:"hidden", display:"flex", flexDirection:"column"}}>
+                <div style={{background:"#fff", border:"1px solid #bfdbfe", borderLeft:"3px solid #185FA5", borderRadius:"8px", padding:"10px 14px", overflow:"hidden", display:"flex", flexDirection:"column"}}>
                   <div style={{fontSize:"13px", fontWeight:500, marginBottom:"6px", display:"flex", alignItems:"center", gap:"6px"}}>
                     ลาดกระบัง &amp; ขอนแก่น
                     <span style={{fontSize:"11px", padding:"1px 7px", borderRadius:"4px", fontWeight:500,
@@ -435,7 +458,7 @@ export default function FleetReportPage() {
                 </div>
 
                 {/* SB Cost card */}
-                <div style={{background:"#fff", border:"1px solid #e5e7eb", borderRadius:"8px", padding:"10px 14px", overflow:"hidden", display:"flex", flexDirection:"column"}}>
+                <div style={{background:"#fff", border:"1px solid #bfdbfe", borderLeft:"3px solid #185FA5", borderRadius:"8px", padding:"10px 14px", overflow:"hidden", display:"flex", flexDirection:"column"}}>
                   <div style={{fontSize:"13px", fontWeight:500, marginBottom:"6px", display:"flex", alignItems:"center", gap:"6px"}}>
                     สระบุรี &amp; DIST
                     <span style={{fontSize:"11px", padding:"1px 7px", borderRadius:"4px", fontWeight:500,
