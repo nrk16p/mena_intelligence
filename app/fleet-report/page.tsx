@@ -7,6 +7,8 @@ const FLEET_MS  = "2";
 const LB_WH     = ["คลังลาดกระบัง", "คลังขอนแก่น"];
 const SB_WH     = ["คลังสระบุรี", "คลัง DIST"];
 
+const PARTNER_FLAGS = ["รถมีนา", "หางมีนา", "รถสำนักงาน", "รถร่วมมีนา"];
+
 const MONTH_SHORT: Record<string,string> = {
   "01":"Jan","02":"Feb","03":"Mar","04":"Apr","05":"May","06":"Jun",
   "07":"Jul","08":"Aug","09":"Sep","10":"Oct","11":"Nov","12":"Dec",
@@ -51,21 +53,25 @@ export default function FleetReportPage() {
   const [yyBase,  setYyBase]  = useState("25");
   const [inputYy, setInputYy] = useState("26");
   const [inputBy, setInputBy] = useState("25");
-  const [bd26,    setBd26]    = useState<BDRow[]>([]);
-  const [bd25,    setBd25]    = useState<BDRow[]>([]);
-  const [cost26,  setCost26]  = useState<CostRow[]>([]);
-  const [cost25,  setCost25]  = useState<CostRow[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [bd26,         setBd26]         = useState<BDRow[]>([]);
+  const [bd25,         setBd25]         = useState<BDRow[]>([]);
+  const [cost26,       setCost26]       = useState<CostRow[]>([]);
+  const [cost25,       setCost25]       = useState<CostRow[]>([]);
+  const [selectedFlags, setSelectedFlags] = useState<Set<string>>(new Set());
+  const [loading,      setLoading]      = useState(false);
 
   const doFetch = useCallback(async () => {
     setLoading(true);
     try {
       const cy = `20${yy}`, by = `20${yyBase}`;
+      const flagParam = selectedFlags.size > 0
+        ? `&partner_flag=${encodeURIComponent([...selectedFlags].join(","))}`
+        : "";
       const [r1,r2,r3,r4] = await Promise.all([
         fetch(`/api/truck-utilize/breakdown?start=${fromMM}-${yy}&end=${toMM}-${yy}`),
         fetch(`/api/truck-utilize/breakdown?start=${fromMM}-${yyBase}&end=${toMM}-${yyBase}`),
-        fetch(`/api/cost/summary?group_by=${encodeURIComponent("คลังสินค้า")}&start=${cy}-${fromMM}&end=${cy}-${toMM}`),
-        fetch(`/api/cost/summary?group_by=${encodeURIComponent("คลังสินค้า")}&start=${by}-${fromMM}&end=${by}-${toMM}`),
+        fetch(`/api/cost/summary?group_by=${encodeURIComponent("คลังสินค้า")}&start=${cy}-${fromMM}&end=${cy}-${toMM}${flagParam}`),
+        fetch(`/api/cost/summary?group_by=${encodeURIComponent("คลังสินค้า")}&start=${by}-${fromMM}&end=${by}-${toMM}${flagParam}`),
       ]);
       const [j1,j2,j3,j4] = await Promise.all([r1.json(),r2.json(),r3.json(),r4.json()]);
       if (j1.success) setBd26(j1.data);
@@ -74,7 +80,7 @@ export default function FleetReportPage() {
       if (j3.success) setCost26(mapCost(j3.data));
       if (j4.success) setCost25(mapCost(j4.data));
     } finally { setLoading(false); }
-  }, [fromMM, toMM, yy, yyBase]);
+  }, [fromMM, toMM, yy, yyBase, selectedFlags]);
 
   useEffect(() => { doFetch(); }, [doFetch]);
 
@@ -209,6 +215,38 @@ export default function FleetReportPage() {
           className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition shadow-sm">
           Apply
         </button>
+
+        {/* ── Partner Flag divider + chips ── */}
+        <div className="hidden lg:block w-px h-6 bg-gray-200 dark:bg-zinc-700 shrink-0" />
+        <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+          <span className="text-xs text-gray-400 shrink-0">Cost by</span>
+          {PARTNER_FLAGS.map(flag => {
+            const active = selectedFlags.has(flag);
+            return (
+              <button key={flag} onClick={() => {
+                setSelectedFlags(prev => {
+                  const next = new Set(prev);
+                  if (next.has(flag)) next.delete(flag); else next.add(flag);
+                  return next;
+                });
+              }}
+                className={`px-2.5 py-1 rounded-full text-xs font-medium border transition ${
+                  active
+                    ? "bg-gray-900 text-white border-gray-900 dark:bg-white dark:text-gray-900 dark:border-white"
+                    : "bg-white text-gray-500 border-gray-200 hover:border-gray-400 dark:bg-zinc-800 dark:text-gray-400 dark:border-zinc-600"
+                }`}>
+                {flag}
+              </button>
+            );
+          })}
+          {selectedFlags.size > 0 && (
+            <button onClick={() => setSelectedFlags(new Set())}
+              className="text-xs text-gray-400 hover:text-gray-600 transition underline ml-1">
+              clear
+            </button>
+          )}
+        </div>
+
         <button onClick={() => window.print()}
           className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition shadow-sm ml-auto">
           🖨 Export PDF

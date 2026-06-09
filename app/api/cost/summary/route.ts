@@ -41,7 +41,11 @@ export async function GET(req: Request) {
     else if (start)     match.month_year = { $gte: start };
     else if (end)       match.month_year = { $lte: end };
 
-    if (partnerFlag)    match.partner_flag = partnerFlag;
+    if (partnerFlag) {
+      const flags = partnerFlag.split(",").map((f: string) => f.trim()).filter(Boolean);
+      if (flags.length === 1) match.partner_flag = flags[0];
+      else if (flags.length > 1) match.partner_flag = { $in: flags };
+    }
     if (customer)       match.customer = { $regex: customer.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" };
 
     // Multi-warehouse filter (comma-separated)
