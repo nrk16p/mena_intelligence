@@ -4,8 +4,8 @@ import { useEffect, useState, useCallback } from "react";
 // ── Config ────────────────────────────────────────────────────────────────────
 const FLEET_ML  = "1";
 const FLEET_MS  = "2";
-const LB_WH     = ["ลาดกระบัง", "ขอนแก่น"];
-const SB_WH     = ["สระบุรี", "DIST"];
+const LB_WH     = ["คลังลาดกระบัง", "คลังขอนแก่น"];
+const SB_WH     = ["คลังสระบุรี", "คลัง DIST"];
 
 const MONTH_SHORT: Record<string,string> = {
   "01":"Jan","02":"Feb","03":"Mar","04":"Apr","05":"May","06":"Jun",
