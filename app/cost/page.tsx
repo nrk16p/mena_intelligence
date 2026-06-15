@@ -1,6 +1,8 @@
 "use client"
 
 import React, { useEffect, useMemo, useState } from "react"
+import { useSetAiContext } from "@/lib/ai-context"
+import { AiInsightsPanel } from "@/components/ai-insights-panel"
 import {
   Bar,
   Cell,
@@ -210,6 +212,7 @@ const COST_SESSION_KEY = "cost_authed"
 export default function CostPage() {
   const todayYM   = nowYM()
   const todayYear = todayYM.split("-")[0]
+  const setAiContext = useSetAiContext()
 
   // ── Password gate ─────────────────────────────────────────────────────────
   const [authed, setAuthed]         = useState(true)
@@ -969,19 +972,26 @@ export default function CostPage() {
 
   const prevYear = String(Number(year) - 1)
 
-  // ── AI Chat ───────────────────────────────────────────────────────────────
-  type ChatMessage = { role: "user" | "assistant"; content: string }
-  const [chatOpen, setChatOpen]         = useState(false)
-  const [chatInput, setChatInput]       = useState("")
-  const [chatHistory, setChatHistory]   = useState<ChatMessage[]>([])
-  const [chatLoading, setChatLoading]   = useState(false)
-  const [ollamaModel, setOllamaModel]   = useState("llama3.2")
-  const [showContext, setShowContext]   = useState(false)
-  const chatEndRef = React.useRef<HTMLDivElement>(null)
-
+  // ── AI context — feeds the global chat widget ─────────────────────────────
   function buildDataContext(): string {
     const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 0 })
     const lines: string[] = []
+
+    // ── 0. Definitions ───────────────────────────────────────────────────────
+    lines.push("=== PAGE: Cost Monitoring Dashboard ===")
+    lines.push("METRIC DEFINITIONS:")
+    lines.push("- Total Cost: Sum of all maintenance & repair expenses (THB)")
+    lines.push("- YoY Change: (Current Year Cost − Previous Year Cost) / Previous Year Cost × 100%")
+    lines.push("- PM (Preventive Maintenance): Planned oil changes, chassis, cooling system")
+    lines.push("- CM (Corrective Maintenance): Unscheduled repairs, spare parts, other reactive costs")
+    lines.push("- T - Tire: All tire-related costs")
+    lines.push("- AC - Accident Repair: Collision and accident damage repairs")
+    lines.push("- Tools & Equipment: Mechanic tools and personal equipment")
+    lines.push("MANAGEMENT TARGETS:")
+    lines.push("- Reduce total cost by 15% YoY → Target = prev year × 0.85")
+    lines.push("- YoY < -15% = Met target (GOOD) | -15%–0% = Improving | >0% = OVERSPENDING (BAD)")
+    lines.push("- Higher PM vs CM ratio = better (proactive > reactive maintenance)")
+    lines.push("")
 
     // ── 1. Overview ──────────────────────────────────────────────────────────
     lines.push("=== OVERVIEW ===")
@@ -1080,55 +1090,12 @@ export default function CostPage() {
     return lines.join("\n")
   }
 
-  async function sendChat() {
-    const q = chatInput.trim()
-    if (!q || chatLoading) return
-
-    const userMsg: ChatMessage = { role: "user", content: q }
-    const newHistory = [...chatHistory, userMsg]
-    setChatHistory(newHistory)
-    setChatInput("")
-    setChatLoading(true)
-
-    const assistantMsg: ChatMessage = { role: "assistant", content: "" }
-    setChatHistory([...newHistory, assistantMsg])
-
-    try {
-      const res = await fetch("/api/cost/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          question: q,
-          context: buildDataContext(),
-          model: ollamaModel,
-          // keep last 6 messages (3 turns) so context window doesn't overflow
-          history: chatHistory.slice(-6).map((m) => ({ role: m.role, content: m.content })),
-        }),
-      })
-
-      if (!res.ok || !res.body) {
-        const err = await res.text()
-        setChatHistory([...newHistory, { role: "assistant", content: `⚠️ ${err}` }])
-        return
-      }
-
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let full = ""
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        full += decoder.decode(value)
-        setChatHistory([...newHistory, { role: "assistant", content: full }])
-        chatEndRef.current?.scrollIntoView({ behavior: "smooth" })
-      }
-    } catch (e: any) {
-      setChatHistory([...newHistory, { role: "assistant", content: `⚠️ ${e.message}` }])
-    } finally {
-      setChatLoading(false)
-    }
-  }
+  // Push to global AI chat widget whenever data changes
+  useEffect(() => {
+    if (!hasSearched) return
+    setAiContext(buildDataContext(), `Cost ${startMonth}–${endMonth}`)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasSearched, mappedCurr, mappedPrev, currCounts, prevCounts, detailData, costGroupComparison, autoGroupBreakdownRows])
 
   // ── Render ────────────────────────────────────────────────────────────────
   if (!authed) {
@@ -1218,6 +1185,9 @@ export default function CostPage() {
           </div>
         )}
 
+
+      {/* ── AI Insights ──────────────────────────────────────────────────── */}
+      {hasSearched && <AiInsightsPanel />}
 
       {/* ── Cost Group YoY comparison ─────────────────────────────────────── */}
       {hasSearched && costGroupComparison.length > 0 && (
@@ -2196,116 +2166,6 @@ export default function CostPage() {
         )}
 
       </div> {/* end right sidebar */}
-
-      {/* ── Ollama Chat (floating) ────────────────────────────────────────── */}
-      <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3">
-
-        {/* Chat panel */}
-        {chatOpen && (
-          <div className="flex flex-col w-[380px] h-[520px] rounded-2xl border border-gray-200 bg-white shadow-2xl overflow-hidden">
-
-            {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 bg-gray-900">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-white">AI Assistant</span>
-                <span className="text-[10px] text-gray-400 bg-gray-700 rounded px-1.5 py-0.5">Ollama</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  value={ollamaModel}
-                  onChange={(e) => setOllamaModel(e.target.value)}
-                  className="w-24 rounded-lg bg-gray-700 px-2 py-1 text-[10px] text-gray-300 focus:outline-none"
-                  placeholder="model name"
-                />
-                <button onClick={() => setShowContext((v) => !v)} className={`text-[10px] transition px-1.5 py-0.5 rounded ${showContext ? "bg-blue-600 text-white" : "text-gray-500 hover:text-gray-300"}`}>Data</button>
-                <button onClick={() => setChatHistory([])} className="text-[10px] text-gray-500 hover:text-gray-300 transition">Clear</button>
-                <button onClick={() => setChatOpen(false)} className="text-gray-400 hover:text-white transition text-lg leading-none">×</button>
-              </div>
-            </div>
-
-            {/* Context preview */}
-            {showContext && (
-              <div className="border-b border-gray-100 bg-gray-50 px-4 py-2 max-h-40 overflow-y-auto">
-                <p className="text-[9px] font-semibold text-gray-400 mb-1">DATA SENT TO MODEL</p>
-                <pre className="text-[9px] text-gray-500 whitespace-pre-wrap">{buildDataContext()}</pre>
-              </div>
-            )}
-
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 text-xs">
-              {!hasSearched && (
-                <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-[10px] text-amber-600">
-                  ⚠️ No data loaded — click <strong>Search</strong> first so the AI has real data to answer from.
-                </div>
-              )}
-              {hasSearched && autoGroupBreakdownRows.length === 0 && (
-                <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-[10px] text-amber-600">
-                  ⚠️ Breakdown data is empty — make sure the breakdown table has loaded.
-                </div>
-              )}
-              {chatHistory.length === 0 && (
-                <div className="text-center text-gray-300 pt-4 space-y-2">
-                  <p className="font-medium text-gray-500">Ask about your cost data</p>
-                  {[
-                    "กลุ่มไหนมีค่าใช้จ่ายสูงสุดในปีนี้?",
-                    "Top 3 most expensive product codes?",
-                    "YoY change ของ อะไหล่ เป็นเท่าไหร่?",
-                  ].map((s) => (
-                    <button key={s} onClick={() => setChatInput(s)}
-                      className="block w-full text-left rounded-xl border border-gray-100 px-3 py-2 text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition">
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              )}
-              {chatHistory.map((msg, i) => (
-                <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                  <div className={`max-w-[85%] rounded-2xl px-3 py-2 whitespace-pre-wrap leading-relaxed ${
-                    msg.role === "user"
-                      ? "bg-gray-900 text-white rounded-br-sm"
-                      : "bg-gray-100 text-gray-700 rounded-bl-sm"
-                  }`}>
-                    {msg.content || <span className="text-gray-400 animate-pulse">▌</span>}
-                  </div>
-                </div>
-              ))}
-              <div ref={chatEndRef} />
-            </div>
-
-            {/* Input */}
-            <div className="border-t border-gray-100 px-3 py-3 flex gap-2">
-              <input
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChat() } }}
-                disabled={chatLoading}
-                placeholder="Ask about the data…"
-                className="flex-1 rounded-xl border px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-gray-300 disabled:opacity-50"
-              />
-              <button
-                onClick={sendChat}
-                disabled={chatLoading || !chatInput.trim()}
-                className="rounded-xl bg-gray-900 px-3 py-2 text-xs font-semibold text-white hover:bg-gray-700 disabled:opacity-40 transition"
-              >
-                {chatLoading ? "…" : "Send"}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Toggle button — Coming Soon */}
-        <div className="flex flex-col items-end gap-1">
-          <span className="rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold text-white tracking-wide">IN DEVELOPMENT</span>
-          <button
-            disabled
-            className="flex items-center gap-2 rounded-2xl bg-gray-300 px-4 py-3 text-sm font-semibold text-gray-400 shadow-lg cursor-not-allowed select-none"
-          >
-            <span>✦</span>
-            <span>Ask AI</span>
-          </button>
-        </div>
-
-      </div>
 
     </div>
   )

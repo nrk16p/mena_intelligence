@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback, Fragment } from "react";
+import { useSetAiContext } from "@/lib/ai-context";
+import { AiInsightsPanel } from "@/components/ai-insights-panel";
 import {
   ComposedChart, Bar, Line, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine,
@@ -105,6 +107,7 @@ const PAGE_SIZES = [25,50,100] as const;
 
 // ═══════════════════════════════════════════════════════════════════════════
 export default function TruckUtilizeAnalysisPage() {
+  const setAiContext = useSetAiContext();
   const [tab, setTab] = useState<"breakdown"|"detail">("breakdown");
 
   // ── Breakdown state ──────────────────────────────────────────────────
@@ -136,6 +139,61 @@ export default function TruckUtilizeAnalysisPage() {
   }, [yy1, yy2]);
 
   useEffect(() => { fetchBreakdown(); }, [fetchBreakdown]);
+
+  // ── Push AI context whenever breakdown data updates ────────────────────
+  useEffect(() => {
+    if (!bdRows1.length && !bdRows2.length) return;
+    const fmtPctN = (n: number) => (n * 100).toFixed(2) + "%";
+
+    const lines: string[] = [
+      `=== PAGE: Truck Utilization & Breakdown Analysis ===`,
+      `METRIC DEFINITIONS:`,
+      `- Breakdown Rate = breakdown_days / (truck_count × calendar_days_in_month) × 100%`,
+      `- breakdown_days: Total truck-days a truck was in repair/breakdown status`,
+      `- truck_count: Number of trucks assigned to that fleet in the month`,
+      `- Fleet groups: 1=ML, 2=MS, 3=TDM, 4=BTG, 5=TFG, 6=SCCC, 7=DHL, 8=KN`,
+      `- Status groups: working=ทำงาน, repair=ซ่อม, idle=ว่าง`,
+      `THRESHOLDS (breakdown rate):`,
+      `- < 5%: Healthy (green)`,
+      `- 5–10%: Needs attention (yellow)`,
+      `- > 10%: Critical — major reliability issue (red)`,
+      `LOWER breakdown rate = BETTER`,
+      ``,
+      `Comparison: 20${yy1} (base) vs 20${yy2} (current)`,
+      ``,
+    ];
+
+    // Build pivot for both years
+    const pivot = (rows: BreakdownRow[]) => {
+      const p: Record<string, Record<string, { truck_count: number; breakdown_count: number }>> = {};
+      for (const r of rows) {
+        if (!p[r.fleet_group_id]) p[r.fleet_group_id] = {};
+        p[r.fleet_group_id][r.month_year] = { truck_count: Number(r.truck_count), breakdown_count: Number(r.breakdown_count) };
+      }
+      return p;
+    };
+    const p1 = pivot(bdRows1);
+    const p2 = pivot(bdRows2);
+
+    lines.push(`Monthly Breakdown Rate by Fleet:`);
+    for (const fleetId of FLEET_ORDER) {
+      const name = FLEET_MAP[fleetId] ?? fleetId;
+      const monthParts: string[] = [];
+      for (const mm of MONTHS) {
+        const my1 = `${mm}-${yy1}`, my2 = `${mm}-${yy2}`;
+        const c1 = p1[fleetId]?.[my1], c2 = p2[fleetId]?.[my2];
+        const r1 = c1 && c1.truck_count > 0 ? c1.breakdown_count / (c1.truck_count * new Date(2000 + parseInt(yy1), parseInt(mm), 0).getDate()) : null;
+        const r2 = c2 && c2.truck_count > 0 ? c2.breakdown_count / (c2.truck_count * new Date(2000 + parseInt(yy2), parseInt(mm), 0).getDate()) : null;
+        if (r1 !== null || r2 !== null) {
+          const yoyStr = r1 !== null && r2 !== null ? ` YoY:${((r2 - r1) / r1 * 100).toFixed(1)}%` : "";
+          monthParts.push(`${MONTH_NAMES[MONTHS.indexOf(mm)]}:${r1 !== null ? fmtPctN(r1) : "N/A"}→${r2 !== null ? fmtPctN(r2) : "N/A"}${yoyStr}`);
+        }
+      }
+      if (monthParts.length) lines.push(`  Fleet ${name} (${fleetId}): ${monthParts.join(" | ")}`);
+    }
+
+    setAiContext(lines.join("\n"), `Truck Utilization 20${yy1} vs 20${yy2}`);
+  }, [bdRows1, bdRows2, yy1, yy2, setAiContext]);
 
   function toggleFleet(g: string) {
     setSelectedFleets(prev => {
@@ -334,6 +392,9 @@ export default function TruckUtilizeAnalysisPage() {
           </button>
         ))}
       </div>
+
+      {/* ── AI Insights ── */}
+      {!bdLoading && (bdRows1.length > 0 || bdRows2.length > 0) && <AiInsightsPanel />}
 
       {/* ══════════ BREAKDOWN TAB ══════════ */}
       {tab === "breakdown" && (

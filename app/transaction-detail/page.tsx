@@ -1,6 +1,8 @@
 "use client"
 
 import React, { useCallback, useEffect, useMemo, useState } from "react"
+import { useSetAiContext } from "@/lib/ai-context"
+import { AiSectionQuestions } from "@/components/ai-analysis-panel"
 import {
   Bar,
   CartesianGrid,
@@ -87,6 +89,7 @@ const COST_SESSION_KEY = "cost_authed"
 export default function TransactionDetailPage() {
   const todayYM   = nowYM()
   const todayYear = todayYM.split("-")[0]
+  const setAiContext = useSetAiContext()
 
   // ── Password gate ─────────────────────────────────────────────────────────
   const [authed, setAuthed]   = useState(true)
@@ -116,6 +119,8 @@ export default function TransactionDetailPage() {
   const [selectedCostGroups, setSelectedCostGroups] = useState<Set<string>>(new Set())
   const [showExplanation, setShowExplanation]         = useState(false)
   const [showPivotInfo, setShowPivotInfo]             = useState(false)
+  const [showPivotBreakdown, setShowPivotBreakdown]   = useState(false)
+  const [showCompareBreakdown, setShowCompareBreakdown] = useState(false)
   const [expandedPivotGroups, setExpandedPivotGroups] = useState<Set<string>>(new Set())
 
   // ── Data state ────────────────────────────────────────────────────────────
@@ -483,6 +488,142 @@ export default function TransactionDetailPage() {
 
     return { pivotMonths: months, pivotTree: sortedTree, pivotColTotal: colTotal }
   }, [cgFilteredData])
+
+  // ── Push rich context to global AI chat widget ───────────────────────────
+  useEffect(() => {
+    if (!cgFilteredData.length) return
+    const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 0 })
+    const pct = (a: number, total: number) => total > 0 ? ((a / total) * 100).toFixed(1) + "%" : "N/A"
+
+    const viewData = workshopFilter === "all"
+      ? cgFilteredData
+      : cgFilteredData.filter((r) => {
+          const hasOutside = (r.lines || []).some(l => (l.ชื่อสินค้า || "").includes("ค่าแรง"))
+          return workshopFilter === "อู่นอก" ? hasOutside : !hasOutside
+        })
+
+    const totalCostAll = viewData.reduce((s, r) => s + r.plate_total, 0)
+    const allPlates    = new Set(viewData.map(r => r.plate))
+    const allWDs       = new Set(viewData.map(r => r.wd))
+
+    const lines: string[] = [
+      `=== Transaction Detail — Senior DA Context ===`,
+      ``,
+      `DEFINITIONS:`,
+      `- อู่ใน: In-house workshop (own mechanics, lower overhead)`,
+      `- อู่นอก: External/outsourced workshop (usually higher cost but specialized)`,
+      `- PM: Preventive Maintenance (scheduled, proactive — TARGET: >50% of total spend)`,
+      `- CM: Corrective Maintenance (breakdown repair, reactive — cost driver to reduce)`,
+      `- T: Tire costs | AC: Accident/collision repair | Tools: Tools & consumables`,
+      `- plate_total: All maintenance cost for one truck in the filtered period`,
+      ``,
+      `FILTERS ACTIVE: period ${startMonth}→${endMonth}`,
+      ...(selectedCostGroups.size > 0 ? [`  Cost groups: ${Array.from(selectedCostGroups).join(", ")}`] : []),
+      ...(workshopFilter !== "all"     ? [`  Workshop type: ${workshopFilter} only`] : []),
+      ``,
+      `=== OVERVIEW ===`,
+      `Total cost: ${fmt(totalCostAll)} THB`,
+      `Trucks: ${allPlates.size} | Depots (WDs): ${allWDs.size}`,
+      `Avg cost/truck: ${allPlates.size > 0 ? fmt(totalCostAll / allPlates.size) : "N/A"} THB`,
+    ]
+
+    // Workshop split
+    let naiTotal = 0, nokTotal = 0
+    const naiSet = new Set<string>(), nokSet = new Set<string>()
+    viewData.forEach(r => {
+      const isOut = (r.lines || []).some(l => (l.ชื่อสินค้า || "").includes("ค่าแรง"))
+      if (isOut) { nokTotal += r.plate_total; nokSet.add(r.plate) }
+      else        { naiTotal += r.plate_total; naiSet.add(r.plate) }
+    })
+    lines.push(``, `=== WORKSHOP BREAKDOWN ===`)
+    lines.push(`อู่ใน : ${fmt(naiTotal)} THB (${pct(naiTotal, totalCostAll)}) — ${naiSet.size} trucks | avg ${naiSet.size > 0 ? fmt(naiTotal / naiSet.size) : "N/A"} THB/truck`)
+    lines.push(`อู่นอก: ${fmt(nokTotal)} THB (${pct(nokTotal, totalCostAll)}) — ${nokSet.size} trucks | avg ${nokSet.size > 0 ? fmt(nokTotal / nokSet.size) : "N/A"} THB/truck`)
+    if (naiSet.size > 0 && nokSet.size > 0) {
+      const naiAvg = naiTotal / naiSet.size
+      const nokAvg = nokTotal / nokSet.size
+      const premium = naiAvg > 0 ? ((nokAvg - naiAvg) / naiAvg * 100).toFixed(1) : "N/A"
+      lines.push(`อู่นอก avg is ${premium}% ${parseFloat(premium) >= 0 ? "more expensive" : "cheaper"} per truck than อู่ใน`)
+    }
+
+    // Cost group breakdown
+    const cgMap = new Map<string, number>()
+    viewData.forEach(r => r.lines?.forEach(l => {
+      const g = getCostGroup(l.จุดประสงค์ || "")
+      cgMap.set(g, (cgMap.get(g) ?? 0) + l.cost)
+    }))
+    const cgTotal = Array.from(cgMap.values()).reduce((s, v) => s + v, 0)
+    lines.push(``, `=== COST GROUP BREAKDOWN ===`)
+    Array.from(cgMap.entries())
+      .sort((a, b) => b[1] - a[1])
+      .forEach(([g, v]) => lines.push(`  ${g}: ${fmt(v)} THB (${pct(v, cgTotal)})`))
+    const pmCost = cgMap.get("PM") ?? 0
+    const cmCost = cgMap.get("CM") ?? 0
+    if (pmCost + cmCost > 0)
+      lines.push(`PM ratio: ${pct(pmCost, pmCost + cmCost)} of PM+CM spend (>50% = healthy proactive maintenance)`)
+
+    // Monthly trend
+    const monthMap = new Map<string, number>()
+    viewData.forEach(r => monthMap.set(r.month_year, (monthMap.get(r.month_year) ?? 0) + r.plate_total))
+    if (monthMap.size > 1) {
+      lines.push(``, `=== MONTHLY TREND ===`)
+      Array.from(monthMap.entries())
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .forEach(([m, v]) => lines.push(`  ${m}: ${fmt(v)} THB`))
+    }
+
+    // Top WDs by cost
+    const wdMap = new Map<string, { cost: number; plates: Set<string> }>()
+    viewData.forEach(r => {
+      if (!wdMap.has(r.wd)) wdMap.set(r.wd, { cost: 0, plates: new Set() })
+      const e = wdMap.get(r.wd)!
+      e.cost += r.plate_total; e.plates.add(r.plate)
+    })
+    if (wdMap.size > 0) {
+      lines.push(``, `=== TOP DEPOTS (WD) BY COST ===`)
+      Array.from(wdMap.entries())
+        .sort((a, b) => b[1].cost - a[1].cost)
+        .slice(0, 8)
+        .forEach(([wd, v]) => lines.push(`  ${wd}: ${fmt(v.cost)} THB | ${v.plates.size} trucks | avg ${fmt(v.cost / v.plates.size)} THB`))
+    }
+
+    // Top 15 trucks by cost
+    const plateTotals = new Map<string, { wd: string; total: number }>()
+    viewData.forEach(r => {
+      if (!plateTotals.has(r.plate)) plateTotals.set(r.plate, { wd: r.wd, total: 0 })
+      plateTotals.get(r.plate)!.total += r.plate_total
+    })
+    const avgPerTruck = allPlates.size > 0 ? totalCostAll / allPlates.size : 0
+    lines.push(``, `=== TOP 15 TRUCKS BY COST (fleet avg: ${fmt(avgPerTruck)} THB/truck) ===`)
+    Array.from(plateTotals.entries())
+      .sort((a, b) => b[1].total - a[1].total)
+      .slice(0, 15)
+      .forEach(([plate, v]) => {
+        const ratio = avgPerTruck > 0 ? (v.total / avgPerTruck).toFixed(1) : "N/A"
+        lines.push(`  ${plate} (WD:${v.wd}): ${fmt(v.total)} THB [${ratio}x avg]`)
+      })
+
+    // Top items where อู่นอก is most expensive vs อู่ใน (from compareData)
+    const nokExpensive = compareData.filter(r => r.diff > 0).slice(0, 8)
+    if (nokExpensive.length > 0) {
+      lines.push(``, `=== TOP ITEMS: อู่นอก PRICIER THAN อู่ใน (avg cost/record) ===`)
+      lines.push(`Item | อู่ใน avg | อู่นอก avg | Premium%`)
+      nokExpensive.forEach(r =>
+        lines.push(`  ${r.ชื่อสินค้า} (${r.รหัสสินค้า}): อู่ใน ${fmt(r.naiAvg)} | อู่นอก ${fmt(r.nokAvg)} | +${r.diffPct.toFixed(0)}%`)
+      )
+    }
+
+    // Top items where อู่ใน is more expensive (i.e. อู่นอก is cheaper)
+    const naiExpensive = compareData.filter(r => r.diff < 0).slice(0, 5)
+    if (naiExpensive.length > 0) {
+      lines.push(``, `=== ITEMS WHERE อู่นอก IS CHEAPER THAN อู่ใน ===`)
+      naiExpensive.forEach(r =>
+        lines.push(`  ${r.ชื่อสินค้า}: อู่ใน ${fmt(r.naiAvg)} | อู่นอก ${fmt(r.nokAvg)} | ${r.diffPct.toFixed(0)}%`)
+      )
+    }
+
+    setAiContext(lines.join("\n"), `Transaction Detail ${startMonth}–${endMonth}`)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cgFilteredData, compareData, workshopFilter, selectedCostGroups, startMonth, endMonth, setAiContext])
 
   // ── Password gate UI ──────────────────────────────────────────────────────
   if (!authed) {
@@ -924,6 +1065,150 @@ export default function TransactionDetailPage() {
                   <p>• แถว <span className="font-semibold">รวม</span> (footer) = ผลรวมทุก Cost Group ในแต่ละเดือน</p>
                 </div>
               )}
+              <AiSectionQuestions questions={[
+                "กลุ่มสินค้าไหนมีค่าใช้จ่ายสูงสุดและแนวโน้มเป็นอย่างไร?",
+                "เดือนไหนมีต้นทุนสูงผิดปกติ?",
+                "สัดส่วนอู่ในต่ออู่นอกในแต่ละกลุ่มสินค้าเป็นอย่างไร?",
+              ]} />
+              {/* Per-cost-group breakdown — collapsible */}
+              {pivotTree.length > 0 && (
+                <button
+                  onClick={() => setShowPivotBreakdown(v => !v)}
+                  className="mt-2 flex items-center gap-1.5 text-[11px] text-indigo-500 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors"
+                >
+                  <svg className={`w-3 h-3 transition-transform ${showPivotBreakdown ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7"/></svg>
+                  {showPivotBreakdown ? "ซ่อนรายละเอียดตาม Cost Group" : "ดูรายละเอียดตาม Cost Group"}
+                </button>
+              )}
+              {showPivotBreakdown && (() => {
+                if (!pivotTree.length) return null
+                const fmtM = (n: number) =>
+                  n >= 1_000_000 ? (n/1_000_000).toFixed(2)+"M"
+                  : n >= 1_000   ? (n/1_000).toFixed(1)+"K"
+                  : n.toFixed(0)
+                const gNai   = pivotTree.reduce((s, n) => s + n.subtotal.nai.cost, 0)
+                const gNok   = pivotTree.reduce((s, n) => s + n.subtotal.nok.cost, 0)
+                const gTotal = gNai + gNok
+
+                // color map per CG prefix
+                const cgColor = (cg: string): { bg: string; border: string; badge: string; text: string; bar: string } => {
+                  if (cg.startsWith("CM")) return { bg:"bg-red-50 dark:bg-red-950/20", border:"border-red-100 dark:border-red-800/30", badge:"bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400", text:"text-red-700 dark:text-red-300", bar:"bg-red-400" }
+                  if (cg.startsWith("PM")) return { bg:"bg-green-50 dark:bg-green-950/20", border:"border-green-100 dark:border-green-800/30", badge:"bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400", text:"text-green-700 dark:text-green-300", bar:"bg-green-400" }
+                  if (cg.startsWith("T")) return  { bg:"bg-slate-50 dark:bg-slate-900/20", border:"border-slate-100 dark:border-slate-700/30", badge:"bg-slate-100 dark:bg-slate-800/40 text-slate-600 dark:text-slate-400", text:"text-slate-700 dark:text-slate-300", bar:"bg-slate-400" }
+                  if (cg.startsWith("AC")) return { bg:"bg-orange-50 dark:bg-orange-950/20", border:"border-orange-100 dark:border-orange-800/30", badge:"bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400", text:"text-orange-700 dark:text-orange-300", bar:"bg-orange-400" }
+                  return { bg:"bg-gray-50 dark:bg-white/[0.03]", border:"border-gray-100 dark:border-white/8", badge:"bg-gray-100 dark:bg-white/8 text-gray-600 dark:text-gray-400", text:"text-gray-700 dark:text-gray-300", bar:"bg-gray-400" }
+                }
+
+                return (
+                  <div className="mt-3 space-y-2">
+                    {/* Grand total row */}
+                    <div className="flex items-center gap-3 px-3 py-2 rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-white/[0.03] text-[11px]">
+                      <span className="w-28 font-bold text-gray-700 dark:text-gray-200 shrink-0">รวมทั้งหมด</span>
+                      <span className="w-20 text-right font-bold text-gray-900 dark:text-white tabular-nums">{fmtM(gTotal)}</span>
+                      <div className="flex-1 flex gap-1 items-center">
+                        <div className="flex-1 h-2 rounded-full bg-gray-100 dark:bg-white/10 overflow-hidden flex">
+                          <div className="h-full bg-sky-400" style={{ width: gTotal > 0 ? `${(gNai/gTotal*100).toFixed(0)}%` : "0%" }} />
+                          <div className="h-full bg-orange-400" style={{ width: gTotal > 0 ? `${(gNok/gTotal*100).toFixed(0)}%` : "0%" }} />
+                        </div>
+                        <span className="text-sky-500 w-16 text-right tabular-nums">{fmtM(gNai)} <span className="text-[9px] text-sky-400">({gTotal>0?(gNai/gTotal*100).toFixed(0):0}%)</span></span>
+                        <span className="text-orange-500 w-16 text-right tabular-nums">{fmtM(gNok)} <span className="text-[9px] text-orange-400">({gTotal>0?(gNok/gTotal*100).toFixed(0):0}%)</span></span>
+                      </div>
+                    </div>
+
+                    {/* Per-CG rows */}
+                    {pivotTree.map((cgNode) => {
+                      const nai    = cgNode.subtotal.nai.cost
+                      const nok    = cgNode.subtotal.nok.cost
+                      const total  = nai + nok
+                      const pctOfGrand = gTotal > 0 ? (total / gTotal * 100) : 0
+                      const naiPct = total > 0 ? (nai / total * 100) : 0
+                      const nokPct = total > 0 ? (nok / total * 100) : 0
+                      const c = cgColor(cgNode.cg)
+
+                      // Peak month for this CG
+                      const cgMonthMap = new Map<string, number>()
+                      cgNode.groups.forEach(gn => {
+                        gn.months.forEach((cell, m) => {
+                          cgMonthMap.set(m, (cgMonthMap.get(m) ?? 0) + cell.nai.cost + cell.nok.cost)
+                        })
+                      })
+                      let cgPeak = "", cgPeakCost = 0
+                      cgMonthMap.forEach((v, m) => { if (v > cgPeakCost) { cgPeakCost = v; cgPeak = m } })
+
+                      // MoM trend: last vs second-last month
+                      const sortedMonths = Array.from(cgMonthMap.entries()).sort((a, b) => a[0].localeCompare(b[0]))
+                      let trendPct: number | null = null
+                      if (sortedMonths.length >= 2) {
+                        const last = sortedMonths[sortedMonths.length - 1][1]
+                        const prev = sortedMonths[sortedMonths.length - 2][1]
+                        trendPct = prev > 0 ? (last - prev) / prev * 100 : null
+                      }
+
+                      // Top กลุ่มสินค้า (already sorted desc by cost)
+                      const topSub = cgNode.groups[0]
+
+                      return (
+                        <div key={cgNode.cg} className={`rounded-xl border ${c.border} ${c.bg} px-3 py-2.5 text-[11px]`}>
+                          <div className="flex items-start gap-3 flex-wrap">
+                            {/* CG label + total */}
+                            <div className="shrink-0 min-w-[140px]">
+                              <div className="flex items-center gap-1.5 mb-0.5">
+                                <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold ${c.badge}`}>
+                                  {cgNode.cg.split(" ")[0]}
+                                </span>
+                                <span className={`text-[10px] font-semibold ${c.text}`}>
+                                  {cgNode.cg.replace(/^[A-Z\-]+ - /, "")}
+                                </span>
+                              </div>
+                              <div className="flex items-baseline gap-1.5">
+                                <span className={`text-[15px] font-bold tabular-nums ${c.text}`}>{fmtM(total)}</span>
+                                <span className="text-[10px] text-gray-400">{pctOfGrand.toFixed(0)}% of total</span>
+                              </div>
+                            </div>
+
+                            {/* อู่ใน / อู่นอก bar + numbers */}
+                            <div className="flex-1 min-w-[160px]">
+                              <div className="flex h-2 rounded-full overflow-hidden bg-gray-100 dark:bg-white/10 mb-1">
+                                <div className="h-full bg-sky-400 transition-all" style={{ width: `${naiPct.toFixed(0)}%` }} />
+                                <div className="h-full bg-orange-400 transition-all" style={{ width: `${nokPct.toFixed(0)}%` }} />
+                              </div>
+                              <div className="flex gap-3 text-[10px]">
+                                <span className="text-sky-600 dark:text-sky-400 tabular-nums">
+                                  อู่ใน {fmtM(nai)} <span className="text-sky-400">({naiPct.toFixed(0)}%)</span>
+                                </span>
+                                <span className="text-orange-600 dark:text-orange-400 tabular-nums">
+                                  อู่นอก {fmtM(nok)} <span className="text-orange-400">({nokPct.toFixed(0)}%)</span>
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Right side: peak month + trend + top sub-group */}
+                            <div className="shrink-0 text-right space-y-0.5">
+                              {cgPeak && (
+                                <div className="flex items-center gap-1.5 justify-end">
+                                  <span className="text-[10px] text-gray-400">Peak</span>
+                                  <span className="font-semibold text-gray-700 dark:text-gray-300">{cgPeak}</span>
+                                  <span className="text-[10px] text-gray-400 tabular-nums">{fmtM(cgPeakCost)}</span>
+                                </div>
+                              )}
+                              {trendPct !== null && (
+                                <div className={`text-[10px] font-semibold ${trendPct > 0 ? "text-red-500" : "text-green-500"}`}>
+                                  {trendPct > 0 ? "↑" : "↓"} {Math.abs(trendPct).toFixed(1)}% vs prev month
+                                </div>
+                              )}
+                              {topSub && (
+                                <div className="text-[10px] text-gray-400">
+                                  top: <span className="text-gray-600 dark:text-gray-300">{topSub.g}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })()}
             </div>
             <div className="overflow-x-auto">
               <table className="text-right text-[11px] border-separate border-spacing-0">
@@ -1138,6 +1423,161 @@ export default function TransactionDetailPage() {
                   </div>
                 </div>
               )}
+              <AiSectionQuestions questions={[
+                "รายการซ่อมอะไรที่อู่นอกแพงกว่าอู่ในมากที่สุด?",
+                "ควรย้ายรายการซ่อมใดมาทำที่อู่ใน เพื่อประหยัดต้นทุน?",
+                "รายการซ่อมที่อู่นอกถูกกว่า มีเหตุผลอะไร?",
+              ]} />
+              {/* Per-กลุ่มสินค้า compare breakdown — collapsible */}
+              {compareData.length > 0 && (
+                <button
+                  onClick={() => setShowCompareBreakdown(v => !v)}
+                  className="mt-2 flex items-center gap-1.5 text-[11px] text-indigo-500 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors"
+                >
+                  <svg className={`w-3 h-3 transition-transform ${showCompareBreakdown ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7"/></svg>
+                  {showCompareBreakdown ? "ซ่อนรายละเอียดตาม กลุ่มสินค้า + ศักยภาพในการประหยัด" : "ดูรายละเอียดตาม กลุ่มสินค้า + ศักยภาพในการประหยัด"}
+                </button>
+              )}
+              {showCompareBreakdown && (() => {
+                if (!compareData.length) return null
+                const fmtK = (n: number) =>
+                  n >= 1_000_000 ? (n/1_000_000).toFixed(2)+"M"
+                  : n >= 1_000   ? (n/1_000).toFixed(1)+"K"
+                  : n.toFixed(0)
+
+                // Balance ratio: how comparable the usage counts are (1.0 = identical, 0 = one side missing)
+                const balanceRatio = (r: typeof compareData[0]) => {
+                  const mn = Math.min(r.naiRecords, r.nokRecords)
+                  const mx = Math.max(r.naiRecords, r.nokRecords)
+                  return mx > 0 ? mn / mx : 0
+                }
+                // "comparable" = both sides have at least 2 records AND ratio >= 0.25 (within 4x)
+                const isComparable = (r: typeof compareData[0]) =>
+                  r.naiRecords >= 2 && r.nokRecords >= 2 && balanceRatio(r) >= 0.25
+
+                // Group by กลุ่มสินค้า
+                const groupMap = new Map<string, typeof compareData>()
+                compareData.forEach(r => {
+                  const g = r.กลุ่มสินค้า || "ไม่ระบุ"
+                  if (!groupMap.has(g)) groupMap.set(g, [])
+                  groupMap.get(g)!.push(r)
+                })
+
+                const groups = Array.from(groupMap.entries()).map(([g, rows]) => {
+                  // Comparable items only — sorted by price diff desc for nok-pricier, asc for nai-pricier
+                  const compNokPricier = rows.filter(r => r.diff > 0 && isComparable(r))
+                    .sort((a, b) => b.diff - a.diff)
+                  const compNaiPricier = rows.filter(r => r.diff < 0 && isComparable(r))
+                    .sort((a, b) => a.diff - b.diff)
+                  // All nok-pricier (for context count)
+                  const allNokPricier = rows.filter(r => r.diff > 0)
+                  const allNaiPricier = rows.filter(r => r.diff < 0)
+                  // Savings only from comparable items
+                  const comparableSaving = compNokPricier.reduce((s, r) => s + r.diff * r.nokRecords, 0)
+                  return { g, rows, compNokPricier, compNaiPricier, allNokPricier, allNaiPricier, comparableSaving }
+                }).filter(g => g.compNokPricier.length > 0 || g.compNaiPricier.length > 0)
+                  .sort((a, b) => b.comparableSaving - a.comparableSaving)
+
+                const totalComparableSaving = groups.reduce((s, g) => s + g.comparableSaving, 0)
+                const totalComparableItems  = groups.reduce((s, g) => s + g.compNokPricier.length, 0)
+
+                return (
+                  <div className="mt-3 space-y-2">
+                    {/* Summary header */}
+                    <div className="rounded-xl border border-emerald-200 dark:border-emerald-800/30 bg-emerald-50 dark:bg-emerald-950/20 px-3 py-2.5 text-[11px]">
+                      <div className="flex items-start gap-3">
+                        <div className="flex-1">
+                          <p className="font-semibold text-emerald-800 dark:text-emerald-300 mb-0.5">
+                            ศักยภาพในการประหยัด — เฉพาะรายการที่สัดส่วนการใช้งานใกล้เคียงกัน
+                          </p>
+                          <p className="text-emerald-600 dark:text-emerald-400">
+                            {totalComparableItems} รายการเปรียบเทียบได้ · ถ้าโอนมาซ่อมอู่ใน ราคาเดียวกัน
+                          </p>
+                        </div>
+                        <span className="shrink-0 font-bold text-emerald-700 dark:text-emerald-300 tabular-nums text-[16px]">
+                          {fmtK(totalComparableSaving)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Per-group cards */}
+                    {groups.map(({ g, rows, compNokPricier, compNaiPricier, allNokPricier, comparableSaving }) => (
+                      <div key={g} className="rounded-xl border border-gray-100 dark:border-white/8 bg-white dark:bg-white/[0.02] px-3 py-2.5 text-[11px]">
+                        {/* Group header */}
+                        <div className="flex items-center gap-2 mb-2 flex-wrap">
+                          <span className="font-semibold text-gray-800 dark:text-gray-200">{g}</span>
+                          <span className="text-gray-400 text-[10px]">{rows.length} รายการทั้งหมด</span>
+                          {compNokPricier.length > 0 && (
+                            <span className="rounded px-1.5 py-0.5 text-[9px] font-bold bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400">
+                              เปรียบได้ {compNokPricier.length} / {allNokPricier.length} แพงกว่า
+                            </span>
+                          )}
+                          {compNaiPricier.length > 0 && (
+                            <span className="rounded px-1.5 py-0.5 text-[9px] font-bold bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400">
+                              เปรียบได้ {compNaiPricier.length} ถูกกว่า
+                            </span>
+                          )}
+                          {comparableSaving > 0 && (
+                            <span className="ml-auto font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                              ประหยัด {fmtK(comparableSaving)}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Comparable nok-pricier rows */}
+                        {compNokPricier.slice(0, 4).map((r, i) => {
+                          const bal = balanceRatio(r)
+                          return (
+                            <div key={i} className="flex items-center gap-2 py-1.5 border-t border-gray-50 dark:border-white/5">
+                              <span className="w-3 h-3 shrink-0 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center text-[8px] font-bold text-orange-500">{i+1}</span>
+                              <span className="flex-1 text-gray-700 dark:text-gray-300 truncate">{r.ชื่อสินค้า || r.รหัสสินค้า}</span>
+                              {/* Usage balance indicator */}
+                              <span className="text-[9px] text-gray-400 tabular-nums whitespace-nowrap">
+                                {r.naiRecords}ใน/{r.nokRecords}นอก
+                              </span>
+                              <span className={`text-[9px] font-semibold rounded px-1 py-0.5 whitespace-nowrap ${
+                                bal >= 0.7 ? "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400"
+                                : bal >= 0.4 ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-500"
+                                : "bg-gray-100 dark:bg-white/8 text-gray-400"
+                              }`}>
+                                {(bal * 100).toFixed(0)}%
+                              </span>
+                              <span className="font-mono text-[10px] text-sky-600 dark:text-sky-400 tabular-nums">{fmtK(r.naiAvg)}</span>
+                              <span className="text-gray-300 dark:text-gray-600">→</span>
+                              <span className="font-mono text-[10px] text-orange-600 dark:text-orange-400 tabular-nums">{fmtK(r.nokAvg)}</span>
+                              <span className="font-bold text-orange-500 w-12 text-right tabular-nums">+{r.diffPct.toFixed(0)}%</span>
+                            </div>
+                          )
+                        })}
+
+                        {/* Comparable nai-pricier (อู่นอกถูกกว่า) */}
+                        {compNaiPricier.slice(0, 2).map((r, i) => {
+                          const bal = balanceRatio(r)
+                          return (
+                            <div key={i} className="flex items-center gap-2 py-1.5 border-t border-gray-50 dark:border-white/5">
+                              <span className="w-3 h-3 shrink-0 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center text-[8px] font-bold text-green-500">✓</span>
+                              <span className="flex-1 text-gray-500 dark:text-gray-400 truncate">{r.ชื่อสินค้า || r.รหัสสินค้า}</span>
+                              <span className="text-[9px] text-gray-400 tabular-nums whitespace-nowrap">
+                                {r.naiRecords}ใน/{r.nokRecords}นอก
+                              </span>
+                              <span className={`text-[9px] font-semibold rounded px-1 py-0.5 whitespace-nowrap ${
+                                bal >= 0.7 ? "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400"
+                                : "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-500"
+                              }`}>
+                                {(bal * 100).toFixed(0)}%
+                              </span>
+                              <span className="font-mono text-[10px] text-sky-600 dark:text-sky-400 tabular-nums">{fmtK(r.naiAvg)}</span>
+                              <span className="text-gray-300 dark:text-gray-600">→</span>
+                              <span className="font-mono text-[10px] text-green-600 dark:text-green-400 tabular-nums">{fmtK(r.nokAvg)}</span>
+                              <span className="font-bold text-green-500 w-12 text-right tabular-nums">{r.diffPct.toFixed(0)}%</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
