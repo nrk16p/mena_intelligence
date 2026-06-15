@@ -27,14 +27,14 @@ INSIGHTS
 • [finding 4]
 • [finding 5]
 QUESTIONS
-• [management question in Thai that needs urgent attention]
-• [question 2]
-• [question 3]
-• [question 4]
+• [forward-looking improvement question in Thai — what should we DO or CHANGE next?]
+• [question 2 — focus on reducing cost or improving process]
+• [question 3 — focus on prevention or optimization]
+• [question 4 — focus on a specific actionable next step]
 
 Rules:
 - INSIGHTS = observations with numbers (what IS happening)
-- QUESTIONS = actionable things management should investigate
+- QUESTIONS = development-focused, actionable next steps (not "why did X happen" but "how do we improve X", "should we change Y", "which area to target next")
 - Thai language throughout
 - No markdown, no headers other than INSIGHTS / QUESTIONS`
 
