@@ -617,6 +617,12 @@ export default function CostPage() {
     // For partner_flag mode, rely on the API parameter partner_flag.
     if (groupBy === "partner_flag") return true
 
+    // No explicit chip filter selected → show every group in the breakdown table.
+    // (activeGroups otherwise defaults to only the chart's top-6-by-cost values,
+    // which silently hid most กลุ่มสินค้า/จุดประสงค์ rows since there are far
+    // more than 6 distinct values for those fields — see cost page bug report.)
+    if (selectedGroupValues.size === 0) return true
+
     const lineGroup = getLineGroupValue(line)
     return activeGroups.includes(lineGroup)
   }
@@ -786,7 +792,7 @@ export default function CostPage() {
         if (ai !== bi) return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi)
         return b.total_curr - a.total_curr
       })
-  }, [breakdownCurrDetail, breakdownPrevDetail, groupBy, activeGroups])
+  }, [breakdownCurrDetail, breakdownPrevDetail, groupBy, activeGroups, selectedGroupValues])
 
   // ── Fetch — 8 parallel calls ──────────────────────────────────────────────
   async function search() {
@@ -1445,7 +1451,9 @@ export default function CostPage() {
                         Auto Group → กลุ่มสินค้า → รหัสสินค้า — Cost Breakdown
                       </p>
                       <p className="mt-0.5 text-[10px] text-gray-400">
-                        Same filter as Monthly Cost — {year} vs {prevYear} · Auto detect: ค่าแรง / ยาง / อะไหล่ / อื่นๆ · Includes Usage and Avg Price · Click each row to drill down
+                        {selectedGroupValues.size > 0
+                          ? `Filtered to ${selectedGroupValues.size} selected Monthly Cost group${selectedGroupValues.size > 1 ? "s" : ""}`
+                          : "All groups shown — pick chips in Monthly Cost to filter"} — {year} vs {prevYear} · Auto detect: ค่าแรง / ยาง / อะไหล่ / อื่นๆ · Includes Usage and Avg Price · Click each row to drill down
                       </p>
                     </div>
                     {breakdownLoading && (
