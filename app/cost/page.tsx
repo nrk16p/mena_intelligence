@@ -1418,8 +1418,8 @@ export default function CostPage() {
               })}
             </div>
 
-            {/* Product group → product code drilldown table */}
-            {(breakdownLoading || autoGroupBreakdownRows.length > 0) && (() => {
+            {/* Product group → product code drilldown table — always show so empty-state message is visible */}
+            {(() => {
               const pivotTotal_curr = autoGroupBreakdownRows.reduce((s, r) => s + r.total_curr, 0)
               const pivotTotal_prev = autoGroupBreakdownRows.reduce((s, r) => s + r.total_prev, 0)
               const totalPct = pivotTotal_prev > 0 ? ((pivotTotal_curr - pivotTotal_prev) / pivotTotal_prev) * 100 : null
@@ -2037,7 +2037,7 @@ export default function CostPage() {
                 {GROUP_BY_OPTIONS.map((opt) => (
                   <button
                     key={opt.value}
-                    onClick={() => setGroupBy(opt.value)}
+                    onClick={() => { if (opt.value !== groupBy) setSelectedGroupValues(new Set()); setGroupBy(opt.value) }}
                     className={`rounded-lg py-1.5 px-2 text-[10px] font-medium transition text-center leading-tight ${
                       groupBy === opt.value
                         ? "bg-gray-900 text-white"
