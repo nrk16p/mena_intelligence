@@ -86,8 +86,9 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Ops",
     items: [
-      { href: "/repair-cost", label: "Repair Cost", icon: Calculator },
-      { href: "/cost", label: "Cost Monitoring", icon: Warehouse },
+      { href: "/repair-cost",     label: "Repair Cost",     icon: Calculator },
+      { href: "/repair-analysis", label: "Repair Analysis", icon: BarChart3 },
+      { href: "/cost",            label: "Cost Monitoring", icon: Warehouse },
       { href: "/transaction-detail", label: "Transaction Detail", icon: FileText },
     ],
   },
