@@ -686,9 +686,10 @@ function PriceCompTable({ items }: { items: PriceCompItem[] }) {
 
   const [selGroups,  setSelGroups]  = useState<string[]>([])
   const [partQ,      setPartQ]      = useState("")
-  const [compFilter, setCompFilter] = useState<CompFilter>("all")
-  const [diffFilter, setDiffFilter] = useState<RangeFilter>("all")
-  const [valFilter,  setValFilter]  = useState<RangeFilter>("all")
+  const [compFilter,   setCompFilter]   = useState<CompFilter>("all")
+  const [diffFilter,   setDiffFilter]   = useState<RangeFilter>("all")
+  const [valFilter,    setValFilter]    = useState<RangeFilter>("all")
+  const [impactFilter, setImpactFilter] = useState<RangeFilter>("all")
   const [expanded,   setExpanded]   = useState<Set<string>>(new Set())
 
   // Expand all when data changes
@@ -718,28 +719,48 @@ function PriceCompTable({ items }: { items: PriceCompItem[] }) {
     return Math.abs((p.คลัง?.avgPrice ?? 0) - (p.ศูนย์?.avgPrice ?? 0))
   }
 
+  function getImpact(p: PartPrices): number {
+    const kp = p.คลัง?.avgPrice ?? null
+    const sp = p.ศูนย์?.avgPrice ?? null
+    if (kp === null || sp === null) return 0
+    const pct = Math.abs(((kp - sp) / Math.max(sp, 0.01)) * 100)
+    if (pct < 1) return 0
+    const n = kp > sp ? (p.คลัง?.count ?? 0) : (p.ศูนย์?.count ?? 0)
+    return Math.abs(kp - sp) * n
+  }
+
   const visible = useMemo(() => {
     return groups
       .filter(g => selGroups.length === 0 || selGroups.includes(g.partsGroup))
       .map(g => ({
         ...g,
-        parts: g.parts.filter(p => {
-          if (p.คลัง === null || p.ศูนย์ === null) return false
-          if (partQ.trim() && !p.part.toLowerCase().includes(partQ.toLowerCase())) return false
-          if (compFilter !== "all" && getComp(p) !== compFilter) return false
-          const pct = getDiffPct(p)
-          if (diffFilter === "low"  && pct >= 25)         return false
-          if (diffFilter === "mid"  && (pct < 25 || pct >= 75)) return false
-          if (diffFilter === "high" && pct < 75)          return false
-          const val = getTotalValue(p)
-          if (valFilter === "low"  && val >= 200)           return false
-          if (valFilter === "mid"  && (val < 200 || val >= 5_000)) return false
-          if (valFilter === "high" && val < 5_000)        return false
-          return true
-        }),
+        parts: g.parts
+          .filter(p => {
+            if (p.คลัง === null || p.ศูนย์ === null) return false
+            if (partQ.trim() && !p.part.toLowerCase().includes(partQ.toLowerCase())) return false
+            if (compFilter !== "all" && getComp(p) !== compFilter) return false
+            const pct = getDiffPct(p)
+            if (diffFilter === "low"  && pct >= 25)              return false
+            if (diffFilter === "mid"  && (pct < 25 || pct >= 75)) return false
+            if (diffFilter === "high" && pct < 75)               return false
+            const val = getTotalValue(p)
+            if (valFilter === "low"  && val >= 200)              return false
+            if (valFilter === "mid"  && (val < 200 || val >= 5_000)) return false
+            if (valFilter === "high" && val < 5_000)             return false
+            const impact = getImpact(p)
+            if (impactFilter === "low"  && impact >= 1_000)              return false
+            if (impactFilter === "mid"  && (impact < 1_000 || impact >= 20_000)) return false
+            if (impactFilter === "high" && impact < 20_000)              return false
+            return true
+          })
+          .sort((a, b) => getImpact(b) - getImpact(a)),
       }))
       .filter(g => g.parts.length > 0)
-  }, [groups, selGroups, partQ, compFilter, diffFilter, valFilter]) // eslint-disable-line react-hooks/exhaustive-deps
+      .sort((a, b) => {
+        const sumImpact = (parts: PartPrices[]) => parts.reduce((s, p) => s + getImpact(p), 0)
+        return sumImpact(b.parts) - sumImpact(a.parts)
+      })
+  }, [groups, selGroups, partQ, compFilter, diffFilter, valFilter, impactFilter]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const th = "px-3 py-2.5 text-xs font-semibold text-gray-500 dark:text-gray-400 whitespace-nowrap border-b border-gray-100 dark:border-white/8"
   const td = "px-3 py-2 text-right text-xs tabular-nums whitespace-nowrap"
@@ -757,6 +778,12 @@ function PriceCompTable({ items }: { items: PriceCompItem[] }) {
           : pct < 1 ? "ใกล้เคียง"
           : kp! > sp! ? "คลัง แพงกว่า"
           : "ศูนย์ แพงกว่า"
+        const impactNExport = kp !== null && sp !== null && pct !== null && pct >= 1
+          ? (kp > sp ? (p.คลัง?.count ?? 0) : (p.ศูนย์?.count ?? 0))
+          : 0
+        const impactValExport = kp !== null && sp !== null && pct !== null && pct >= 1
+          ? +Math.abs(kp - sp) * impactNExport
+          : ""
         return {
           "parts_group":           group.partsGroup,
           "part":                  p.part,
@@ -764,16 +791,17 @@ function PriceCompTable({ items }: { items: PriceCompItem[] }) {
           "count คลัง":            p.คลัง?.count ?? "",
           "avg ศูนย์/อู่นอก (฿)":  sp != null ? +sp.toFixed(2) : "",
           "count ศูนย์":           p.ศูนย์?.count ?? "",
-          "ส่วนต่าง (฿)":          diff != null ? +diff.toFixed(2) : "",
+          "ส่วนต่าง (฿)":          diff != null ? +Math.abs(diff).toFixed(2) : "",
           "ส่วนต่าง (%)":          pct  != null ? +pct.toFixed(2)  : "",
           "เปรียบเทียบ":           comp,
+          "ส่วนต่าง×n (฿)":        impactValExport,
         }
       })
     )
     const ws = XLSX.utils.json_to_sheet(rows)
     ws["!cols"] = [
       { wch: 20 }, { wch: 40 }, { wch: 16 }, { wch: 10 },
-      { wch: 22 }, { wch: 10 }, { wch: 14 }, { wch: 12 }, { wch: 18 },
+      { wch: 22 }, { wch: 10 }, { wch: 14 }, { wch: 12 }, { wch: 18 }, { wch: 16 },
     ]
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, "Price Comparison")
@@ -815,9 +843,9 @@ function PriceCompTable({ items }: { items: PriceCompItem[] }) {
               </button>
             )}
           </div>
-          {(selGroups.length > 0 || partQ || compFilter !== "all" || diffFilter !== "all" || valFilter !== "all") && (
+          {(selGroups.length > 0 || partQ || compFilter !== "all" || diffFilter !== "all" || valFilter !== "all" || impactFilter !== "all") && (
             <button
-              onClick={() => { setSelGroups([]); setPartQ(""); setCompFilter("all"); setDiffFilter("all"); setValFilter("all") }}
+              onClick={() => { setSelGroups([]); setPartQ(""); setCompFilter("all"); setDiffFilter("all"); setValFilter("all"); setImpactFilter("all") }}
               className="text-xs text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 underline underline-offset-2"
             >
               ล้างทั้งหมด
@@ -880,6 +908,24 @@ function PriceCompTable({ items }: { items: PriceCompItem[] }) {
               ))}
             </div>
           </div>
+
+          {/* ส่วนต่าง×n ฿ */}
+          <div className="flex flex-col gap-1">
+            <span className="text-[10px] font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">ส่วนต่าง×n (฿)</span>
+            <div className="flex items-center rounded-lg border border-gray-200 dark:border-white/10 overflow-hidden text-xs">
+              {([
+                { key: "all",  label: "ทั้งหมด"     },
+                { key: "low",  label: "< 1,000"      },
+                { key: "mid",  label: "1,000–20,000" },
+                { key: "high", label: "> 20,000"     },
+              ] as { key: RangeFilter; label: string }[]).map((opt, i) => (
+                <button key={opt.key} onClick={() => setImpactFilter(opt.key)}
+                  className={`px-3 py-1.5 whitespace-nowrap transition-colors ${i > 0 ? "border-l border-gray-200 dark:border-white/10" : ""} ${impactFilter === opt.key ? "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400" : "bg-white dark:bg-white/3 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/5"}`}>
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -894,24 +940,34 @@ function PriceCompTable({ items }: { items: PriceCompItem[] }) {
               <th className={`${th} text-right bg-blue-50 dark:bg-blue-950/40`}>avg ศูนย์/อู่นอก (฿)</th>
               <th className={`${th} text-right bg-blue-50 dark:bg-blue-950/40`}>n</th>
               <th className={`${th} text-right bg-gray-50 dark:bg-[#13151f] min-w-[150px]`}>เปรียบเทียบ</th>
+              <th className={`${th} text-right bg-orange-50 dark:bg-orange-950/20 min-w-[110px]`}>ส่วนต่าง (฿)</th>
+              <th className={`${th} text-right bg-orange-50 dark:bg-orange-950/20 min-w-[140px]`}>ส่วนต่าง×n (฿) ↓</th>
             </tr>
           </thead>
           <tbody>
             {visible.map(group => (
               <React.Fragment key={group.partsGroup}>
                 {/* Group header — click to expand/collapse */}
-                <tr
-                  className="cursor-pointer bg-gray-50/70 dark:bg-white/2 hover:bg-gray-100 dark:hover:bg-white/5 transition-colors"
-                  onClick={() => toggleGroup(group.partsGroup)}
-                >
-                  <td className="px-3 py-2.5 sticky left-0 bg-gray-50/80 dark:bg-[#13151f] z-10" colSpan={6}>
-                    <div className="flex items-center gap-2 font-semibold text-gray-800 dark:text-white">
-                      <span className="text-gray-400 text-[10px] w-3 shrink-0">{expanded.has(group.partsGroup) ? "▾" : "▸"}</span>
-                      {group.partsGroup}
-                      <span className="font-normal text-gray-400">({group.parts.length} รายการ)</span>
-                    </div>
-                  </td>
-                </tr>
+                {(() => {
+                  const groupImpact = group.parts.reduce((s, p) => s + getImpact(p), 0)
+                  return (
+                    <tr
+                      className="cursor-pointer bg-gray-50/70 dark:bg-white/2 hover:bg-gray-100 dark:hover:bg-white/5 transition-colors"
+                      onClick={() => toggleGroup(group.partsGroup)}
+                    >
+                      <td className="px-3 py-2.5 sticky left-0 bg-gray-50/80 dark:bg-[#13151f] z-10" colSpan={7}>
+                        <div className="flex items-center gap-2 font-semibold text-gray-800 dark:text-white">
+                          <span className="text-gray-400 text-[10px] w-3 shrink-0">{expanded.has(group.partsGroup) ? "▾" : "▸"}</span>
+                          {group.partsGroup}
+                          <span className="font-normal text-gray-400">({group.parts.length} รายการ)</span>
+                        </div>
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-xs font-bold tabular-nums text-orange-600 dark:text-orange-400 bg-orange-50/60 dark:bg-orange-950/20 whitespace-nowrap">
+                        {groupImpact > 0 ? fmt(groupImpact) : <span className="text-gray-300 dark:text-gray-600 font-normal">—</span>}
+                      </td>
+                    </tr>
+                  )
+                })()}
 
                 {/* Part rows */}
                 {expanded.has(group.partsGroup) && group.parts.map(p => {
@@ -932,6 +988,16 @@ function PriceCompTable({ items }: { items: PriceCompItem[] }) {
                     }
                   }
 
+                  const impactN = kp !== null && sp !== null
+                    ? (kp > sp ? (p.คลัง?.count ?? 0) : (p.ศูนย์?.count ?? 0))
+                    : 0
+                  const pctForImpact = kp !== null && sp !== null
+                    ? Math.abs(((kp - sp) / Math.max(sp, 0.01)) * 100)
+                    : 0
+                  const impactVal = kp !== null && sp !== null && pctForImpact >= 1
+                    ? Math.abs(kp - sp) * impactN
+                    : null
+
                   return (
                     <tr key={p.part} className="border-t border-gray-50 dark:border-white/5 hover:bg-gray-50 dark:hover:bg-white/3 transition-colors">
                       <td className="px-3 py-2 sticky left-0 bg-white dark:bg-[#0f1117] z-10 max-w-[260px]">
@@ -949,6 +1015,14 @@ function PriceCompTable({ items }: { items: PriceCompItem[] }) {
                       </td>
                       <td className={`${td} text-gray-400 dark:text-gray-500`}>{p.ศูนย์?.count ?? "—"}</td>
                       <td className={`${td}`}>{indicator}</td>
+                      <td className={`${td} text-orange-700 dark:text-orange-300`}>
+                        {kp !== null && sp !== null
+                          ? fmt(Math.abs(kp - sp))
+                          : <span className="text-gray-300 dark:text-gray-600">—</span>}
+                      </td>
+                      <td className={`${td} font-medium ${impactVal ? "text-orange-600 dark:text-orange-400" : ""}`}>
+                        {impactVal != null ? fmt(impactVal) : <span className="text-gray-300 dark:text-gray-600">—</span>}
+                      </td>
                     </tr>
                   )
                 })}
@@ -956,7 +1030,7 @@ function PriceCompTable({ items }: { items: PriceCompItem[] }) {
             ))}
             {visible.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-5 py-8 text-center text-sm text-gray-400">ไม่พบข้อมูล</td>
+                <td colSpan={8} className="px-5 py-8 text-center text-sm text-gray-400">ไม่พบข้อมูล</td>
               </tr>
             )}
           </tbody>
@@ -1160,7 +1234,7 @@ export default function RepairAnalysisPage() {
               <table className="w-full text-xs">
                 <thead className="sticky top-0 z-20">
                   <tr className="border-b border-gray-100 dark:border-white/8 bg-gray-50 dark:bg-[#13151f]">
-                    {["request_code","reported_at","branch","plate_no","mechanic","parts_group","part","qty","total","อู่","แหล่งอะไหล่","remark"].map(h => (
+                    {["request_code","reported_at","branch","plate_no","mechanic","parts_group","part","qty","unit_price","total","อู่","แหล่งอะไหล่","remark"].map(h => (
                       <th key={h} className="px-3 py-3 text-left font-semibold text-gray-500 dark:text-gray-400 whitespace-nowrap bg-gray-50 dark:bg-[#13151f]">{h}</th>
                     ))}
                   </tr>
@@ -1176,6 +1250,7 @@ export default function RepairAnalysisPage() {
                       <td className="px-3 py-2 whitespace-nowrap">{r.parts_group}</td>
                       <td className="px-3 py-2 max-w-[200px] truncate" title={r.part}>{r.part}</td>
                       <td className="px-3 py-2 text-right">{r.qty}</td>
+                      <td className="px-3 py-2 text-right">{fmt(r.unit_price)}</td>
                       <td className="px-3 py-2 text-right font-medium">{fmt(r.total)}</td>
                       <td className="px-3 py-2">
                         <span className={`px-2 py-0.5 rounded-full font-medium ${GARAGE_COLOR[r.อู่] ?? "bg-gray-100 text-gray-600"}`}>{r.อู่}</span>

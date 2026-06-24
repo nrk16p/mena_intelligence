@@ -45,6 +45,18 @@
   --radius-2xl: calc(var(--radius) + 8px);
   --radius-3xl: calc(var(--radius) + 12px);
   --radius-4xl: calc(var(--radius) + 16px);
+
+  /* ── WattVision design tokens ──────────────────────── */
+  --color-watt-bg:       #121212;
+  --color-watt-surface:  #1E1E1E;
+  --color-watt-cyan:     #00E5FF;
+  --color-watt-alert:    #FF453A;
+  --color-watt-success:  #32D74B;
+  --color-watt-muted:    #98989D;
+  --color-watt-border:   #2C2C2E;
+  --color-watt-hover:    #252525;
+  --color-watt-alert-bg: #3A1C1C;
+  --font-watt-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
 }
 
 :root {
@@ -124,6 +136,8 @@
     @apply bg-background text-foreground;
   }
 }
+
+.watt-mono { font-family: var(--font-watt-mono); }
 
 /* Dark mode overrides for hardcoded utility classes used across pages */
 .dark .bg-white {

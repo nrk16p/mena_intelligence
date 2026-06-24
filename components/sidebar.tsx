@@ -19,6 +19,7 @@ import {
   Users,
   FileText,
   LogOut,
+  Search,
 } from "lucide-react"
 
 function MenaLogo({ size = 28 }: { size?: number }) {
@@ -89,6 +90,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/repair-cost",     label: "Repair Cost",     icon: Calculator },
       { href: "/repair-analysis", label: "Repair Analysis", icon: BarChart3 },
       { href: "/cost",            label: "Cost Monitoring", icon: Warehouse },
+      { href: "/pc-cost",         label: "PC Cost",         icon: TrendingUp },
       { href: "/transaction-detail", label: "Transaction Detail", icon: FileText },
     ],
   },
@@ -102,9 +104,10 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Procurement",
     items: [
-      { href: "/stock-budget-ladkrabang", label: "Stock Budget", icon: PackageSearch },
-      { href: "/price-benchmark", label: "Price Benchmark", icon: TrendingUp },
-      { href: "/supplier-analysis", label: "Supplier Analysis", icon: Users },
+      { href: "/procurement-search",      label: "Procurement Search", icon: Search },
+      { href: "/stock-budget-ladkrabang", label: "Stock Budget",       icon: PackageSearch },
+      { href: "/price-benchmark",         label: "Price Benchmark",    icon: TrendingUp },
+      { href: "/supplier-analysis",       label: "Supplier Analysis",  icon: Users },
     ],
   },
 ]

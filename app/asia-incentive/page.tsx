@@ -1217,6 +1217,21 @@ export default function AsiaIncentiveDashboardPage() {
     return [...filteredData].sort((a, b) => b.total_incentive - a.total_incentive)
   }, [filteredData])
 
+  const plantAnalysisData = useMemo(() => {
+    const map = new Map<string, { plant: string; drivers: number; totalTrip: number; totalQ: number }>()
+    for (const r of filteredData) {
+      const plant = r.แพล้นท์ || "ไม่ระบุ"
+      const cur = map.get(plant) ?? { plant, drivers: 0, totalTrip: 0, totalQ: 0 }
+      map.set(plant, {
+        plant,
+        drivers: cur.drivers + 1,
+        totalTrip: cur.totalTrip + Number(r.total_trip || 0),
+        totalQ: cur.totalQ + Number(r.total_q || 0),
+      })
+    }
+    return Array.from(map.values()).sort((a, b) => b.totalTrip - a.totalTrip)
+  }, [filteredData])
+
   function exportMonthlySummary() {
     const rows = sortedData.map((row) => ({
       driver_id: row.driver_id || "",
@@ -2162,6 +2177,41 @@ export default function AsiaIncentiveDashboardPage() {
                       <td className="py-2 text-right text-xs font-bold">{formatNumber(monthlySummaryStats.totalDrivers)} คน</td>
                       <td />
                       <td className="py-2 text-right text-xs font-bold text-green-700">{formatMoney(monthlySummaryStats.totalIncentive)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+
+            {/* Plant Analysis */}
+            <div className="rounded-2xl border bg-white p-4 shadow-sm">
+              <h3 className="mb-4 text-sm font-semibold">Plant Analysis — total_trip &amp; total_q</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="pb-2 text-left text-xs font-semibold text-gray-400">แพล้นท์</th>
+                      <th className="pb-2 text-right text-xs font-semibold text-gray-400">คนขับ</th>
+                      <th className="pb-2 text-right text-xs font-semibold text-gray-400">total_trip รวม</th>
+                      <th className="pb-2 text-right text-xs font-semibold text-gray-400">total_q รวม</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {plantAnalysisData.map((row) => (
+                      <tr key={row.plant} className="hover:bg-gray-50">
+                        <td className="py-2 font-medium text-gray-900">{row.plant}</td>
+                        <td className="py-2 text-right text-gray-600">{formatNumber(row.drivers)}</td>
+                        <td className="py-2 text-right font-bold text-purple-700">{formatNumber(row.totalTrip)}</td>
+                        <td className="py-2 text-right font-bold text-orange-700">{formatNumber(row.totalQ)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="border-t-2">
+                    <tr>
+                      <td className="py-2 text-xs font-semibold text-gray-600">รวม</td>
+                      <td className="py-2 text-right text-xs font-bold">{formatNumber(filteredData.length)}</td>
+                      <td className="py-2 text-right text-xs font-bold text-purple-700">{formatNumber(plantAnalysisData.reduce((s, r) => s + r.totalTrip, 0))}</td>
+                      <td className="py-2 text-right text-xs font-bold text-orange-700">{formatNumber(plantAnalysisData.reduce((s, r) => s + r.totalQ, 0))}</td>
                     </tr>
                   </tfoot>
                 </table>

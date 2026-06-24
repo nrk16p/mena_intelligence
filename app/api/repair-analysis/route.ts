@@ -114,9 +114,10 @@ export async function GET(req: Request) {
         { $sort: { "_id.sortKey": 1 } },
       ]).toArray(),
 
-      // Pivot: count unique request_id by month-year × อู่
+      // Pivot: count unique request_id by month-year × อู่ (ปิด only)
       col.aggregate([
         ...base,
+        { $match: { step: "ปิด" } },
         addMonthYear,
         { $group: { _id: { sortKey: "$_my_sort", label: "$_my_label", garage: "$อู่", rid: "$request_id" } } },
         { $group: { _id: { sortKey: "$_id.sortKey", label: "$_id.label", garage: "$_id.garage" }, count: { $sum: 1 } } },
