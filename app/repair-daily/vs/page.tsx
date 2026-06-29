@@ -123,7 +123,12 @@ function VSFormInner() {
         vs_followup_count: vsFollowup,
         notes,
       }
-      await fetch("/api/repair-daily/vs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(record) })
+      const res = await fetch("/api/repair-daily/vs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(record),
+      })
+      if (!res.ok) return
       const text = renderTemplate(template, vsToTemplateVars(record))
       setLineText(text)
       setIsEdit(true)

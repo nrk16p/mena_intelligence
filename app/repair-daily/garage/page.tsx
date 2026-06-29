@@ -114,7 +114,12 @@ function GarageFormInner() {
         overdue_count: overdueCount,
         next_day: { target_complete: targetComplete, urgent_close: urgentClose, urgent_parts: urgentParts, team_reallocation: teamReallocation, support_needed: supportNeeded },
       }
-      await fetch("/api/repair-daily/garage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(record) })
+      const res = await fetch("/api/repair-daily/garage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(record),
+      })
+      if (!res.ok) return
       const text = renderTemplate(template, garageToTemplateVars(record))
       setLineText(text)
       setIsEdit(true)

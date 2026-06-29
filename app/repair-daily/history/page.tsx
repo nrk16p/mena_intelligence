@@ -10,6 +10,7 @@ import type { VSRecord, GarageRecord } from "@/lib/repair-daily"
 
 function monthRange(offset = 0) {
   const d = new Date()
+  d.setDate(1)  // pin to 1st to prevent month overflow
   d.setMonth(d.getMonth() + offset)
   const y = d.getFullYear()
   const m = String(d.getMonth() + 1).padStart(2, "0")

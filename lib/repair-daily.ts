@@ -66,7 +66,7 @@ export function toThaiDate(dateStr: string): string {
 }
 
 export function todayISO(): string {
-  return new Date().toISOString().split("T")[0]
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Bangkok" })
 }
 
 export function renderTemplate(template: string, vars: Record<string, string>): string {
