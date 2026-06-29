@@ -24,24 +24,59 @@ export default function AdminUsersPage() {
   const [saving, setSaving] = useState<string | null>(null)
   const [pendingGroups, setPendingGroups] = useState<Record<string, string[]>>({})
 
-  useEffect(() => {
-    Promise.all([
+  const [addEmail, setAddEmail] = useState("")
+  const [addGroupIds, setAddGroupIds] = useState<string[]>([])
+  const [adding, setAdding] = useState(false)
+  const [addError, setAddError] = useState<string | null>(null)
+
+  async function loadUsers() {
+    const [u, g] = await Promise.all([
       fetch("/api/admin/users").then((r) => r.json()),
       fetch("/api/admin/groups").then((r) => r.json()),
-    ]).then(([u, g]) => {
-      const fetchedUsers: AppUser[] = (u.data ?? []).map((user: AppUser & { group_ids?: string[] }) => ({
-        ...user,
-        group_ids: Array.isArray(user.group_ids) ? user.group_ids.map(String) : [],
-      }))
-      setUsers(fetchedUsers)
-      setGroups(g.data ?? [])
-      const initial: Record<string, string[]> = {}
-      for (const user of fetchedUsers) {
-        initial[user.email] = user.group_ids ?? []
+    ])
+    const fetchedUsers: AppUser[] = (u.data ?? []).map((user: AppUser & { group_ids?: string[] }) => ({
+      ...user,
+      group_ids: Array.isArray(user.group_ids) ? user.group_ids.map(String) : [],
+    }))
+    setUsers(fetchedUsers)
+    setGroups(g.data ?? [])
+    const initial: Record<string, string[]> = {}
+    for (const user of fetchedUsers) {
+      initial[user.email] = user.group_ids ?? []
+    }
+    setPendingGroups(initial)
+  }
+
+  useEffect(() => { loadUsers() }, [])
+
+  async function addUser() {
+    if (!addEmail.trim()) return
+    setAdding(true)
+    setAddError(null)
+    try {
+      const res = await fetch("/api/admin/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: addEmail.trim().toLowerCase(), group_ids: addGroupIds }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        setAddError(data.error ?? "เกิดข้อผิดพลาด")
+        return
       }
-      setPendingGroups(initial)
-    })
-  }, [])
+      setAddEmail("")
+      setAddGroupIds([])
+      await loadUsers()
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  function toggleAddGroup(groupId: string) {
+    setAddGroupIds((prev) =>
+      prev.includes(groupId) ? prev.filter((id) => id !== groupId) : [...prev, groupId]
+    )
+  }
 
   function toggleGroup(email: string, groupId: string) {
     setPendingGroups((prev) => {
@@ -92,6 +127,42 @@ export default function AdminUsersPage() {
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
           กำหนดกลุ่มสิทธิ์ให้กับแต่ละผู้ใช้ (เลือกได้หลายกลุ่ม)
         </p>
+      </div>
+
+      {/* Add user form */}
+      <div className="mb-6 rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] p-4">
+        <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">เพิ่มผู้ใช้ใหม่</p>
+        <div className="flex flex-wrap gap-3 items-start">
+          <input
+            type="email"
+            placeholder="อีเมล @menatransport.co.th"
+            value={addEmail}
+            onChange={(e) => { setAddEmail(e.target.value); setAddError(null) }}
+            onKeyDown={(e) => e.key === "Enter" && addUser()}
+            className="flex-1 min-w-48 rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-2 text-sm text-gray-800 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          />
+          <div className="flex flex-wrap gap-x-4 gap-y-1 items-center pt-1.5">
+            {groups.map((g) => (
+              <label key={String(g._id)} className="flex items-center gap-1.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={addGroupIds.includes(String(g._id))}
+                  onChange={() => toggleAddGroup(String(g._id))}
+                  className="h-3.5 w-3.5 rounded border-gray-300 dark:border-white/20 text-emerald-500 focus:ring-emerald-500 focus:ring-offset-0 bg-white dark:bg-white/10"
+                />
+                <span className="text-xs text-gray-700 dark:text-gray-300">{g.name}</span>
+              </label>
+            ))}
+          </div>
+          <button
+            onClick={addUser}
+            disabled={adding || !addEmail.trim()}
+            className="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-40 transition-colors whitespace-nowrap"
+          >
+            {adding ? "กำลังเพิ่ม..." : "+ เพิ่มผู้ใช้"}
+          </button>
+        </div>
+        {addError && <p className="mt-2 text-xs text-red-500">{addError}</p>}
       </div>
 
       <div className="rounded-xl border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0f1117] overflow-hidden">

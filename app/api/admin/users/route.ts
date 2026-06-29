@@ -37,6 +37,50 @@ export async function GET() {
   return NextResponse.json({ success: true, data: users })
 }
 
+export async function POST(req: NextRequest) {
+  const admin = await getAdminSession()
+  if (!admin) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+
+  try {
+    const { email, group_ids } = (await req.json()) as {
+      email: string
+      group_ids?: string[]
+    }
+
+    if (!email || !email.includes("@")) {
+      return NextResponse.json({ error: "Invalid email" }, { status: 400 })
+    }
+
+    const client = await clientPromise
+    const db = client.db("atms")
+
+    const existing = await db.collection("app_users").findOne({ email })
+    if (existing) {
+      return NextResponse.json({ error: "User already exists" }, { status: 409 })
+    }
+
+    const objectIds = Array.isArray(group_ids) && group_ids.length
+      ? group_ids.map((id) => new ObjectId(id))
+      : []
+
+    await db.collection("app_users").insertOne({
+      email,
+      name: email.split("@")[0],
+      image: "",
+      group_ids: objectIds,
+      created_at: new Date(),
+      last_seen: null,
+    })
+
+    return NextResponse.json({ success: true })
+  } catch (e) {
+    if (e instanceof Error && (e.name === "BSONError" || e.constructor.name === "BSONError")) {
+      return NextResponse.json({ error: "Bad request" }, { status: 400 })
+    }
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+  }
+}
+
 export async function PATCH(req: NextRequest) {
   const admin = await getAdminSession()
   if (!admin) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
