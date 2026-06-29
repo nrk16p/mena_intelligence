@@ -7,8 +7,7 @@ type AppUser = {
   email: string
   name: string
   image: string
-  group_id: string | null
-  group_name: string | null
+  group_ids: string[]
   last_seen: string
 }
 
@@ -23,42 +22,57 @@ export default function AdminUsersPage() {
   const [users, setUsers] = useState<AppUser[]>([])
   const [groups, setGroups] = useState<Group[]>([])
   const [saving, setSaving] = useState<string | null>(null)
-  const [pendingGroups, setPendingGroups] = useState<Record<string, string>>({})
+  const [pendingGroups, setPendingGroups] = useState<Record<string, string[]>>({})
 
   useEffect(() => {
     Promise.all([
       fetch("/api/admin/users").then((r) => r.json()),
       fetch("/api/admin/groups").then((r) => r.json()),
     ]).then(([u, g]) => {
-      setUsers(u.data ?? [])
+      const fetchedUsers: AppUser[] = (u.data ?? []).map((user: AppUser & { group_ids?: string[] }) => ({
+        ...user,
+        group_ids: Array.isArray(user.group_ids) ? user.group_ids.map(String) : [],
+      }))
+      setUsers(fetchedUsers)
       setGroups(g.data ?? [])
-      const initial: Record<string, string> = {}
-      for (const user of u.data ?? []) {
-        initial[user.email] = user.group_id ?? ""
+      const initial: Record<string, string[]> = {}
+      for (const user of fetchedUsers) {
+        initial[user.email] = user.group_ids ?? []
       }
       setPendingGroups(initial)
     })
   }, [])
 
+  function toggleGroup(email: string, groupId: string) {
+    setPendingGroups((prev) => {
+      const current = prev[email] ?? []
+      const next = current.includes(groupId)
+        ? current.filter((id) => id !== groupId)
+        : [...current, groupId]
+      return { ...prev, [email]: next }
+    })
+  }
+
   async function saveUser(email: string) {
     setSaving(email)
     try {
-      const group_id = pendingGroups[email] || null
+      const group_ids = pendingGroups[email] ?? []
       await fetch("/api/admin/users", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, group_id }),
+        body: JSON.stringify({ email, group_ids }),
       })
-      // Refresh users list
       const res = await fetch("/api/admin/users").then((r) => r.json())
-      const newUsers = res.data ?? []
+      const newUsers: AppUser[] = (res.data ?? []).map((user: AppUser & { group_ids?: string[] }) => ({
+        ...user,
+        group_ids: Array.isArray(user.group_ids) ? user.group_ids.map(String) : [],
+      }))
       setUsers(newUsers)
-      // Re-sync pendingGroups with refreshed data
       setPendingGroups((prev) => {
         const updated = { ...prev }
         for (const user of newUsers) {
           if (!(user.email in updated)) {
-            updated[user.email] = user.group_id ?? ""
+            updated[user.email] = user.group_ids ?? []
           }
         }
         return updated
@@ -68,15 +82,15 @@ export default function AdminUsersPage() {
     }
   }
 
-  const unassigned = users.filter((u) => !u.group_id)
-  const assigned = users.filter((u) => u.group_id)
+  const unassigned = users.filter((u) => !u.group_ids?.length)
+  const assigned = users.filter((u) => u.group_ids?.length)
 
   return (
-    <div className="max-w-4xl">
+    <div className="max-w-5xl">
       <div className="mb-6">
         <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">จัดการผู้ใช้งาน</h1>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-          กำหนดกลุ่มสิทธิ์ให้กับแต่ละผู้ใช้
+          กำหนดกลุ่มสิทธิ์ให้กับแต่ละผู้ใช้ (เลือกได้หลายกลุ่ม)
         </p>
       </div>
 
@@ -93,13 +107,13 @@ export default function AdminUsersPage() {
           <tbody>
             {[...unassigned, ...assigned].map((user) => (
               <tr key={user.email} className="border-b border-gray-50 dark:border-white/4 last:border-0">
-                <td className="px-4 py-3">
+                <td className="px-4 py-3 align-top">
                   <div className="flex items-center gap-3">
                     {user.image ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={user.image} alt="" className="h-8 w-8 rounded-full" />
+                      <img src={user.image} alt="" className="h-8 w-8 rounded-full flex-shrink-0" />
                     ) : (
-                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500 text-white text-xs font-bold">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500 text-white text-xs font-bold flex-shrink-0">
                         {user.name?.[0] ?? "?"}
                       </div>
                     )}
@@ -109,35 +123,40 @@ export default function AdminUsersPage() {
                     </div>
                   </div>
                 </td>
-                <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">
+                <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs align-top pt-4">
                   {user.last_seen ? new Date(user.last_seen).toLocaleDateString("th-TH") : "-"}
                 </td>
-                <td className="px-4 py-3">
-                  {!user.group_id && (
-                    <span className="inline-block mb-1 rounded-full bg-yellow-100 dark:bg-yellow-900/30 px-2 py-0.5 text-xs font-medium text-yellow-700 dark:text-yellow-400">
+                <td className="px-4 py-3 align-top">
+                  {(!user.group_ids?.length) && (
+                    <span className="inline-block mb-2 rounded-full bg-yellow-100 dark:bg-yellow-900/30 px-2 py-0.5 text-xs font-medium text-yellow-700 dark:text-yellow-400">
                       ยังไม่ได้กำหนด
                     </span>
                   )}
-                  <select
-                    value={pendingGroups[user.email] ?? ""}
-                    onChange={(e) =>
-                      setPendingGroups((p) => ({ ...p, [user.email]: e.target.value }))
-                    }
-                    className="block w-full rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 px-2 py-1.5 text-sm text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  >
-                    <option value="">— ไม่มีกลุ่ม —</option>
-                    {groups.map((g) => (
-                      <option key={String(g._id)} value={String(g._id)}>
-                        {g.name}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1">
+                    {groups.map((g) => {
+                      const checked = (pendingGroups[user.email] ?? []).includes(String(g._id))
+                      return (
+                        <label
+                          key={String(g._id)}
+                          className="flex items-center gap-1.5 cursor-pointer select-none"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleGroup(user.email, String(g._id))}
+                            className="h-3.5 w-3.5 rounded border-gray-300 dark:border-white/20 text-emerald-500 focus:ring-emerald-500 focus:ring-offset-0 bg-white dark:bg-white/10"
+                          />
+                          <span className="text-xs text-gray-700 dark:text-gray-300">{g.name}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
                 </td>
-                <td className="px-4 py-3">
+                <td className="px-4 py-3 align-top pt-4">
                   <button
                     onClick={() => saveUser(user.email)}
                     disabled={saving === user.email}
-                    className="rounded-lg bg-gray-900 dark:bg-white px-3 py-1.5 text-xs font-medium text-white dark:text-gray-900 hover:opacity-80 disabled:opacity-40 transition-opacity"
+                    className="rounded-lg bg-gray-900 dark:bg-white px-3 py-1.5 text-xs font-medium text-white dark:text-gray-900 hover:opacity-80 disabled:opacity-40 transition-opacity whitespace-nowrap"
                   >
                     {saving === user.email ? "กำลังบันทึก..." : "บันทึก"}
                   </button>
@@ -157,4 +176,3 @@ export default function AdminUsersPage() {
     </div>
   )
 }
-

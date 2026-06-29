@@ -18,11 +18,21 @@ export async function GET() {
 
   const client = await clientPromise
   const db = client.db("atms")
+  // Unassigned users (empty group_ids) first, then by last_seen desc
   const users = await db
     .collection("app_users")
     .find({})
-    .sort({ group_id: 1, last_seen: -1 })
+    .sort({ last_seen: -1 })
     .toArray()
+
+  // Sort: unassigned first
+  users.sort((a, b) => {
+    const aEmpty = !Array.isArray(a.group_ids) || a.group_ids.length === 0
+    const bEmpty = !Array.isArray(b.group_ids) || b.group_ids.length === 0
+    if (aEmpty && !bEmpty) return -1
+    if (!aEmpty && bEmpty) return 1
+    return 0
+  })
 
   return NextResponse.json({ success: true, data: users })
 }
@@ -32,30 +42,32 @@ export async function PATCH(req: NextRequest) {
   if (!admin) return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
   try {
-    const { email, group_id } = (await req.json()) as {
+    const { email, group_ids } = (await req.json()) as {
       email: string
-      group_id: string | null
+      group_ids: string[]
     }
 
     const client = await clientPromise
     const db = client.db("atms")
 
-    if (!group_id) {
+    if (!Array.isArray(group_ids) || group_ids.length === 0) {
       await db.collection("app_users").updateOne(
         { email },
-        { $set: { group_id: null, group_name: null } }
+        { $set: { group_ids: [] } }
       )
       return NextResponse.json({ success: true })
     }
 
-    const group = await db
+    const objectIds = group_ids.map((id) => new ObjectId(id))
+    const groups = await db
       .collection("permission_groups")
-      .findOne({ _id: new ObjectId(group_id) })
-    if (!group) return NextResponse.json({ error: "Group not found" }, { status: 404 })
+      .find({ _id: { $in: objectIds } })
+      .toArray()
+    if (!groups.length) return NextResponse.json({ error: "Group not found" }, { status: 404 })
 
     await db.collection("app_users").updateOne(
       { email },
-      { $set: { group_id: new ObjectId(group_id), group_name: group.name as string } }
+      { $set: { group_ids: objectIds } }
     )
 
     return NextResponse.json({ success: true })

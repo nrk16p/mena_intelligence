@@ -18,18 +18,30 @@ export async function getUserPermissions(
     const db = client.db("atms")
 
     const user = await db.collection("app_users").findOne({ email })
-    if (!user || !user.group_id) return { isAdmin: false, allowedGroups: [] }
+    if (!user) return { isAdmin: false, allowedGroups: [] }
 
-    const group = await db
+    // Support both group_ids (array) and legacy group_id (singular)
+    const rawIds: unknown[] = Array.isArray(user.group_ids) && user.group_ids.length
+      ? user.group_ids
+      : user.group_id
+        ? [user.group_id]
+        : []
+    if (!rawIds.length) return { isAdmin: false, allowedGroups: [] }
+
+    const objectIds = rawIds.map((id) => new ObjectId(String(id)))
+    const groups = await db
       .collection("permission_groups")
-      .findOne({ _id: new ObjectId(String(user.group_id)) })
-    if (!group) return { isAdmin: false, allowedGroups: [] }
+      .find({ _id: { $in: objectIds } })
+      .toArray()
 
-    if (group.is_admin) {
+    if (!groups.length) return { isAdmin: false, allowedGroups: [] }
+
+    if (groups.some((g) => g.is_admin)) {
       return { isAdmin: true, allowedGroups: ALL_GROUPS }
     }
 
-    return { isAdmin: false, allowedGroups: (group.access as string[]) ?? [] }
+    const merged = [...new Set(groups.flatMap((g) => (g.access as string[]) ?? []))]
+    return { isAdmin: false, allowedGroups: merged }
   } catch {
     return { isAdmin: false, allowedGroups: [] }
   }
