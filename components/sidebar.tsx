@@ -56,11 +56,13 @@ function MenaLogo({ size = 28 }: { size?: number }) {
 type NavItem  = { href: string; label: string; icon: React.ElementType; exact?: boolean }
 type NavGroup = {
   label:          string
+  groupIcon:      React.ElementType
   permissionKey?: string
-  dot:            string   // Tailwind color class for dot + icon tint
-  activeBg:       string   // active item bg
-  activeText:     string   // active item text + icon
-  activeBorder:   string   // active item left border
+  dot:            string
+  iconColor:      string   // group header icon color
+  activeBg:       string
+  activeText:     string
+  activeBorder:   string
   items:          NavItem[]
 }
 
@@ -68,7 +70,9 @@ type NavGroup = {
 const NAV_GROUPS: NavGroup[] = [
   {
     label:        "Overview",
+    groupIcon:    LayoutDashboard,
     dot:          "bg-gray-400",
+    iconColor:    "text-gray-500 dark:text-gray-400",
     activeBg:     "bg-gray-100 dark:bg-white/8",
     activeText:   "text-gray-900 dark:text-white",
     activeBorder: "border-gray-500",
@@ -78,8 +82,10 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     label:        "Vehicle",
+    groupIcon:    Truck,
     permissionKey: "vehicle",
     dot:          "bg-blue-500",
+    iconColor:    "text-blue-500 dark:text-blue-400",
     activeBg:     "bg-blue-50 dark:bg-blue-950/40",
     activeText:   "text-blue-700 dark:text-blue-300",
     activeBorder: "border-blue-500",
@@ -92,8 +98,10 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     label:        "Fuel",
+    groupIcon:    Fuel,
     permissionKey: "fuel",
     dot:          "bg-orange-500",
+    iconColor:    "text-orange-500 dark:text-orange-400",
     activeBg:     "bg-orange-50 dark:bg-orange-950/40",
     activeText:   "text-orange-700 dark:text-orange-300",
     activeBorder: "border-orange-500",
@@ -103,8 +111,10 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     label:        "Ops",
+    groupIcon:    Warehouse,
     permissionKey: "ops",
     dot:          "bg-emerald-500",
+    iconColor:    "text-emerald-600 dark:text-emerald-400",
     activeBg:     "bg-emerald-50 dark:bg-emerald-950/40",
     activeText:   "text-emerald-700 dark:text-emerald-300",
     activeBorder: "border-emerald-500",
@@ -118,8 +128,10 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     label:        "Mixer",
+    groupIcon:    Trophy,
     permissionKey: "mixer",
     dot:          "bg-amber-500",
+    iconColor:    "text-amber-500 dark:text-amber-400",
     activeBg:     "bg-amber-50 dark:bg-amber-950/40",
     activeText:   "text-amber-700 dark:text-amber-300",
     activeBorder: "border-amber-500",
@@ -130,8 +142,10 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     label:        "Procurement",
+    groupIcon:    PackageSearch,
     permissionKey: "procurement",
     dot:          "bg-violet-500",
+    iconColor:    "text-violet-500 dark:text-violet-400",
     activeBg:     "bg-violet-50 dark:bg-violet-950/40",
     activeText:   "text-violet-700 dark:text-violet-300",
     activeBorder: "border-violet-500",
@@ -144,8 +158,10 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     label:        "Maintenance",
+    groupIcon:    Wrench,
     permissionKey: "maintenance",
     dot:          "bg-rose-500",
+    iconColor:    "text-rose-500 dark:text-rose-400",
     activeBg:     "bg-rose-50 dark:bg-rose-950/40",
     activeText:   "text-rose-700 dark:text-rose-300",
     activeBorder: "border-rose-500",
@@ -158,8 +174,10 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     label:        "Admin",
+    groupIcon:    Shield,
     permissionKey: "admin",
     dot:          "bg-slate-500",
+    iconColor:    "text-slate-500 dark:text-slate-400",
     activeBg:     "bg-slate-100 dark:bg-slate-800/40",
     activeText:   "text-slate-700 dark:text-slate-300",
     activeBorder: "border-slate-500",
@@ -182,8 +200,7 @@ export function Sidebar({
   onMobileClose?: () => void
   allowedGroups?: string[]
 }) {
-  const [collapsed, setCollapsed]         = useState(false)
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+  const [collapsed, setCollapsed] = useState(false)
   const pathname  = usePathname()
   const { data: session } = useSession()
 
@@ -191,18 +208,24 @@ export function Sidebar({
     return exact ? pathname === href : pathname.startsWith(href)
   }
 
+  const isCollapsed   = !isMobile && collapsed
+  const visibleGroups = NAV_GROUPS.filter(
+    g => !g.permissionKey || allowedGroups.includes(g.permissionKey)
+  )
+
+  // Groups are collapsed by default; the group containing the active page is open
+  const [openGroups, setOpenGroups] = useState<Set<string>>(() => {
+    const active = visibleGroups.find(g => g.items.some(i => isActive(i.href, i.exact)))
+    return new Set(active ? [active.label] : [])
+  })
+
   function toggleGroup(label: string) {
-    setCollapsedGroups(prev => {
+    setOpenGroups(prev => {
       const next = new Set(prev)
       next.has(label) ? next.delete(label) : next.add(label)
       return next
     })
   }
-
-  const isCollapsed    = !isMobile && collapsed
-  const visibleGroups  = NAV_GROUPS.filter(
-    g => !g.permissionKey || allowedGroups.includes(g.permissionKey)
-  )
 
   return (
     <aside className={`
@@ -244,7 +267,7 @@ export function Sidebar({
       {/* ── Nav ───────────────────────────────────────────────── */}
       <nav className="flex-1 overflow-y-auto overflow-x-hidden py-3 space-y-0.5 px-2">
         {visibleGroups.map((group) => {
-          const groupOpen     = !collapsedGroups.has(group.label)
+          const groupOpen     = openGroups.has(group.label)
           const hasActiveItem = group.items.some(i => isActive(i.href, i.exact))
 
           return (
@@ -259,11 +282,23 @@ export function Sidebar({
               ) : (
                 <button
                   onClick={() => toggleGroup(group.label)}
-                  className="group flex w-full items-center gap-2 px-2 py-1 mb-0.5 rounded-lg
+                  className="group flex w-full items-center gap-2 px-2 py-1.5 mb-0.5 rounded-lg
                     hover:bg-gray-50 dark:hover:bg-white/4 transition-colors"
                 >
-                  <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${group.dot}
-                    ${hasActiveItem ? "opacity-100" : "opacity-40 group-hover:opacity-70"}`} />
+                  {/* Group icon */}
+                  {(() => {
+                    const GIcon = group.groupIcon
+                    return (
+                      <GIcon
+                        size={14}
+                        className={`shrink-0 transition-colors ${
+                          hasActiveItem
+                            ? group.iconColor
+                            : "text-gray-300 dark:text-gray-600 group-hover:text-gray-400 dark:group-hover:text-gray-500"
+                        }`}
+                      />
+                    )
+                  })()}
                   <span className={`flex-1 text-left text-[11px] font-semibold tracking-wide
                     transition-colors
                     ${hasActiveItem
@@ -273,7 +308,7 @@ export function Sidebar({
                     {group.label}
                   </span>
                   <ChevronDown
-                    size={12}
+                    size={11}
                     className={`shrink-0 text-gray-300 dark:text-gray-600 transition-transform duration-200
                       ${groupOpen ? "" : "-rotate-90"}`}
                   />
