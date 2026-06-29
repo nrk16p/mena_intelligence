@@ -138,7 +138,7 @@ export default function HistoryPage() {
           </thead>
           <tbody>
             {(tab === "vs" ? vsData : garageData).length === 0 && !loading && (
-              <tr><td colSpan={9} className="text-center py-8 text-sm text-gray-400">ไม่มีข้อมูลในเดือนนี้</td></tr>
+              <tr><td colSpan={tab === "vs" ? 8 : 7} className="text-center py-8 text-sm text-gray-400">ไม่มีข้อมูลในเดือนนี้</td></tr>
             )}
             {tab === "vs" && [...vsData].reverse().map(r => (
               <tr key={r.date} className="border-b border-gray-50 dark:border-white/4 hover:bg-gray-50 dark:hover:bg-white/3 transition-colors">
