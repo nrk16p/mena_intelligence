@@ -20,6 +20,9 @@ import {
   FileText,
   LogOut,
   Search,
+  Wrench,
+  History,
+  Settings2,
 } from "lucide-react"
 
 function MenaLogo({ size = 28 }: { size?: number }) {
@@ -108,6 +111,15 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/stock-budget-ladkrabang", label: "Stock Budget",       icon: PackageSearch },
       { href: "/price-benchmark",         label: "Price Benchmark",    icon: TrendingUp },
       { href: "/supplier-analysis",       label: "Supplier Analysis",  icon: Users },
+    ],
+  },
+  {
+    label: "Maintenance",
+    items: [
+      { href: "/repair-daily/vs",       label: "Daily Log (VS)",    icon: Wrench },
+      { href: "/repair-daily/garage",   label: "Daily Log (Garage)", icon: Wrench },
+      { href: "/repair-daily/history",  label: "Report History",     icon: History },
+      { href: "/repair-daily/settings", label: "Templates",          icon: Settings2 },
     ],
   },
 ]
