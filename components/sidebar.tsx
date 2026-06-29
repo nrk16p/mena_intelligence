@@ -175,34 +175,36 @@ export function Sidebar({
     >
       {/* Logo */}
       <div className={`flex h-14 items-center border-b border-gray-200 dark:border-white/8 ${!isMobile && collapsed ? "justify-center px-0" : "justify-between px-4"}`}>
-        <Link href="/" className="flex items-center gap-2.5">
-          <MenaLogo size={28} />
-          {(!collapsed || isMobile) && (
-            <div className="leading-tight">
-              <p className="text-[13px] font-semibold tracking-tight text-gray-900 dark:text-white">Mena Intel</p>
-              <p className="text-[10px] text-gray-400 dark:text-gray-500">Fleet Platform</p>
-            </div>
-          )}
-        </Link>
-        {isMobile ? (
-          <button
-            onClick={onMobileClose}
-            className="flex h-6 w-6 items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 dark:hover:bg-white/8 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-          >
-            <ChevronLeft size={14} />
-          </button>
-        ) : collapsed ? (
+        {(!isMobile && collapsed) ? (
           <button onClick={() => setCollapsed(false)} className="group flex flex-col items-center gap-0.5 w-full justify-center">
             <MenaLogo size={28} />
             <ChevronRight size={10} className="text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300" />
           </button>
         ) : (
-          <button
-            onClick={() => setCollapsed(true)}
-            className="flex h-6 w-6 items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 dark:hover:bg-white/8 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-          >
-            <ChevronLeft size={14} />
-          </button>
+          <>
+            <Link href="/" className="flex items-center gap-2.5">
+              <MenaLogo size={28} />
+              <div className="leading-tight">
+                <p className="text-[13px] font-semibold tracking-tight text-gray-900 dark:text-white">Mena Intel</p>
+                <p className="text-[10px] text-gray-400 dark:text-gray-500">Fleet Platform</p>
+              </div>
+            </Link>
+            {isMobile ? (
+              <button
+                onClick={onMobileClose}
+                className="flex h-6 w-6 items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 dark:hover:bg-white/8 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+              >
+                <ChevronLeft size={14} />
+              </button>
+            ) : (
+              <button
+                onClick={() => setCollapsed(true)}
+                className="flex h-6 w-6 items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 dark:hover:bg-white/8 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+              >
+                <ChevronLeft size={14} />
+              </button>
+            )}
+          </>
         )}
       </div>
 
