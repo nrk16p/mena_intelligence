@@ -27,9 +27,23 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false)
 
   useEffect(() => {
-    fetch("/api/repair-daily/templates")
-      .then(r => r.json())
-      .then(j => { if (j.success) { setVsTemplate(j.vs); setGarageTemplate(j.garage) } })
+    const loadTemplates = async () => {
+      try {
+        const response = await fetch("/api/repair-daily/templates")
+        if (!response.ok) {
+          console.error("Failed to fetch templates")
+          return
+        }
+        const data = await response.json()
+        if (data.success) {
+          setVsTemplate(data.vs)
+          setGarageTemplate(data.garage)
+        }
+      } catch (error) {
+        console.error("Error loading templates:", error)
+      }
+    }
+    loadTemplates()
   }, [])
 
   const current = tab === "vs" ? vsTemplate : garageTemplate
@@ -38,13 +52,15 @@ export default function SettingsPage() {
   async function handleSave() {
     setSaving(true)
     try {
-      await fetch("/api/repair-daily/templates", {
+      const response = await fetch("/api/repair-daily/templates", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ type: tab, template_text: current }),
       })
-      setSaved(true)
-      setTimeout(() => setSaved(false), 2000)
+      if (response.ok) {
+        setSaved(true)
+        setTimeout(() => setSaved(false), 2000)
+      }
     } finally {
       setSaving(false)
     }
