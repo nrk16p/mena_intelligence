@@ -1,4 +1,7 @@
 import "./globals.css"
+import { getServerSession } from "next-auth/next"
+import { authOptions } from "@/lib/auth"
+import { getUserPermissions } from "@/lib/permissions"
 import { Providers } from "@/components/providers"
 import { AppShell } from "@/components/app-shell"
 
@@ -8,11 +11,14 @@ export const metadata = {
   icons: { icon: "/logo.svg" },
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
+  const session = await getServerSession(authOptions)
+  const { allowedGroups } = await getUserPermissions(session?.user?.email)
+
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -27,7 +33,7 @@ export default function RootLayout({
       </head>
       <body className="flex h-screen overflow-hidden bg-[#f5f5f7] dark:bg-[#0a0a10]">
         <Providers>
-          <AppShell>{children}</AppShell>
+          <AppShell allowedGroups={allowedGroups}>{children}</AppShell>
         </Providers>
       </body>
     </html>

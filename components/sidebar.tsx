@@ -23,6 +23,7 @@ import {
   Wrench,
   History,
   Settings2,
+  Shield,
 } from "lucide-react"
 
 function MenaLogo({ size = 28 }: { size?: number }) {
@@ -62,6 +63,7 @@ type NavItem = {
 
 type NavGroup = {
   label: string
+  permissionKey?: string
   items: NavItem[]
 }
 
@@ -74,6 +76,7 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: "Vehicle",
+    permissionKey: "vehicle",
     items: [
       { href: "/truck-distance", label: "Truck Distance", icon: Truck },
       { href: "/truck-year-cost", label: "Truck Year Cost", icon: BarChart3 },
@@ -83,29 +86,33 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: "Fuel",
+    permissionKey: "fuel",
     items: [
       { href: "/fuel", label: "Fuel Management", icon: Fuel },
     ],
   },
   {
     label: "Ops",
+    permissionKey: "ops",
     items: [
-      { href: "/repair-cost",     label: "Repair Cost",     icon: Calculator },
-      { href: "/repair-analysis", label: "Repair Analysis", icon: BarChart3 },
-      { href: "/cost",            label: "Cost Monitoring", icon: Warehouse },
-      { href: "/pc-cost",         label: "PC Cost",         icon: TrendingUp },
-      { href: "/transaction-detail", label: "Transaction Detail", icon: FileText },
+      { href: "/repair-cost",          label: "Repair Cost",        icon: Calculator },
+      { href: "/repair-analysis",      label: "Repair Analysis",    icon: BarChart3 },
+      { href: "/cost",                 label: "Cost Monitoring",    icon: Warehouse },
+      { href: "/pc-cost",              label: "PC Cost",            icon: TrendingUp },
+      { href: "/transaction-detail",   label: "Transaction Detail", icon: FileText },
     ],
   },
   {
     label: "Mixer",
+    permissionKey: "mixer",
     items: [
-      { href: "/asia-incentive",       label: "Asia Incentive",       icon: Trophy },
-      { href: "/asia-plant-analysis",  label: "Asia Plant Analysis",  icon: BarChart3 },
+      { href: "/asia-incentive",      label: "Asia Incentive",      icon: Trophy },
+      { href: "/asia-plant-analysis", label: "Asia Plant Analysis", icon: BarChart3 },
     ],
   },
   {
     label: "Procurement",
+    permissionKey: "procurement",
     items: [
       { href: "/procurement-search",      label: "Procurement Search", icon: Search },
       { href: "/stock-budget-ladkrabang", label: "Stock Budget",       icon: PackageSearch },
@@ -115,16 +122,35 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: "Maintenance",
+    permissionKey: "maintenance",
     items: [
-      { href: "/repair-daily/vs",       label: "Daily Log (VS)",    icon: Wrench },
+      { href: "/repair-daily/vs",       label: "Daily Log (VS)",     icon: Wrench },
       { href: "/repair-daily/garage",   label: "Daily Log (Garage)", icon: Wrench },
       { href: "/repair-daily/history",  label: "Report History",     icon: History },
       { href: "/repair-daily/settings", label: "Templates",          icon: Settings2 },
     ],
   },
+  {
+    label: "Admin",
+    permissionKey: "admin",
+    items: [
+      { href: "/admin/users",  label: "Users",  icon: Users },
+      { href: "/admin/groups", label: "Groups", icon: Shield },
+    ],
+  },
 ]
 
-export function Sidebar() {
+export function Sidebar({
+  isMobile = false,
+  mobileOpen = false,
+  onMobileClose,
+  allowedGroups = [],
+}: {
+  isMobile?: boolean
+  mobileOpen?: boolean
+  onMobileClose?: () => void
+  allowedGroups?: string[]
+}) {
   const [collapsed, setCollapsed] = useState(false)
   const pathname   = usePathname()
   const { data: session } = useSession()
@@ -137,44 +163,56 @@ export function Sidebar() {
   return (
     <aside
       className={`
-        relative flex h-screen flex-col shrink-0
+        flex h-screen flex-col shrink-0
         border-r border-gray-200 dark:border-white/8
         bg-white dark:bg-[#0f1117]
         transition-all duration-300 ease-in-out
-        ${collapsed ? "w-[56px]" : "w-[224px]"}
+        ${isMobile
+          ? `fixed inset-y-0 left-0 z-50 w-[224px] ${mobileOpen ? "translate-x-0" : "-translate-x-full"}`
+          : `relative ${collapsed ? "w-[56px]" : "w-[224px]"}`
+        }
       `}
     >
       {/* Logo */}
-      <div className={`flex h-14 items-center border-b border-gray-200 dark:border-white/8 ${collapsed ? "justify-center px-0" : "justify-between px-4"}`}>
-        {!collapsed ? (
-          <>
-            <Link href="/" className="flex items-center gap-2.5">
-              <MenaLogo size={28} />
-              <div className="leading-tight">
-                <p className="text-[13px] font-semibold tracking-tight text-gray-900 dark:text-white">Mena Intel</p>
-                <p className="text-[10px] text-gray-400 dark:text-gray-500">Fleet Platform</p>
-              </div>
-            </Link>
-            <button
-              onClick={() => setCollapsed(true)}
-              className="flex h-6 w-6 items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 dark:hover:bg-white/8 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-            >
-              <ChevronLeft size={14} />
-            </button>
-          </>
-        ) : (
-          <button onClick={() => setCollapsed(false)} className="group flex flex-col items-center gap-0.5">
+      <div className={`flex h-14 items-center border-b border-gray-200 dark:border-white/8 ${!isMobile && collapsed ? "justify-center px-0" : "justify-between px-4"}`}>
+        <Link href="/" className="flex items-center gap-2.5">
+          <MenaLogo size={28} />
+          {(!collapsed || isMobile) && (
+            <div className="leading-tight">
+              <p className="text-[13px] font-semibold tracking-tight text-gray-900 dark:text-white">Mena Intel</p>
+              <p className="text-[10px] text-gray-400 dark:text-gray-500">Fleet Platform</p>
+            </div>
+          )}
+        </Link>
+        {isMobile ? (
+          <button
+            onClick={onMobileClose}
+            className="flex h-6 w-6 items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 dark:hover:bg-white/8 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+          >
+            <ChevronLeft size={14} />
+          </button>
+        ) : collapsed ? (
+          <button onClick={() => setCollapsed(false)} className="group flex flex-col items-center gap-0.5 w-full justify-center">
             <MenaLogo size={28} />
             <ChevronRight size={10} className="text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300" />
+          </button>
+        ) : (
+          <button
+            onClick={() => setCollapsed(true)}
+            className="flex h-6 w-6 items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 dark:hover:bg-white/8 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+          >
+            <ChevronLeft size={14} />
           </button>
         )}
       </div>
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto py-4 px-2 space-y-5">
-        {NAV_GROUPS.map((group) => (
+        {NAV_GROUPS.filter(
+          (group) => !group.permissionKey || allowedGroups.includes(group.permissionKey)
+        ).map((group) => (
           <div key={group.label}>
-            {!collapsed && (
+            {(isMobile || !collapsed) && (
               <p className="mb-1.5 px-2 text-[10px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-600">
                 {group.label}
               </p>
@@ -183,15 +221,17 @@ export function Sidebar() {
               {group.items.map((item) => {
                 const Icon = item.icon
                 const active = isActive(item.href, item.exact)
+                const showLabel = isMobile || !collapsed
 
                 return (
                   <Link
                     key={item.href}
                     href={item.href}
-                    title={collapsed ? item.label : undefined}
+                    onClick={isMobile ? onMobileClose : undefined}
+                    title={!showLabel ? item.label : undefined}
                     className={`
                       group relative flex items-center gap-2.5 rounded-lg py-2 text-[13px] font-medium transition-all duration-150
-                      ${collapsed ? "justify-center px-0" : "px-2.5"}
+                      ${!showLabel ? "justify-center px-0" : "px-2.5"}
                       ${active
                         ? "bg-gray-950 dark:bg-white text-white dark:text-gray-900"
                         : "text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/6 hover:text-gray-900 dark:hover:text-white"
@@ -199,7 +239,7 @@ export function Sidebar() {
                     `}
                   >
                     <Icon size={15} className="shrink-0" />
-                    {!collapsed && <span className="truncate">{item.label}</span>}
+                    {showLabel && <span className="truncate">{item.label}</span>}
                   </Link>
                 )
               })}
@@ -214,7 +254,7 @@ export function Sidebar() {
 
         {/* User info + logout */}
         {session?.user && (
-          collapsed ? (
+          (!isMobile && collapsed) ? (
             <button
               onClick={() => signOut({ callbackUrl: "/login" })}
               title="Sign out"
@@ -253,7 +293,7 @@ export function Sidebar() {
           )
         )}
 
-        {!collapsed && (
+        {(isMobile || !collapsed) && (
           <p className="px-1 pt-1 text-[10px] text-gray-400 dark:text-gray-600">
             Mena Transport · v1.0
           </p>
