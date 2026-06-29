@@ -42,16 +42,30 @@ export default function AdminUsersPage() {
 
   async function saveUser(email: string) {
     setSaving(email)
-    const group_id = pendingGroups[email] || null
-    await fetch("/api/admin/users", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, group_id }),
-    })
-    // Refresh users list
-    const res = await fetch("/api/admin/users").then((r) => r.json())
-    setUsers(res.data ?? [])
-    setSaving(null)
+    try {
+      const group_id = pendingGroups[email] || null
+      await fetch("/api/admin/users", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, group_id }),
+      })
+      // Refresh users list
+      const res = await fetch("/api/admin/users").then((r) => r.json())
+      const newUsers = res.data ?? []
+      setUsers(newUsers)
+      // Re-sync pendingGroups with refreshed data
+      setPendingGroups((prev) => {
+        const updated = { ...prev }
+        for (const user of newUsers) {
+          if (!(user.email in updated)) {
+            updated[user.email] = user.group_id ?? ""
+          }
+        }
+        return updated
+      })
+    } finally {
+      setSaving(null)
+    }
   }
 
   const unassigned = users.filter((u) => !u.group_id)

@@ -52,36 +52,42 @@ export default function AdminGroupsPage() {
   async function handleSave() {
     if (!form.name.trim()) return
     setSaving(true)
-    if (editingId) {
-      await fetch("/api/admin/groups", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: editingId, ...form }),
-      })
-    } else {
-      await fetch("/api/admin/groups", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      })
+    try {
+      if (editingId) {
+        await fetch("/api/admin/groups", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: editingId, ...form }),
+        })
+      } else {
+        await fetch("/api/admin/groups", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(form),
+        })
+      }
+      await load()
+      setShowForm(false)
+      setEditingId(null)
+      setForm(EMPTY_FORM)
+    } finally {
+      setSaving(false)
     }
-    await load()
-    setShowForm(false)
-    setEditingId(null)
-    setForm(EMPTY_FORM)
-    setSaving(false)
   }
 
   async function handleDelete(id: string) {
     if (!confirm("ลบกลุ่มนี้? ผู้ใช้ที่อยู่ในกลุ่มจะถูกยกเลิกสิทธิ์ทั้งหมด")) return
     setDeleting(id)
-    await fetch("/api/admin/groups", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id }),
-    })
-    await load()
-    setDeleting(null)
+    try {
+      await fetch("/api/admin/groups", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      })
+      await load()
+    } finally {
+      setDeleting(null)
+    }
   }
 
   function startEdit(group: Group) {
