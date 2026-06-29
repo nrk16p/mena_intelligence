@@ -5,7 +5,8 @@ import { getUserPermissions } from "@/lib/permissions"
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const session = await getServerSession(authOptions)
-  const { isAdmin } = await getUserPermissions(session?.user?.email)
+  if (!session) redirect("/login")
+  const { isAdmin } = await getUserPermissions(session.user?.email)
   if (!isAdmin) redirect("/unauthorized")
   return <>{children}</>
 }
