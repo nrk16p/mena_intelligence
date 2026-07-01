@@ -321,7 +321,7 @@ export default function AsiaPlantAnalysisPage() {
       {/* Header */}
       <div>
         <h1 className="text-xl font-bold text-gray-900 dark:text-white">Asia Plant Analysis</h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">วิเคราะห์ประสิทธิภาพการวิ่งรายแพล้นท์ · Q1 2026</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">วิเคราะห์ประสิทธิภาพการวิ่งรายแพล้นท์ · Jan-May 2026</p>
       </div>
 
       {/* Tabs */}
