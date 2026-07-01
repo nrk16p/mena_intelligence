@@ -9,40 +9,43 @@ import {
 
 // ── Static data ───────────────────────────────────────────────────────────────
 const ASIA_RAW = [
-  { แพล้นท์: "รัชดา1",          Zone: "BKK Central 1", avg_trip: 2.717966, rev: 3765.23, rev_2: 3754.18 },
-  { แพล้นท์: "รัชดา2",          Zone: "BKK Central 1", avg_trip: 2.343506, rev: 3765.23, rev_2: 3754.18 },
-  { แพล้นท์: "หัวหมาก",         Zone: "BKK Central 1", avg_trip: 2.290933, rev: 3916.79, rev_2: 3869.33 },
-  { แพล้นท์: "ศูนย์วิจัย",      Zone: "BKK Central 1", avg_trip: 1.664009, rev: 2940.83, rev_2: 2899.08 },
-  { แพล้นท์: "ลาดกระบัง",       Zone: "BKK Central 2", avg_trip: 2.740048, rev: 3621.51, rev_2: 3616.31 },
-  { แพล้นท์: "บางเสาธง",        Zone: "BKK East",      avg_trip: 2.964286, rev: 3607.61, rev_2: 3554.00 },
+  { แพล้นท์: "รัชดา1",          Zone: "BKK Central 1", avg_trip: 2.323510, rev: 3693.04 },
+  { แพล้นท์: "รัชดา2",          Zone: "BKK Central 1", avg_trip: 2.184687, rev: 3693.04 },
+  { แพล้นท์: "หัวหมาก",         Zone: "BKK Central 1", avg_trip: 2.202795, rev: 4016.29 },
+  { แพล้นท์: "ศูนย์วิจัย",      Zone: "BKK Central 1", avg_trip: 1.612465, rev: 2990.44 },
+  { แพล้นท์: "ลาดกระบัง",       Zone: "BKK Central 2", avg_trip: 2.623169, rev: 3619.98 },
+  { แพล้นท์: "บางเสาธง",        Zone: "BKK East",      avg_trip: 2.196825, rev: 3745.69 },
   { แพล้นท์: "บางบ่อ",          Zone: "BKK East",      avg_trip: 1.806452, rev: 3445.00 },
-  { แพล้นท์: "เชียงรากน้อย",    Zone: "BKK North",     avg_trip: 2.884343, rev: 3932.80, rev_2: 3894.33 },
-  { แพล้นท์: "ลำลูกกาคลอง8",   Zone: "BKK North",     avg_trip: 2.664464, rev: 3558.62, rev_2: 3539.59 },
-  { แพล้นท์: "หทัยราษฎร์",      Zone: "BKK North",     avg_trip: 2.528802, rev: 3078.28, rev_2: 3049.32 },
-  { แพล้นท์: "สรงประภา",        Zone: "BKK North",     avg_trip: 2.463553, rev: 3704.02, rev_2: 3673.31 },
-  { แพล้นท์: "ลำลูกกาคลอง12",  Zone: "BKK North",     avg_trip: 2.418974, rev: 3289.35, rev_2: 3356.90 },
-  { แพล้นท์: "บางปะอิน",        Zone: "BKK North",     avg_trip: 2.047235, rev: 3794.73, rev_2: 3759.46 },
-  { แพล้นท์: "บางหญ้าแพรก",     Zone: "BKK South 1",   avg_trip: 2.016839, rev: 4033.45, rev_2: 4005.32 },
-  { แพล้นท์: "หนามแดง",         Zone: "BKK South 2",   avg_trip: 2.604423, rev: 3459.00, rev_2: 3432.56 },
-  { แพล้นท์: "ปทุมธานี",        Zone: "BKK West 1",    avg_trip: 3.496705, rev: 4623.35, rev_2: 4540.73 },
-  { แพล้นท์: "สามัคคี",         Zone: "BKK West 1",    avg_trip: 2.319019, rev: 3081.20, rev_2: 3062.85 },
-  { แพล้นท์: "บางบัวทอง",       Zone: "BKK West 1",    avg_trip: 2.281771, rev: 2778.56, rev_2: 2721.92 },
-  { แพล้นท์: "ตลิ่งชัน",        Zone: "BKK West 2",    avg_trip: 2.521021, rev: 3116.02, rev_2: 3113.75 },
-  { แพล้นท์: "บางกรวย",         Zone: "BKK West 2",    avg_trip: 2.171271, rev: 2793.62, rev_2: 2762.39 },
-  { แพล้นท์: "พระรามห้า",       Zone: "BKK West 2",    avg_trip: 1.951333, rev: 3050.90, rev_2: 3021.99 },
-  { แพล้นท์: "สมุทรสาคร",       Zone: "BKK West 3",    avg_trip: 2.641563, rev: 3074.79, rev_2: 3025.84 },
-  { แพล้นท์: "อ้อมแก้ว",        Zone: "East Zone 1",   avg_trip: 3.056777, rev: 4265.64, rev_2: 4343.00 },
-  { แพล้นท์: "นาเกลือ",         Zone: "East Zone 1",   avg_trip: 2.973912, rev: 3529.84, rev_2: 3503.53 },
-  { แพล้นท์: "หนองขาม",         Zone: "East Zone 1",   avg_trip: 2.718988, rev: 3510.26, rev_2: 3467.97 },
-  { แพล้นท์: "บ่อวิน",          Zone: "East Zone 1",   avg_trip: 2.560979, rev: 3219.07, rev_2: 3270.92 },
-  { แพล้นท์: "สัตหีบ",          Zone: "East Zone 1",   avg_trip: 2.300987, rev: 3394.56, rev_2: 3369.85 },
-  { แพล้นท์: "แหลมฉบัง",        Zone: "East Zone 1",   avg_trip: 2.195313, rev: 2982.67, rev_2: 2950.39 },
-  { แพล้นท์: "พัทยา3",          Zone: "East Zone 1",   avg_trip: 2.042512, rev: 3202.82, rev_2: 3209.12 },
-  { แพล้นท์: "บ้านฉาง",         Zone: "East Zone 1",   avg_trip: 1.916071, rev: 3165.15, rev_2: 3163.01 },
-  { แพล้นท์: "พานทอง",          Zone: "East Zone 1",   avg_trip: 1.860016, rev: 3106.27, rev_2: 3074.68 },
-  { แพล้นท์: "หนองใหญ่",        Zone: "East Zone 1",   avg_trip: 1.719442, rev: 2842.50, rev_2: 2838.41 },
-  { แพล้นท์: "พะเยา3",          Zone: "Up country",    avg_trip: 2.683316, rev: 3402.58, rev_2: 3429.10 },
-  { แพล้นท์: "พะเยา",           Zone: "Up country",    avg_trip: 2.423645, rev: 3402.58, rev_2: 3429.10 },
+  { แพล้นท์: "สาธุประดิษฐ์",    Zone: "BKK East",      avg_trip: 2.000000, rev: 3799.46 },
+  { แพล้นท์: "เชียงรากน้อย",    Zone: "BKK North",     avg_trip: 2.660485, rev: 3926.25 },
+  { แพล้นท์: "ลำลูกกาคลอง8",   Zone: "BKK North",     avg_trip: 2.736527, rev: 4001.66 },
+  { แพล้นท์: "หทัยราษฎร์",      Zone: "BKK North",     avg_trip: 2.408957, rev: 3204.34 },
+  { แพล้นท์: "สรงประภา",        Zone: "BKK North",     avg_trip: 2.461697, rev: 3750.72 },
+  { แพล้นท์: "ลำลูกกาคลอง12",  Zone: "BKK North",     avg_trip: 2.229569, rev: 3350.13 },
+  { แพล้นท์: "บางปะอิน",        Zone: "BKK North",     avg_trip: 2.218735, rev: 4007.31 },
+  { แพล้นท์: "บางหญ้าแพรก",     Zone: "BKK South 1",   avg_trip: 1.960163, rev: 4039.69 },
+  { แพล้นท์: "หนามแดง",         Zone: "BKK South 2",   avg_trip: 2.353522, rev: 3382.42 },
+  { แพล้นท์: "ปทุมธานี",        Zone: "BKK West 1",    avg_trip: 3.182173, rev: 4710.21 },
+  { แพล้นท์: "สามัคคี",         Zone: "BKK West 1",    avg_trip: 2.287524, rev: 3221.48 },
+  { แพล้นท์: "บางบัวทอง",       Zone: "BKK West 1",    avg_trip: 2.071719, rev: 2941.63 },
+  { แพล้นท์: "ตลิ่งชัน",        Zone: "BKK West 2",    avg_trip: 2.306936, rev: 3346.69 },
+  { แพล้นท์: "บางกรวย",         Zone: "BKK West 2",    avg_trip: 2.114353, rev: 3178.09 },
+  { แพล้นท์: "พระรามห้า",       Zone: "BKK West 2",    avg_trip: 1.843193, rev: 3150.01 },
+  { แพล้นท์: "สมุทรสาคร",       Zone: "BKK West 3",    avg_trip: 2.363134, rev: 3095.59 },
+  { แพล้นท์: "อ้อมแก้ว",        Zone: "East Zone 1",   avg_trip: 3.111628, rev: 4703.63 },
+  { แพล้นท์: "นาเกลือ",         Zone: "East Zone 1",   avg_trip: 2.518013, rev: 3601.51 },
+  { แพล้นท์: "หนองขาม",         Zone: "East Zone 1",   avg_trip: 2.881826, rev: 4095.60 },
+  { แพล้นท์: "บ่อวิน",          Zone: "East Zone 1",   avg_trip: 2.559303, rev: 3615.79 },
+  { แพล้นท์: "สัตหีบ",          Zone: "East Zone 1",   avg_trip: 2.208250, rev: 3579.70 },
+  { แพล้นท์: "แหลมฉบัง",        Zone: "East Zone 1",   avg_trip: 2.214501, rev: 3413.85 },
+  { แพล้นท์: "พัทยา3",          Zone: "East Zone 1",   avg_trip: 2.148011, rev: 3408.76 },
+  { แพล้นท์: "บ้านฉาง",         Zone: "East Zone 1",   avg_trip: 2.089435, rev: 3415.78 },
+  { แพล้นท์: "พานทอง",          Zone: "East Zone 1",   avg_trip: 1.882296, rev: 3411.48 },
+  { แพล้นท์: "หนองใหญ่",        Zone: "East Zone 1",   avg_trip: 1.966154, rev: 2842.50 },
+  { แพล้นท์: "นิคมพัฒนา 3",     Zone: "East Zone 1",   avg_trip: 2.411290, rev: 4748.50 },
+  { แพล้นท์: "พะเยา3",          Zone: "Up country",    avg_trip: 2.575390, rev: 3752.43 },
+  { แพล้นท์: "พะเยา",           Zone: "Up country",    avg_trip: 2.224545, rev: 3752.43 },
+  { แพล้นท์: "คีรีนคร",         Zone: "Outer พัทยา",   avg_trip: 1.741935, rev: 4229.02 },
 ]
 
 const SCCO_RAW = [
@@ -72,6 +75,7 @@ const ASIA_ZONE_COLORS: Record<string, string> = {
   "BKK West 3":    "#9C755F",
   "East Zone 1":   "#499894",
   "Up country":    "#A0CBE8",
+  "Outer พัทยา":   "#D37295",
 }
 
 const SCCO_ZONE_COLORS: Record<string, string> = {
@@ -268,19 +272,17 @@ export default function AsiaPlantAnalysisPage() {
   const [tab,       setTab]       = useState<Tab>("Scatter")
   const [zone,      setZone]      = useState("ทั้งหมด")
   const [highlight, setHighlight] = useState<string | null>(null)
-  const [revMode,   setRevMode]   = useState<"rev" | "rev_2">("rev")
 
   // ── Scatter tab data ──
   const filtered = useMemo(() => {
-    const base = zone === "ทั้งหมด" ? ASIA_RAW : ASIA_RAW.filter(d => d.Zone === zone)
-    return revMode === "rev_2" ? base.filter(d => d.rev_2 !== undefined) : base
-  }, [zone, revMode])
+    return zone === "ทั้งหมด" ? ASIA_RAW : ASIA_RAW.filter(d => d.Zone === zone)
+  }, [zone])
 
   const medTrip = useMemo(() => median(filtered.map(d => d.avg_trip)), [filtered])
-  const medRev  = useMemo(() => median(filtered.map(d => revMode === "rev_2" ? (d.rev_2 ?? d.rev) : d.rev)), [filtered, revMode])
+  const medRev  = useMemo(() => median(filtered.map(d => d.rev)), [filtered])
 
   const scatterData = useMemo(() => filtered.map(d => {
-    const revVal = revMode === "rev_2" ? (d.rev_2 ?? d.rev) : d.rev
+    const revVal = d.rev
     const lt = d.avg_trip < medTrip
     const hr = revVal     > medRev
     let quadrant: keyof typeof QUADRANT_CONFIG
@@ -289,7 +291,7 @@ export default function AsiaPlantAnalysisPage() {
     else if (!lt && !hr) quadrant = "วิ่งเยอะแต่รายได้น้อย"
     else                 quadrant = "ควรย้ายออก"
     return { ...d, quadrant, color: QUADRANT_CONFIG[quadrant].color, _rev: revVal }
-  }), [filtered, medTrip, medRev, revMode])
+  }), [filtered, medTrip, medRev])
 
   const quadSummary = useMemo(() => {
     const counts: Record<string, typeof scatterData> = {}
@@ -345,21 +347,6 @@ export default function AsiaPlantAnalysisPage() {
           <div className="flex items-center justify-between flex-wrap gap-3">
             <p className="text-sm text-gray-500 dark:text-gray-400">avg_trip vs รายได้/วัน/คัน — Asia Q1 2026</p>
             <div className="flex items-center gap-3">
-              <div className="flex rounded-lg border border-gray-200 dark:border-white/10 overflow-hidden text-sm">
-                {(["rev", "rev_2"] as const).map(mode => (
-                  <button
-                    key={mode}
-                    onClick={() => setRevMode(mode)}
-                    className={`px-3 py-1.5 transition-colors ${
-                      revMode === mode
-                        ? "bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-semibold"
-                        : "bg-white dark:bg-[#0f1117] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
-                    }`}
-                  >
-                    {mode === "rev" ? "all" : "ปิดแบบ"}
-                  </button>
-                ))}
-              </div>
               <select
                 value={zone}
                 onChange={e => setZone(e.target.value)}
