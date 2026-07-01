@@ -345,7 +345,7 @@ export default function AsiaPlantAnalysisPage() {
       {tab === "Scatter" && (
         <div className="space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-3">
-            <p className="text-sm text-gray-500 dark:text-gray-400">avg_trip vs รายได้/วัน/คัน — Asia Q1 2026</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">avg_trip vs รายได้/วัน/คัน — Asia Jan-May 2026</p>
             <div className="flex items-center gap-3">
               <select
                 value={zone}
