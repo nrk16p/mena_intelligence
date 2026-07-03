@@ -122,8 +122,13 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/repair-cost",        label: "Repair Cost",     icon: Calculator },
       { href: "/repair-analysis",    label: "Analysis",        icon: BarChart3 },
       { href: "/cost",               label: "Cost Monitor",    icon: Warehouse },
+      { href: "/pm-cost",            label: "PM Cost",         icon: Wrench },
+      { href: "/pm-cost-main",       label: "PM Cost (MR)",    icon: History },
+      { href: "/pm-mapping",         label: "PM Mapping",      icon: Settings2 },
       { href: "/pc-cost",            label: "PC Cost",         icon: ClipboardList },
       { href: "/transaction-detail", label: "Transactions",    icon: FileText },
+      { href: "/workshop-summary",   label: "อู่ใน/อู่นอก",     icon: Wrench },
+      { href: "/cost-report",        label: "MM Report",       icon: BarChart3 },
     ],
   },
   {

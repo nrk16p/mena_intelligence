@@ -18,7 +18,11 @@ export async function GET(req: Request) {
     else if (start)     match.month_year = { $gte: start };
     else if (end)       match.month_year = { $lte: end };
 
-    if (partnerFlag)    match.partner_flag = partnerFlag;
+    if (partnerFlag) {
+      const flags = partnerFlag.split(",").map((f) => f.trim()).filter(Boolean);
+      if (flags.length === 1)     match.partner_flag = flags[0];
+      else if (flags.length > 1)  match.partner_flag = { $in: flags };
+    }
     if (warehouse) {
       const whs = warehouse.split(",").map((w) => w.trim()).filter(Boolean);
       if (whs.length === 1) match["คลังสินค้า"] = whs[0];
