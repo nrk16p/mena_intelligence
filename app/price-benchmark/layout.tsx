@@ -8,5 +8,14 @@ export default async function Layout({ children }: { children: React.ReactNode }
   if (!session) redirect("/login")
   const { allowedGroups } = await getUserPermissions(session.user?.email)
   if (!allowedGroups.includes("procurement")) redirect("/unauthorized")
-  return <>{children}</>
+  return (
+    <>
+      {/* PropertyVue design system fonts — scoped to this page */}
+      <link
+        href="https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@600;700;900&family=DM+Sans:wght@400;500;700&family=Fira+Code:wght@400;600&display=swap"
+        rel="stylesheet"
+      />
+      {children}
+    </>
+  )
 }

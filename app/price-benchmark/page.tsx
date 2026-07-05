@@ -2,45 +2,107 @@
 
 import React, { useState } from "react"
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// ระบบราคากลาง (Price Benchmark) — PropertyVue design system
+// ราคากลาง = mode (ราคาที่พบบ่อยสุด) ต่อ รหัสสินค้า × ซัพพลายเออร์
+// จาก receipts 12 เดือนย้อนหลัง, snapshot รายเดือนใน collection `price_benchmark`
+// ─────────────────────────────────────────────────────────────────────────────
 
-type PricePoint = {
-  price: number | null
-  count: number
-  cost:  number
-  qty:   number
-  pct:   number
+// ── PropertyVue tokens ────────────────────────────────────────────────────────
+
+const PV = {
+  blue:    "#2563EB",
+  blueDk:  "#1D4ED8",
+  green:   "#16A34A",
+  gray:    "#6B7280",
+  ink:     "#111827",
+  border:  "#E5E7EB",
+  bg:      "#F9FAFB",
+  surface: "#FFFFFF",
+  warn:    "#D97706",
+  error:   "#DC2626",
 }
 
-type BenchmarkResult = {
-  รหัสสินค้า:    string
-  ซัพพลายเออร์:  string
-  ชื่อสินค้า:    string
-  กลุ่มสินค้า:   string
+const FONT_HEAD = "'Red Hat Display', sans-serif"
+const FONT_BODY = "'DM Sans', sans-serif"
+const FONT_MONO = "'Fira Code', monospace"
+
+// ── Types (mirror API) ────────────────────────────────────────────────────────
+
+type PricePoint = { price: number; count: number; qty: number; cost: number; pct: number }
+
+type BenchmarkRow = {
+  snapshot_month: string
+  window_start: string
+  window_end: string
+  รหัสสินค้า: string
+  ชื่อสินค้า: string
+  กลุ่มสินค้า: string
+  ซัพพลายเออร์: string
+  benchmark_price: number
+  benchmark_count: number
+  benchmark_pct: number
+  min_price: number
+  max_price: number
   total_records: number
-  total_cost:    number
-  total_qty:     number
-  first_date:    string
-  last_date:     string
-  prices:        PricePoint[]
+  total_qty: number
+  total_cost: number
+  first_date: string
+  last_date: string
+  prices: PricePoint[]
+  computed_at: string
+}
+
+type OverpricedRow = {
+  วันที่: string
+  PO: string | null
+  PR: string | null
+  รหัสสินค้า: string
+  ชื่อสินค้า: string
+  กลุ่มสินค้า: string
+  ซัพพลายเออร์: string
+  คลังสินค้า: string
+  รับ: number
+  ราคาทุน: number
+  ยอดเงิน: number
+  benchmark_price: number
+  benchmark_count: number
+  benchmark_records: number
+  diff: number
+  diff_pct: number | null
+  excess_total: number
+}
+
+type OverpricedSummary = {
+  receipts_checked: number
+  flagged_count: number
+  flagged_products: number
+  flagged_suppliers: number
+  excess_total: number
+  no_benchmark_count: number
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function fmt2(v: number | null) {
-  if (v === null || !Number.isFinite(v as number)) return "—"
-  return Number(v).toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
+const fmt = (v: number | null | undefined, digits = 2) =>
+  v === null || v === undefined || !Number.isFinite(v)
+    ? "—"
+    : v.toLocaleString("th-TH", { minimumFractionDigits: digits, maximumFractionDigits: digits })
 
-function fmtCost(v: number) {
-  return v.toLocaleString("th-TH", { minimumFractionDigits: 0, maximumFractionDigits: 0 })
-}
+const fmt0 = (v: number | null | undefined) => fmt(v, 0)
 
-function fmtDate(ym: string) {
+const TH_MONTHS = ["", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
+
+function fmtYM(ym: string | undefined) {
   if (!ym) return "—"
   const [y, m] = ym.split("-")
-  const MONTHS = ["", "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
-  return `${MONTHS[Number(m)] ?? m} ${Number(y) + 543}`
+  return `${TH_MONTHS[Number(m)] ?? m} ${Number(y) + 543}`
+}
+
+function fmtDate(iso: string) {
+  if (!iso) return "—"
+  const d = new Date(iso)
+  return `${d.getDate()} ${TH_MONTHS[d.getMonth() + 1]} ${d.getFullYear() + 543}`
 }
 
 function nowYM() {
@@ -48,440 +110,521 @@ function nowYM() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
 }
 
-function startOfYear() {
-  return `${new Date().getFullYear()}-01`
-}
-
-function computeIQRBounds(prices: PricePoint[]): { lower: number; upper: number } | null {
-  const valid = prices.filter(p => p.price !== null).sort((a, b) => (a.price ?? 0) - (b.price ?? 0))
-  const total = valid.reduce((s, p) => s + p.count, 0)
-  if (total < 4) return null
-
-  function weightedPct(pct: number): number {
-    const target = pct * total
-    let cum = 0
-    for (const p of valid) {
-      cum += p.count
-      if (cum >= target) return p.price!
-    }
-    return valid[valid.length - 1].price!
-  }
-
-  const q1 = weightedPct(0.25)
-  const q3 = weightedPct(0.75)
-  const iqr = q3 - q1
-  if (iqr === 0) return null
-  return { lower: q1 - 1.5 * iqr, upper: q3 + 1.5 * iqr }
-}
-
-function aggregateForProduct(rows: BenchmarkResult[]): BenchmarkResult {
-  const priceMap = new Map<number, { count: number; cost: number; qty: number }>()
-  for (const row of rows) {
-    for (const p of row.prices) {
-      if (p.price === null) continue
-      const ex = priceMap.get(p.price)
-      if (ex) { ex.count += p.count; ex.cost += p.cost; ex.qty += p.qty }
-      else priceMap.set(p.price, { count: p.count, cost: p.cost, qty: p.qty })
+/** Aggregate all supplier rows of one product into an "overall" row (mode tie → lowest price). */
+function aggregateProduct(rows: BenchmarkRow[]): BenchmarkRow {
+  const map = new Map<number, { count: number; qty: number; cost: number }>()
+  for (const r of rows) {
+    for (const p of r.prices) {
+      const ex = map.get(p.price)
+      if (ex) { ex.count += p.count; ex.qty += p.qty; ex.cost += p.cost }
+      else map.set(p.price, { count: p.count, qty: p.qty, cost: p.cost })
     }
   }
-  const total_records = rows.reduce((s, r) => s + r.total_records, 0)
-  const prices: PricePoint[] = Array.from(priceMap.entries())
-    .map(([price, { count, cost, qty }]) => ({ price, count, cost, qty, pct: (count / (total_records || 1)) * 100 }))
-    .sort((a, b) => b.count - a.count)
+  const total = rows.reduce((s, r) => s + r.total_records, 0)
+  const prices: PricePoint[] = Array.from(map.entries())
+    .map(([price, v]) => ({ price, ...v, pct: (v.count / (total || 1)) * 100 }))
+    .sort((a, b) => a.price - b.price)
+  let mode = prices[0]
+  for (const p of prices) if (p.count > mode.count) mode = p
   return {
-    รหัสสินค้า:    rows[0].รหัสสินค้า,
-    ซัพพลายเออร์:  "ทุกซัพพลายเออร์",
-    ชื่อสินค้า:    rows[0].ชื่อสินค้า,
-    กลุ่มสินค้า:   rows[0].กลุ่มสินค้า,
-    total_records,
-    total_cost:    rows.reduce((s, r) => s + r.total_cost, 0),
-    total_qty:     rows.reduce((s, r) => s + r.total_qty, 0),
-    first_date:    rows.map(r => r.first_date).sort()[0],
-    last_date:     rows.map(r => r.last_date).sort().reverse()[0],
+    ...rows[0],
+    ซัพพลายเออร์: "ทุกซัพพลายเออร์",
+    benchmark_price: mode?.price ?? 0,
+    benchmark_count: mode?.count ?? 0,
+    benchmark_pct: mode ? (mode.count / (total || 1)) * 100 : 0,
+    min_price: prices[0]?.price ?? 0,
+    max_price: prices[prices.length - 1]?.price ?? 0,
+    total_records: total,
+    total_qty: rows.reduce((s, r) => s + r.total_qty, 0),
+    total_cost: rows.reduce((s, r) => s + r.total_cost, 0),
+    first_date: rows.map(r => r.first_date).sort()[0],
+    last_date: rows.map(r => r.last_date).sort().reverse()[0],
     prices,
   }
 }
 
-function isOutlierPrice(price: number | null, bounds: { lower: number; upper: number } | null): boolean {
-  if (!bounds || price === null) return false
-  return price < bounds.lower || price > bounds.upper
+// ── Small building blocks ─────────────────────────────────────────────────────
+
+function Chip({ tone, children }: { tone: "success" | "warning" | "error" | "info" | "neutral"; children: React.ReactNode }) {
+  const tones: Record<string, { bg: string; fg: string }> = {
+    success: { bg: `${PV.green}18`, fg: PV.green },
+    warning: { bg: `${PV.warn}18`,  fg: PV.warn },
+    error:   { bg: `${PV.error}18`, fg: PV.error },
+    info:    { bg: `${PV.blue}18`,  fg: PV.blue },
+    neutral: { bg: "#F3F4F6",       fg: PV.gray },
+  }
+  const t = tones[tone]
+  return (
+    <span
+      className="inline-flex items-center whitespace-nowrap"
+      style={{ background: t.bg, color: t.fg, padding: "4px 12px", borderRadius: 4, fontSize: 12, fontWeight: 500, fontFamily: FONT_BODY }}
+    >
+      {children}
+    </span>
+  )
 }
 
-// ── Price Table ───────────────────────────────────────────────────────────────
-// Renders mode / min / max / rank 2-5 as table rows with price, %, count
-
-function PriceTable({ result, isOverall }: { result: BenchmarkResult; isOverall?: boolean }) {
-  const prices = result.prices
-  const iqr    = computeIQRBounds(prices)
-
-  const sorted = [...prices].filter(p => p.price !== null).sort((a, b) => (a.price ?? 0) - (b.price ?? 0))
-  const mode   = prices[0] ?? null
-  const minRow = sorted[0] ?? null
-  const maxRow = sorted[sorted.length - 1] ?? null
-  const ranks  = prices.slice(1, 5)
-
-  const rows: { label: string; point: PricePoint | null; color: string }[] = [
-    { label: "ราคาที่พบมากสุด", point: mode,   color: "text-indigo-700" },
-    { label: "ราคาต่ำสุด",      point: minRow, color: "text-emerald-700" },
-    { label: "ราคาสูงสุด",      point: maxRow, color: "text-amber-700" },
-    ...ranks.map((p, i) => ({ label: `อันดับ ${i + 2}`, point: p, color: "text-gray-600" })),
-  ]
-
+function Skeleton({ h = 120 }: { h?: number }) {
   return (
-    <div className="flex flex-col">
-      {rows.map(({ label, point, color }, i) => {
-        if (!point) return null
-        const outlier = isOutlierPrice(point.price, iqr)
-        return (
-          <div
-            key={i}
-            className={`flex items-center gap-3 px-4 py-2.5 border-b border-gray-100 last:border-0 ${
-              outlier ? "opacity-50" : ""
-            } ${isOverall && i === 0 ? "bg-indigo-50/60" : ""}`}
+    <div className="animate-pulse rounded-lg" style={{ background: "#E5E7EB80", height: h }} />
+  )
+}
+
+function Label({ children }: { children: React.ReactNode }) {
+  return (
+    <label style={{ fontFamily: FONT_BODY, fontSize: 14, fontWeight: 500, color: PV.ink, marginBottom: 6, display: "block" }}>
+      {children}
+    </label>
+  )
+}
+
+const inputStyle: React.CSSProperties = {
+  fontFamily: FONT_BODY,
+  fontSize: 14,
+  height: 40,
+  padding: "8px 12px",
+  borderRadius: 8,
+  border: `1px solid ${PV.border}`,
+  background: PV.surface,
+  color: PV.ink,
+  width: "100%",
+  outline: "none",
+}
+
+function PrimaryButton({ children, disabled, onClick, type = "button" }: {
+  children: React.ReactNode; disabled?: boolean; onClick?: () => void; type?: "button" | "submit"
+}) {
+  return (
+    <button
+      type={type}
+      disabled={disabled}
+      onClick={onClick}
+      className="transition-colors"
+      style={{
+        fontFamily: FONT_BODY, fontSize: 16, fontWeight: 500,
+        background: PV.blue, color: "#fff", border: "none",
+        padding: "8px 20px", height: 40, borderRadius: 8,
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.5 : 1,
+        boxShadow: "0 1px 2px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.10)",
+      }}
+      onMouseEnter={e => { if (!disabled) (e.currentTarget.style.background = PV.blueDk) }}
+      onMouseLeave={e => { (e.currentTarget.style.background = PV.blue) }}
+    >
+      {children}
+    </button>
+  )
+}
+
+function SecondaryButton({ children, disabled, onClick }: { children: React.ReactNode; disabled?: boolean; onClick?: () => void }) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      style={{
+        fontFamily: FONT_BODY, fontSize: 14, fontWeight: 500,
+        background: "transparent", color: PV.blue, border: `1px solid ${PV.blue}`,
+        padding: "6px 12px", height: 32, borderRadius: 8,
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.5 : 1,
+      }}
+    >
+      {children}
+    </button>
+  )
+}
+
+// ── Price ranking table (min → max) ───────────────────────────────────────────
+
+function PriceRankingTable({ row }: { row: BenchmarkRow }) {
+  const maxCount = Math.max(...row.prices.map(p => p.count), 1)
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: FONT_BODY }}>
+        <thead>
+          <tr style={{ borderBottom: `1px solid ${PV.border}` }}>
+            {["อันดับ", "ราคา (฿)", "จำนวนครั้ง", "สัดส่วน", "จำนวนชิ้น", "สถานะ"].map((h, i) => (
+              <th
+                key={h}
+                style={{
+                  fontFamily: FONT_BODY, fontSize: 12, fontWeight: 500, color: PV.gray,
+                  textAlign: i === 1 || i === 2 || i === 4 ? "right" : "left",
+                  padding: "8px 16px", whiteSpace: "nowrap",
+                }}
+              >
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {row.prices.map((p, i) => {
+            const isMode = p.price === row.benchmark_price
+            const above  = p.price > row.benchmark_price
+            return (
+              <tr
+                key={p.price}
+                style={{
+                  borderBottom: "1px solid #F3F4F6",
+                  background: isMode ? `${PV.blue}08` : undefined,
+                  height: 48,
+                }}
+              >
+                <td style={{ padding: "8px 16px", fontSize: 14, color: PV.gray }}>
+                  <span
+                    style={{
+                      display: "inline-flex", alignItems: "center", justifyContent: "center",
+                      width: 24, height: 24, borderRadius: 9999, fontSize: 12, fontWeight: 700,
+                      fontFamily: FONT_MONO,
+                      background: isMode ? PV.blue : "#F3F4F6",
+                      color: isMode ? "#fff" : PV.gray,
+                    }}
+                  >
+                    {i + 1}
+                  </span>
+                </td>
+                <td style={{
+                  padding: "8px 16px", textAlign: "right", fontFamily: FONT_MONO, fontSize: 14,
+                  fontWeight: isMode ? 600 : 400,
+                  color: isMode ? PV.blueDk : above ? PV.error : PV.ink,
+                }}>
+                  {fmt(p.price)}
+                </td>
+                <td style={{ padding: "8px 16px", textAlign: "right" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8 }}>
+                    <div style={{ width: 96, height: 6, background: "#F3F4F6", borderRadius: 9999, overflow: "hidden" }}>
+                      <div
+                        style={{
+                          width: `${(p.count / maxCount) * 100}%`, height: "100%", borderRadius: 9999,
+                          background: isMode ? PV.blue : above ? `${PV.error}66` : "#D1D5DB",
+                        }}
+                      />
+                    </div>
+                    <span style={{ fontFamily: FONT_MONO, fontSize: 14, color: PV.ink, minWidth: 32, textAlign: "right" }}>
+                      {p.count.toLocaleString()}
+                    </span>
+                  </div>
+                </td>
+                <td style={{ padding: "8px 16px", fontSize: 12, color: PV.gray, fontFamily: FONT_MONO }}>
+                  {p.pct.toFixed(1)}%
+                </td>
+                <td style={{ padding: "8px 16px", textAlign: "right", fontFamily: FONT_MONO, fontSize: 14, color: PV.gray }}>
+                  {fmt0(p.qty)}
+                </td>
+                <td style={{ padding: "8px 16px" }}>
+                  {isMode ? (
+                    <Chip tone="info">ราคากลาง</Chip>
+                  ) : above ? (
+                    <Chip tone="error">สูงกว่าราคากลาง</Chip>
+                  ) : (
+                    <Chip tone="success">ต่ำกว่าราคากลาง</Chip>
+                  )}
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+// ── Supplier benchmark section ────────────────────────────────────────────────
+
+function SupplierSection({ row, rank, isOverall, dimmed }: {
+  row: BenchmarkRow; rank: number; isOverall: boolean; dimmed: boolean
+}) {
+  const [open, setOpen] = useState(isOverall)
+  const lowData = row.total_records < 3
+  return (
+    <div
+      style={{
+        border: `1px solid ${PV.border}`, borderRadius: 8, background: PV.surface, overflow: "hidden",
+        opacity: dimmed ? 0.3 : 1, transition: "opacity 200ms",
+      }}
+    >
+      {/* Header row — click to expand */}
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        style={{
+          all: "unset", boxSizing: "border-box", cursor: "pointer", width: "100%",
+          display: "flex", alignItems: "center", gap: 12, padding: "12px 16px",
+          background: isOverall ? `${PV.blue}08` : PV.surface,
+        }}
+      >
+        {isOverall ? (
+          <Chip tone="info">ภาพรวมทุกซัพพลายเออร์</Chip>
+        ) : (
+          <span
+            style={{
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              width: 22, height: 22, borderRadius: 9999, background: "#F3F4F6",
+              fontFamily: FONT_MONO, fontSize: 11, fontWeight: 600, color: PV.gray, flexShrink: 0,
+            }}
           >
-            {/* Label */}
-            <span className={`text-xs font-semibold w-32 shrink-0 ${color}`}>{label}</span>
-
-            {/* Price */}
-            <span className={`text-sm font-bold tabular-nums font-mono flex-1 ${
-              outlier ? "line-through text-gray-300" : "text-gray-900"
-            }`}>
-              {fmt2(point.price)}
-            </span>
-
-            {/* % badge */}
-            <span className={`text-xs font-semibold tabular-nums px-2 py-0.5 rounded-full ${
-              i === 0
-                ? "bg-indigo-100 text-indigo-700"
-                : "bg-gray-100 text-gray-500"
-            }`}>
-              {point.pct.toFixed(1)}%
-            </span>
-
-            {/* Count */}
-            <span className="text-xs tabular-nums text-gray-400 w-16 text-right shrink-0">
-              {point.count.toLocaleString()} ครั้ง
-            </span>
-
-            {/* Outlier badge */}
-            {outlier && (
-              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-500 uppercase tracking-wide shrink-0">
-                outlier
-              </span>
-            )}
-          </div>
-        )
-      })}
-
-      {/* IQR footer */}
-      {iqr && (
-        <div className="flex items-center justify-between px-4 py-2 bg-gray-50 border-t border-gray-100">
-          <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">IQR ช่วงปกติ</span>
-          <span className="text-[11px] font-mono text-gray-500 tabular-nums">
-            {fmt2(iqr.lower)} – {fmt2(iqr.upper)}
+            {rank}
           </span>
+        )}
+        {!isOverall && (
+          <span style={{ fontFamily: FONT_BODY, fontSize: 14, fontWeight: 500, color: PV.ink, flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {row.ซัพพลายเออร์}
+          </span>
+        )}
+        {isOverall && <span style={{ flex: 1 }} />}
+
+        {/* Benchmark price — green per PropertyVue price semantics */}
+        <span style={{ display: "flex", alignItems: "baseline", gap: 6, flexShrink: 0 }}>
+          <span style={{ fontFamily: FONT_HEAD, fontSize: isOverall ? 24 : 20, fontWeight: 700, color: PV.green }}>
+            ฿{fmt(row.benchmark_price)}
+          </span>
+          <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: PV.gray }}>
+            {row.benchmark_count.toLocaleString()} ครั้ง ({row.benchmark_pct.toFixed(0)}%)
+          </span>
+        </span>
+
+        {lowData && <Chip tone="warning">ข้อมูลน้อย</Chip>}
+
+        <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: PV.gray, flexShrink: 0 }}>
+          {fmt(row.min_price)} – {fmt(row.max_price)}
+        </span>
+        <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: PV.gray, flexShrink: 0 }}>
+          {row.total_records.toLocaleString()} ครั้ง · ฿{fmt0(row.total_cost)}
+        </span>
+        <svg
+          width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={PV.gray} strokeWidth="2"
+          style={{ transform: open ? "rotate(180deg)" : undefined, transition: "transform 150ms", flexShrink: 0 }}
+        >
+          <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+
+      {open && (
+        <div style={{ borderTop: `1px solid ${PV.border}` }}>
+          <PriceRankingTable row={row} />
+          <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 16px", background: PV.bg, borderTop: `1px solid ${PV.border}` }}>
+            <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: PV.gray }}>
+              ช่วงข้อมูล {fmtYM(row.first_date)} – {fmtYM(row.last_date)} (window 12 เดือน: {fmtYM(row.window_start)} – {fmtYM(row.window_end)})
+            </span>
+            <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: PV.gray }}>
+              รวม {fmt0(row.total_qty)} ชิ้น
+            </span>
+          </div>
         </div>
       )}
     </div>
   )
 }
 
-// ── Supplier Section ──────────────────────────────────────────────────────────
+// ── Product card ──────────────────────────────────────────────────────────────
 
-function SupplierSection({
-  result,
-  rank,
-  isOverall,
-  dimmed,
-}: {
-  result:    BenchmarkResult
-  rank:      number
-  isOverall: boolean
-  dimmed:    boolean
+function ProductCard({ code, rows, selectedSupplier }: {
+  code: string; rows: BenchmarkRow[]; selectedSupplier: string | null
 }) {
-  const accentColor = isOverall
-    ? "border-indigo-400 bg-indigo-50"
-    : "border-violet-400 bg-white"
-
+  const overall = aggregateProduct(rows)
+  const ranked  = [...rows].sort((a, b) => b.total_cost - a.total_cost)
   return (
     <div
-      className={`rounded-xl border border-gray-200 overflow-hidden transition-opacity duration-200 ${
-        dimmed ? "opacity-30" : "opacity-100"
-      }`}
+      style={{
+        background: PV.surface, border: `1px solid ${PV.border}`, borderRadius: 8,
+        boxShadow: "0 1px 2px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.10)", overflow: "hidden",
+      }}
     >
-      {/* Section header */}
-      <div className={`flex items-center gap-3 px-4 py-3 border-b border-gray-200 ${isOverall ? "bg-indigo-50" : "bg-gray-50"}`}>
-        {/* Rank or overall badge */}
-        {isOverall ? (
-          <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-indigo-600 bg-indigo-100 px-2.5 py-1 rounded-full">
-            <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 inline-block" />
-            ภาพรวมทุกซัพพลายเออร์
-          </span>
-        ) : (
-          <span className="w-5 h-5 rounded-full bg-violet-100 text-violet-600 text-[10px] font-bold flex items-center justify-center shrink-0 tabular-nums">
-            {rank}
-          </span>
-        )}
-
-        {/* Supplier name */}
-        {!isOverall && (
-          <span className="text-sm font-semibold text-gray-800 truncate flex-1">
-            {result.ซัพพลายเออร์}
-          </span>
-        )}
-
-        <div className="flex items-center gap-3 ml-auto shrink-0">
-          {/* Total cost */}
-          <span className="text-xs font-bold tabular-nums text-gray-700">
-            ฿{fmtCost(result.total_cost)}
-          </span>
-          {/* Records */}
-          <span className="text-xs tabular-nums text-gray-400">
-            {result.total_records.toLocaleString()} ครั้ง
-          </span>
-          {/* Date range */}
-          <span className="text-xs text-gray-400">
-            {fmtDate(result.first_date)}
-            {result.first_date !== result.last_date && (
-              <> – {fmtDate(result.last_date)}</>
-            )}
-          </span>
-        </div>
-      </div>
-
-      {/* Price table */}
-      <PriceTable result={result} isOverall={isOverall} />
-    </div>
-  )
-}
-
-// ── Product Block ─────────────────────────────────────────────────────────────
-
-function ProductBlock({
-  productCode,
-  rows,
-  selectedSupplier,
-}: {
-  productCode:      string
-  rows:             BenchmarkResult[]
-  selectedSupplier: string | null
-}) {
-  const aggregate      = aggregateForProduct(rows)
-  const suppliersRanked = [...rows].sort((a, b) => b.total_cost - a.total_cost)
-
-  return (
-    <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden shadow-sm">
-      {/* Product header */}
-      <div className="flex items-center gap-3 px-5 py-3.5 border-b border-gray-200 bg-gray-50">
-        <span className="font-mono text-xs font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 px-2.5 py-1 rounded-lg tracking-wider shrink-0">
-          {productCode}
-        </span>
-        <span className="text-sm font-semibold text-gray-900 truncate flex-1">
+      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 24px", borderBottom: `1px solid ${PV.border}`, background: PV.bg, flexWrap: "wrap" }}>
+        <span style={{ fontFamily: FONT_MONO, fontSize: 14, fontWeight: 600, color: PV.blue }}>{code}</span>
+        <span style={{ fontFamily: FONT_HEAD, fontSize: 16, fontWeight: 600, color: PV.ink, flex: 1, minWidth: 200 }}>
           {rows[0].ชื่อสินค้า}
         </span>
-        {rows[0].กลุ่มสินค้า && (
-          <span className="text-[10px] font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded shrink-0">
-            {rows[0].กลุ่มสินค้า}
-          </span>
-        )}
-        <span className="text-[10px] text-gray-400 shrink-0">
-          {rows.length} ซัพพลายเออร์
-        </span>
+        {rows[0].กลุ่มสินค้า && <Chip tone="neutral">{rows[0].กลุ่มสินค้า}</Chip>}
+        <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: PV.gray }}>{rows.length} ซัพพลายเออร์</span>
       </div>
-
-      {/* Sections */}
-      <div className="p-4 flex flex-col gap-3">
-        {/* Overall */}
-        <SupplierSection
-          result={aggregate}
-          rank={0}
-          isOverall={true}
-          dimmed={false}
-        />
-
-        {/* Per supplier, sorted by total_cost desc */}
-        {suppliersRanked.map((r, i) => {
-          const dimmed = selectedSupplier !== null && selectedSupplier !== r.ซัพพลายเออร์
-          return (
-            <SupplierSection
-              key={`${r.รหัสสินค้า}||${r.ซัพพลายเออร์}`}
-              result={r}
-              rank={i + 1}
-              isOverall={false}
-              dimmed={dimmed}
-            />
-          )
-        })}
+      <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: 16 }}>
+        {rows.length > 1 && <SupplierSection row={overall} rank={0} isOverall dimmed={false} />}
+        {ranked.map((r, i) => (
+          <SupplierSection
+            key={`${r.รหัสสินค้า}||${r.ซัพพลายเออร์}`}
+            row={r}
+            rank={i + 1}
+            isOverall={false}
+            dimmed={selectedSupplier !== null && selectedSupplier !== r.ซัพพลายเออร์}
+          />
+        ))}
       </div>
     </div>
   )
 }
 
-// ── Main Page ─────────────────────────────────────────────────────────────────
+// ── Tab 1: lookup ─────────────────────────────────────────────────────────────
 
-export default function PriceBenchmarkPage() {
-  const [startMonth,    setStartMonth]    = useState(startOfYear())
-  const [endMonth,      setEndMonth]      = useState(nowYM())
-  const [supplierInput, setSupplierInput] = useState("")
-  const [productInput,  setProductInput]  = useState("")
+function LookupTab() {
+  const [month, setMonth]       = useState(nowYM())
+  const [product, setProduct]   = useState("")
+  const [supplier, setSupplier] = useState("")
+  const [group, setGroup]       = useState("")
 
-  const [results,        setResults]        = useState<BenchmarkResult[]>([])
-  const [loading,        setLoading]        = useState(false)
-  const [error,          setError]          = useState("")
-  const [hasSearched,    setHasSearched]    = useState(false)
+  const [rows, setRows]           = useState<BenchmarkRow[]>([])
+  const [loading, setLoading]     = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+  const [error, setError]         = useState("")
+  const [searched, setSearched]   = useState(false)
+  const [truncated, setTruncated] = useState(false)
+  const [totalProducts, setTotalProducts] = useState(0)
   const [selectedSupplier, setSelectedSupplier] = useState<string | null>(null)
 
-  async function handleSearch(e: React.FormEvent) {
-    e.preventDefault()
-    setLoading(true)
-    setError("")
-    setHasSearched(true)
-    setSelectedSupplier(null)
-
-    const params = new URLSearchParams()
-    params.set("start", startMonth)
-    params.set("end",   endMonth)
-    if (supplierInput.trim()) params.set("supplier",     supplierInput.trim())
-    if (productInput.trim())  params.set("product_code", productInput.trim())
-
+  async function search() {
+    if (!product.trim() && !supplier.trim() && !group.trim()) {
+      setError("ระบุอย่างน้อย 1 เงื่อนไข: รหัสสินค้า ซัพพลายเออร์ หรือกลุ่มสินค้า")
+      return
+    }
+    setLoading(true); setError(""); setSearched(true); setSelectedSupplier(null)
+    const params = new URLSearchParams({ month })
+    if (product.trim())  params.set("product_code", product.trim())
+    if (supplier.trim()) params.set("supplier", supplier.trim())
+    if (group.trim())    params.set("group", group.trim())
     try {
-      const res  = await fetch(`/api/cost/benchmark-v2?${params}`, { cache: "no-store" })
+      const res  = await fetch(`/api/price-benchmark/lookup?${params}`, { cache: "no-store" })
       const json = await res.json()
       if (!json.success) throw new Error(json.error || "API error")
-      setResults(json.data)
-    } catch (err: any) {
-      setError(err.message || "Failed to load data")
+      setRows(json.data)
+      setTruncated(json.truncated)
+      setTotalProducts(json.total_products)
+    } catch (e: any) {
+      setError(e.message || "โหลดข้อมูลไม่สำเร็จ")
+      setRows([])
     } finally {
       setLoading(false)
     }
   }
 
-  const groups = new Map<string, BenchmarkResult[]>()
-  for (const r of results) {
+  async function regenerate() {
+    setRefreshing(true); setError("")
+    try {
+      const res  = await fetch("/api/price-benchmark/snapshot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ month, force: true }),
+      })
+      const json = await res.json()
+      if (!json.success) throw new Error(json.error || "API error")
+      if (searched) await search()
+    } catch (e: any) {
+      setError(e.message || "คำนวณใหม่ไม่สำเร็จ")
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
+  const groups = new Map<string, BenchmarkRow[]>()
+  for (const r of rows) {
     const arr = groups.get(r.รหัสสินค้า) ?? []
     arr.push(r)
     groups.set(r.รหัสสินค้า, arr)
   }
-  const allSuppliers = Array.from(new Set(results.map(r => r.ซัพพลายเออร์))).sort()
-  const showChips    = allSuppliers.length > 1
+  const allSuppliers = Array.from(new Set(rows.map(r => r.ซัพพลายเออร์))).sort()
+  const computedAt = rows[0]?.computed_at
 
   return (
-    <div className="flex flex-col gap-6">
-
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Platform ราคากลาง</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          วิเคราะห์การกระจายตัวของราคา · เปรียบเทียบซัพพลายเออร์ · ตรวจจับ outlier ด้วย IQR
-        </p>
-      </div>
-
-      {/* Filter form */}
-      <form onSubmit={handleSearch} className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">เดือนเริ่มต้น</label>
-            <input
-              type="month"
-              value={startMonth}
-              onChange={e => setStartMonth(e.target.value)}
-              className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 tabular-nums"
-            />
+    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+      {/* Filters — persistently visible (PropertyVue Do #4) */}
+      <form
+        onSubmit={e => { e.preventDefault(); search() }}
+        style={{ background: PV.surface, border: `1px solid ${PV.border}`, borderRadius: 8, padding: 24, boxShadow: "0 1px 2px rgba(0,0,0,0.06)" }}
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4" style={{ gap: 16 }}>
+          <div>
+            <Label>เดือน snapshot</Label>
+            <input type="month" value={month} onChange={e => setMonth(e.target.value)} style={inputStyle} />
           </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">เดือนสิ้นสุด</label>
-            <input
-              type="month"
-              value={endMonth}
-              onChange={e => setEndMonth(e.target.value)}
-              className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 tabular-nums"
-            />
+          <div>
+            <Label>รหัสสินค้า</Label>
+            <input type="text" value={product} onChange={e => setProduct(e.target.value)} placeholder="เช่น LB00090" style={inputStyle} />
           </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">รหัสสินค้า</label>
-            <input
-              type="text"
-              value={productInput}
-              onChange={e => setProductInput(e.target.value)}
-              placeholder="เช่น LB00090"
-              className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
+          <div>
+            <Label>ซัพพลายเออร์</Label>
+            <input type="text" value={supplier} onChange={e => setSupplier(e.target.value)} placeholder="ค้นหาบางส่วนได้" style={inputStyle} />
           </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">ซัพพลายเออร์</label>
-            <input
-              type="text"
-              value={supplierInput}
-              onChange={e => setSupplierInput(e.target.value)}
-              placeholder="ชื่อซัพพลายเออร์ (ว่าง = ทั้งหมด)"
-              className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
+          <div>
+            <Label>กลุ่มสินค้า</Label>
+            <input type="text" value={group} onChange={e => setGroup(e.target.value)} placeholder="เช่น ค่าแรง, ยาง" style={inputStyle} />
           </div>
         </div>
-        <div className="flex justify-end mt-4">
-          <button
-            type="submit"
-            disabled={loading}
-            className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
-          >
-            {loading ? (
-              <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />กำลังค้นหา...</>
-            ) : "ค้นหา"}
-          </button>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16, gap: 12, flexWrap: "wrap" }}>
+          <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: PV.gray }}>
+            {computedAt ? <>ราคากลางคำนวณล่าสุด {fmtDate(computedAt)}</> : <>ราคากลาง = ราคาที่พบบ่อยสุดใน 12 เดือนย้อนหลัง</>}
+          </span>
+          <div style={{ display: "flex", gap: 12 }}>
+            <SecondaryButton onClick={regenerate} disabled={refreshing || loading}>
+              {refreshing ? "กำลังคำนวณ..." : "คำนวณราคากลางใหม่"}
+            </SecondaryButton>
+            <PrimaryButton type="submit" disabled={loading || refreshing}>
+              {loading ? "กำลังค้นหา..." : "ค้นหาราคากลาง"}
+            </PrimaryButton>
+          </div>
         </div>
       </form>
 
-      {/* Error */}
       {error && (
-        <div className="rounded-xl p-4 text-sm bg-red-50 border border-red-200 text-red-700">{error}</div>
-      )}
-
-      {/* Empty state */}
-      {!hasSearched && !loading && (
-        <div className="bg-white border border-gray-200 rounded-xl p-16 text-center shadow-sm">
-          <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center mx-auto mb-4">
-            <svg className="w-5 h-5 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-            </svg>
-          </div>
-          <p className="text-sm font-semibold text-gray-700">ระบุรหัสสินค้าแล้วกด ค้นหา</p>
-          <p className="text-xs text-gray-400 mt-1">ระบบจะแสดงการกระจายตัวของราคาและเปรียบเทียบซัพพลายเออร์</p>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 14, color: PV.error, background: `${PV.error}10`, border: `1px solid ${PV.error}40`, borderRadius: 8, padding: 16 }}>
+          {error}
         </div>
       )}
 
-      {/* No results */}
-      {hasSearched && !loading && !error && results.length === 0 && (
-        <div className="bg-white border border-gray-200 rounded-xl p-12 text-center text-sm text-gray-400 shadow-sm">
+      {loading && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <Skeleton h={160} /><Skeleton h={160} />
+        </div>
+      )}
+
+      {!searched && !loading && (
+        <div style={{ background: PV.surface, border: `1px solid ${PV.border}`, borderRadius: 8, padding: 64, textAlign: "center" }}>
+          <p style={{ fontFamily: FONT_HEAD, fontSize: 16, fontWeight: 600, color: PV.ink }}>ค้นหาราคากลางก่อนสั่งซื้อ</p>
+          <p style={{ fontFamily: FONT_BODY, fontSize: 14, color: PV.gray, marginTop: 4 }}>
+            ระบุรหัสสินค้า / ซัพพลายเออร์ / กลุ่มสินค้า — ระบบแสดงราคากลางพร้อม ranking ราคาต่ำ → สูง และจำนวนครั้งที่พบ
+          </p>
+        </div>
+      )}
+
+      {searched && !loading && !error && rows.length === 0 && (
+        <div style={{ background: PV.surface, border: `1px solid ${PV.border}`, borderRadius: 8, padding: 48, textAlign: "center", fontFamily: FONT_BODY, fontSize: 14, color: PV.gray }}>
           ไม่พบข้อมูลสำหรับเงื่อนไขที่เลือก
         </div>
       )}
 
-      {/* Results */}
-      {results.length > 0 && (
+      {!loading && rows.length > 0 && (
         <>
-          {/* Supplier chips */}
-          {showChips && (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400 shrink-0">ซัพพลายเออร์</span>
+          {truncated && (
+            <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: PV.warn, background: `${PV.warn}10`, border: `1px solid ${PV.warn}40`, borderRadius: 8, padding: "10px 16px" }}>
+              พบ {totalProducts.toLocaleString()} รหัสสินค้า — แสดง 50 รายการแรก (เรียงตามมูลค่าซื้อ) กรุณาระบุเงื่อนไขให้แคบลง
+            </div>
+          )}
+
+          {allSuppliers.length > 1 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+              <span style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 500, color: PV.gray }}>ซัพพลายเออร์:</span>
               <button
+                type="button"
                 onClick={() => setSelectedSupplier(null)}
-                className={`text-xs px-3 py-1 rounded-full border font-medium transition-all ${
-                  selectedSupplier === null
-                    ? "bg-indigo-600 text-white border-transparent"
-                    : "border-gray-200 text-gray-500 hover:border-indigo-400 hover:text-indigo-600"
-                }`}
+                style={{
+                  fontFamily: FONT_BODY, fontSize: 12, fontWeight: 500, padding: "4px 12px", borderRadius: 4, cursor: "pointer",
+                  background: selectedSupplier === null ? PV.blue : PV.surface,
+                  color: selectedSupplier === null ? "#fff" : PV.ink,
+                  border: selectedSupplier === null ? "1px solid transparent" : `1px solid ${PV.border}`,
+                }}
               >
                 ทั้งหมด
               </button>
               {allSuppliers.map(s => (
                 <button
                   key={s}
-                  onClick={() => setSelectedSupplier(prev => prev === s ? null : s)}
-                  className={`text-xs px-3 py-1 rounded-full border font-medium transition-all ${
-                    selectedSupplier === s
-                      ? "bg-violet-600 text-white border-transparent"
-                      : "border-gray-200 text-gray-500 hover:border-violet-400 hover:text-violet-600"
-                  }`}
+                  type="button"
+                  onClick={() => setSelectedSupplier(prev => (prev === s ? null : s))}
+                  style={{
+                    fontFamily: FONT_BODY, fontSize: 12, fontWeight: 500, padding: "4px 12px", borderRadius: 4, cursor: "pointer",
+                    background: selectedSupplier === s ? PV.blue : PV.surface,
+                    color: selectedSupplier === s ? "#fff" : PV.ink,
+                    border: selectedSupplier === s ? "1px solid transparent" : `1px solid ${PV.border}`,
+                  }}
                 >
                   {s}
                 </button>
@@ -489,19 +632,242 @@ export default function PriceBenchmarkPage() {
             </div>
           )}
 
-          {/* Product blocks */}
-          <div className="flex flex-col gap-6">
-            {Array.from(groups.entries()).map(([productCode, rows]) => (
-              <ProductBlock
-                key={productCode}
-                productCode={productCode}
-                rows={rows}
-                selectedSupplier={selectedSupplier}
-              />
+          <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+            {Array.from(groups.entries()).map(([code, productRows]) => (
+              <ProductCard key={code} code={code} rows={productRows} selectedSupplier={selectedSupplier} />
             ))}
           </div>
         </>
       )}
+    </div>
+  )
+}
+
+// ── Tab 2: overpriced report ──────────────────────────────────────────────────
+
+function StatTile({ label, value, tone }: { label: string; value: string; tone?: "error" | "default" }) {
+  return (
+    <div style={{ background: PV.surface, border: `1px solid ${PV.border}`, borderRadius: 8, padding: 16, boxShadow: "0 1px 2px rgba(0,0,0,0.06)" }}>
+      <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 500, color: PV.gray }}>{label}</div>
+      <div style={{ fontFamily: FONT_HEAD, fontSize: 24, fontWeight: 700, color: tone === "error" ? PV.error : PV.ink, marginTop: 4 }}>
+        {value}
+      </div>
+    </div>
+  )
+}
+
+function OverpricedTab() {
+  const [month, setMonth]       = useState(nowYM())
+  const [product, setProduct]   = useState("")
+  const [supplier, setSupplier] = useState("")
+  const [group, setGroup]       = useState("")
+
+  const [summary, setSummary]   = useState<OverpricedSummary | null>(null)
+  const [rows, setRows]         = useState<OverpricedRow[]>([])
+  const [truncated, setTruncated] = useState(false)
+  const [loading, setLoading]   = useState(false)
+  const [error, setError]       = useState("")
+  const [searched, setSearched] = useState(false)
+
+  async function load() {
+    setLoading(true); setError(""); setSearched(true)
+    const params = new URLSearchParams({ month })
+    if (product.trim())  params.set("product_code", product.trim())
+    if (supplier.trim()) params.set("supplier", supplier.trim())
+    if (group.trim())    params.set("group", group.trim())
+    try {
+      const res  = await fetch(`/api/price-benchmark/overpriced?${params}`, { cache: "no-store" })
+      const json = await res.json()
+      if (!json.success) throw new Error(json.error || "API error")
+      setSummary(json.summary)
+      setRows(json.data)
+      setTruncated(json.truncated)
+    } catch (e: any) {
+      setError(e.message || "โหลดข้อมูลไม่สำเร็จ")
+      setSummary(null); setRows([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+      <form
+        onSubmit={e => { e.preventDefault(); load() }}
+        style={{ background: PV.surface, border: `1px solid ${PV.border}`, borderRadius: 8, padding: 24, boxShadow: "0 1px 2px rgba(0,0,0,0.06)" }}
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4" style={{ gap: 16 }}>
+          <div>
+            <Label>เดือนที่ตรวจ</Label>
+            <input type="month" value={month} onChange={e => setMonth(e.target.value)} style={inputStyle} />
+          </div>
+          <div>
+            <Label>รหัสสินค้า</Label>
+            <input type="text" value={product} onChange={e => setProduct(e.target.value)} placeholder="ว่าง = ทั้งหมด" style={inputStyle} />
+          </div>
+          <div>
+            <Label>ซัพพลายเออร์</Label>
+            <input type="text" value={supplier} onChange={e => setSupplier(e.target.value)} placeholder="ว่าง = ทั้งหมด" style={inputStyle} />
+          </div>
+          <div>
+            <Label>กลุ่มสินค้า</Label>
+            <input type="text" value={group} onChange={e => setGroup(e.target.value)} placeholder="ว่าง = ทั้งหมด" style={inputStyle} />
+          </div>
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
+          <PrimaryButton type="submit" disabled={loading}>
+            {loading ? "กำลังตรวจสอบ..." : "ตรวจสอบรายการซื้อ"}
+          </PrimaryButton>
+        </div>
+      </form>
+
+      {error && (
+        <div style={{ fontFamily: FONT_BODY, fontSize: 14, color: PV.error, background: `${PV.error}10`, border: `1px solid ${PV.error}40`, borderRadius: 8, padding: 16 }}>
+          {error}
+        </div>
+      )}
+
+      {loading && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div className="grid grid-cols-2 lg:grid-cols-4" style={{ gap: 16 }}>
+            <Skeleton h={84} /><Skeleton h={84} /><Skeleton h={84} /><Skeleton h={84} />
+          </div>
+          <Skeleton h={300} />
+        </div>
+      )}
+
+      {!searched && !loading && (
+        <div style={{ background: PV.surface, border: `1px solid ${PV.border}`, borderRadius: 8, padding: 64, textAlign: "center" }}>
+          <p style={{ fontFamily: FONT_HEAD, fontSize: 16, fontWeight: 600, color: PV.ink }}>ตรวจจับรายการซื้อที่แพงกว่าราคากลาง</p>
+          <p style={{ fontFamily: FONT_BODY, fontSize: 14, color: PV.gray, marginTop: 4 }}>
+            เลือกเดือน แล้วระบบจะเทียบทุกรายการรับเข้ากับราคากลางของเดือนนั้น — แพงกว่าเมื่อไหร่ flag ทันที
+          </p>
+        </div>
+      )}
+
+      {summary && !loading && (
+        <>
+          <div className="grid grid-cols-2 lg:grid-cols-4" style={{ gap: 16 }}>
+            <StatTile label="รายการที่แพงกว่าราคากลาง" value={`${summary.flagged_count.toLocaleString()} / ${summary.receipts_checked.toLocaleString()}`} tone="error" />
+            <StatTile label="มูลค่าส่วนเกินรวม (฿)" value={fmt0(summary.excess_total)} tone="error" />
+            <StatTile label="สินค้าที่ถูก flag" value={summary.flagged_products.toLocaleString()} />
+            <StatTile label="ซัพพลายเออร์ที่เกี่ยวข้อง" value={summary.flagged_suppliers.toLocaleString()} />
+          </div>
+
+          {truncated && (
+            <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: PV.warn, background: `${PV.warn}10`, border: `1px solid ${PV.warn}40`, borderRadius: 8, padding: "10px 16px" }}>
+              แสดง 500 รายการแรก (เรียงตามมูลค่าส่วนเกิน) — กรองเงื่อนไขเพิ่มเพื่อดูรายการที่เหลือ
+            </div>
+          )}
+
+          {rows.length === 0 ? (
+            <div style={{ background: PV.surface, border: `1px solid ${PV.border}`, borderRadius: 8, padding: 48, textAlign: "center", fontFamily: FONT_BODY, fontSize: 14, color: PV.green }}>
+              ✓ ไม่พบรายการซื้อที่แพงกว่าราคากลางในเงื่อนไขนี้
+            </div>
+          ) : (
+            <div style={{ background: PV.surface, border: `1px solid ${PV.border}`, borderRadius: 8, overflow: "hidden", boxShadow: "0 1px 2px rgba(0,0,0,0.06)" }}>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: FONT_BODY, minWidth: 1080 }}>
+                  <thead>
+                    <tr style={{ borderBottom: `1px solid ${PV.border}`, background: PV.bg }}>
+                      {["#", "วันที่", "PO", "สินค้า", "ซัพพลายเออร์", "คลัง", "ราคาซื้อ", "ราคากลาง", "ส่วนต่าง", "จำนวน", "ส่วนเกินรวม (฿)"].map((h, i) => (
+                        <th key={h} style={{
+                          fontFamily: FONT_BODY, fontSize: 12, fontWeight: 500, color: PV.gray, padding: "10px 12px",
+                          textAlign: i >= 6 ? "right" : "left", whiteSpace: "nowrap",
+                        }}>
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((r, i) => (
+                      <tr key={i} style={{ borderBottom: "1px solid #F3F4F6" }}>
+                        <td style={{ padding: "8px 12px", fontFamily: FONT_MONO, fontSize: 12, color: PV.gray }}>{i + 1}</td>
+                        <td style={{ padding: "8px 12px", fontSize: 13, color: PV.ink, whiteSpace: "nowrap" }}>{fmtDate(r.วันที่)}</td>
+                        <td style={{ padding: "8px 12px", fontFamily: FONT_MONO, fontSize: 12, color: PV.gray, whiteSpace: "nowrap" }}>{r.PO || r.PR || "—"}</td>
+                        <td style={{ padding: "8px 12px", maxWidth: 240 }}>
+                          <div style={{ fontFamily: FONT_MONO, fontSize: 12, color: PV.blue }}>{r.รหัสสินค้า}</div>
+                          <div style={{ fontSize: 13, color: PV.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.ชื่อสินค้า}</div>
+                        </td>
+                        <td style={{ padding: "8px 12px", fontSize: 13, color: PV.ink, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {r.ซัพพลายเออร์}
+                        </td>
+                        <td style={{ padding: "8px 12px", fontSize: 12, color: PV.gray, whiteSpace: "nowrap" }}>{r.คลังสินค้า}</td>
+                        <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: FONT_MONO, fontSize: 13, fontWeight: 600, color: PV.error }}>{fmt(r.ราคาทุน)}</td>
+                        <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: FONT_MONO, fontSize: 13, color: PV.green }}>
+                          {fmt(r.benchmark_price)}
+                          <span style={{ fontSize: 10, color: PV.gray }}> ({r.benchmark_count}/{r.benchmark_records})</span>
+                        </td>
+                        <td style={{ padding: "8px 12px", textAlign: "right", whiteSpace: "nowrap" }}>
+                          <Chip tone="error">
+                            +{fmt(r.diff)}{r.diff_pct !== null ? ` (${r.diff_pct.toFixed(1)}%)` : ""}
+                          </Chip>
+                        </td>
+                        <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: FONT_MONO, fontSize: 13, color: PV.ink }}>{fmt0(r.รับ)}</td>
+                        <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: FONT_MONO, fontSize: 13, fontWeight: 600, color: PV.error }}>{fmt0(r.excess_total)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {summary.no_benchmark_count > 0 && (
+                <div style={{ padding: "8px 16px", background: PV.bg, borderTop: `1px solid ${PV.border}`, fontFamily: FONT_BODY, fontSize: 12, color: PV.gray }}>
+                  หมายเหตุ: {summary.no_benchmark_count.toLocaleString()} รายการไม่มีราคากลางให้เทียบ (ไม่เคยซื้อคู่สินค้า×ซัพพลายเออร์นี้ใน 12 เดือน)
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+// ── Page ──────────────────────────────────────────────────────────────────────
+
+export default function PriceBenchmarkPage() {
+  const [tab, setTab] = useState<"lookup" | "overpriced">("lookup")
+
+  const tabs = [
+    { id: "lookup" as const,     label: "ค้นหาราคากลาง" },
+    { id: "overpriced" as const, label: "รายการซื้อแพงกว่าราคากลาง" },
+  ]
+
+  return (
+    <div style={{ fontFamily: FONT_BODY, display: "flex", flexDirection: "column", gap: 24 }}>
+      {/* Header */}
+      <div>
+        <h1 style={{ fontFamily: FONT_HEAD, fontSize: 30, fontWeight: 700, lineHeight: 1.25, color: PV.ink }}>
+          ระบบราคากลาง
+        </h1>
+        <p style={{ fontFamily: FONT_BODY, fontSize: 14, color: PV.gray, marginTop: 4 }}>
+          ราคากลาง = ราคาที่พบบ่อยสุด (mode) ต่อ รหัสสินค้า × ซัพพลายเออร์ จากข้อมูลรับเข้า 12 เดือนย้อนหลัง · snapshot รายเดือน
+        </p>
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display: "flex", gap: 8, borderBottom: `1px solid ${PV.border}` }}>
+        {tabs.map(t => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setTab(t.id)}
+            style={{
+              fontFamily: FONT_BODY, fontSize: 14, fontWeight: tab === t.id ? 700 : 500,
+              color: tab === t.id ? PV.blue : PV.gray,
+              background: "transparent", border: "none", cursor: "pointer",
+              padding: "10px 16px",
+              borderBottom: tab === t.id ? `2px solid ${PV.blue}` : "2px solid transparent",
+              marginBottom: -1,
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "lookup" ? <LookupTab /> : <OverpricedTab />}
     </div>
   )
 }
