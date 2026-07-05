@@ -528,6 +528,115 @@ function ProductCard({ code, rows, selectedSupplier }: {
   )
 }
 
+// ── Supplier filter (ranked facet chips, collapsible) ─────────────────────────
+
+const SUPPLIER_CHIPS_VISIBLE = 8
+
+function SupplierFilter({ suppliers, selected, onSelect }: {
+  suppliers: { name: string; records: number; cost: number }[]
+  selected:  string | null
+  onSelect:  (s: string | null) => void
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const [query, setQuery]       = useState("")
+
+  const filtered = query.trim()
+    ? suppliers.filter(s => s.name.toLowerCase().includes(query.trim().toLowerCase()))
+    : suppliers
+  const visible = expanded || query.trim() ? filtered : filtered.slice(0, SUPPLIER_CHIPS_VISIBLE)
+  const hidden  = filtered.length - visible.length
+
+  const chipBase: React.CSSProperties = {
+    fontFamily: FONT_BODY, fontSize: 12, fontWeight: 500,
+    padding: "5px 12px", borderRadius: 4, cursor: "pointer",
+    display: "inline-flex", alignItems: "center", gap: 8, maxWidth: 320,
+  }
+
+  return (
+    <div style={{ background: PV.surface, border: `1px solid ${PV.border}`, borderRadius: 8, padding: "12px 16px", boxShadow: "0 1px 2px rgba(0,0,0,0.06)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
+        <span style={{ fontFamily: FONT_HEAD, fontSize: 14, fontWeight: 600, color: PV.ink }}>
+          ซัพพลายเออร์ ({suppliers.length})
+        </span>
+        <span style={{ fontFamily: FONT_BODY, fontSize: 11, color: PV.gray }}>
+          เรียงตามมูลค่าซื้อ · คลิกเพื่อโฟกัส
+        </span>
+        {suppliers.length > SUPPLIER_CHIPS_VISIBLE && (
+          <input
+            type="text"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="พิมพ์กรองรายชื่อ..."
+            style={{ ...inputStyle, height: 30, fontSize: 12, padding: "4px 10px", width: 180, marginLeft: "auto" }}
+          />
+        )}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+        <button
+          type="button"
+          onClick={() => onSelect(null)}
+          style={{
+            ...chipBase,
+            background: selected === null ? PV.blue : PV.surface,
+            color: selected === null ? "#fff" : PV.ink,
+            border: selected === null ? "1px solid transparent" : `1px solid ${PV.border}`,
+          }}
+        >
+          ทั้งหมด
+        </button>
+        {visible.map(s => {
+          const active = selected === s.name
+          return (
+            <button
+              key={s.name}
+              type="button"
+              onClick={() => onSelect(active ? null : s.name)}
+              title={`${s.name} — ${s.records.toLocaleString()} ครั้ง · ฿${fmt0(s.cost)}`}
+              style={{
+                ...chipBase,
+                background: active ? PV.blue : PV.surface,
+                color: active ? "#fff" : PV.ink,
+                border: active ? "1px solid transparent" : `1px solid ${PV.border}`,
+              }}
+            >
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.name}</span>
+              <span style={{
+                fontFamily: FONT_MONO, fontSize: 10, fontWeight: 600, flexShrink: 0,
+                padding: "1px 6px", borderRadius: 9999,
+                background: active ? "rgba(255,255,255,0.22)" : "#F3F4F6",
+                color: active ? "#fff" : PV.gray,
+              }}>
+                ฿{fmtCompact(s.cost)}
+              </span>
+            </button>
+          )
+        })}
+        {hidden > 0 && (
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            style={{ ...chipBase, background: "transparent", color: PV.blue, border: `1px dashed ${PV.blue}66` }}
+          >
+            +{hidden} เพิ่มเติม
+          </button>
+        )}
+        {expanded && !query.trim() && suppliers.length > SUPPLIER_CHIPS_VISIBLE && (
+          <button
+            type="button"
+            onClick={() => setExpanded(false)}
+            style={{ ...chipBase, background: "transparent", color: PV.gray, border: "none" }}
+          >
+            ย่อ
+          </button>
+        )}
+        {query.trim() && filtered.length === 0 && (
+          <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: PV.gray }}>ไม่พบชื่อที่ค้นหา</span>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Tab 1: lookup ─────────────────────────────────────────────────────────────
 
 function LookupTab({ prefill }: { prefill?: { product?: string; supplier?: string; seq: number } }) {
@@ -607,7 +716,16 @@ function LookupTab({ prefill }: { prefill?: { product?: string; supplier?: strin
     arr.push(r)
     groups.set(r.รหัสสินค้า, arr)
   }
-  const allSuppliers = Array.from(new Set(rows.map(r => r.ซัพพลายเออร์))).sort()
+  // Supplier facets ranked by spend — most relevant filter targets first
+  const supplierAgg = new Map<string, { records: number; cost: number }>()
+  for (const r of rows) {
+    const ex = supplierAgg.get(r.ซัพพลายเออร์)
+    if (ex) { ex.records += r.total_records; ex.cost += r.total_cost }
+    else supplierAgg.set(r.ซัพพลายเออร์, { records: r.total_records, cost: r.total_cost })
+  }
+  const allSuppliers = Array.from(supplierAgg.entries())
+    .map(([name, v]) => ({ name, ...v }))
+    .sort((a, b) => b.cost - a.cost)
   const computedAt = rows[0]?.computed_at
 
   return (
@@ -686,36 +804,11 @@ function LookupTab({ prefill }: { prefill?: { product?: string; supplier?: strin
           )}
 
           {allSuppliers.length > 1 && (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-              <span style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 500, color: PV.gray }}>ซัพพลายเออร์:</span>
-              <button
-                type="button"
-                onClick={() => setSelectedSupplier(null)}
-                style={{
-                  fontFamily: FONT_BODY, fontSize: 12, fontWeight: 500, padding: "4px 12px", borderRadius: 4, cursor: "pointer",
-                  background: selectedSupplier === null ? PV.blue : PV.surface,
-                  color: selectedSupplier === null ? "#fff" : PV.ink,
-                  border: selectedSupplier === null ? "1px solid transparent" : `1px solid ${PV.border}`,
-                }}
-              >
-                ทั้งหมด
-              </button>
-              {allSuppliers.map(s => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => setSelectedSupplier(prev => (prev === s ? null : s))}
-                  style={{
-                    fontFamily: FONT_BODY, fontSize: 12, fontWeight: 500, padding: "4px 12px", borderRadius: 4, cursor: "pointer",
-                    background: selectedSupplier === s ? PV.blue : PV.surface,
-                    color: selectedSupplier === s ? "#fff" : PV.ink,
-                    border: selectedSupplier === s ? "1px solid transparent" : `1px solid ${PV.border}`,
-                  }}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
+            <SupplierFilter
+              suppliers={allSuppliers}
+              selected={selectedSupplier}
+              onSelect={setSelectedSupplier}
+            />
           )}
 
           <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
