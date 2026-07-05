@@ -197,6 +197,13 @@ export default function CostReportPage() {
     return p.toString()
   }
 
+  // breakdown follows the partner-flag chips only (MySQL has no warehouse dimension)
+  const bdParams = (s: string, e: string) => {
+    const p = new URLSearchParams({ start: s, end: e })
+    if (selectedFlag.size > 0) p.set("partner_flag", [...selectedFlag].join(","))
+    return p.toString()
+  }
+
   const fetchAll = async () => {
     setLoading(true)
     setError(null)
@@ -210,8 +217,8 @@ export default function CostReportPage() {
         fetch(`/api/cost/detail?${countsParams(pS, pE)}`, { cache: "no-store" }),
         fetch(`/api/cost/counts?${countsParams(startMonth, endMonth)}`, { cache: "no-store" }),
         fetch(`/api/cost/counts?${countsParams(pS, pE)}`, { cache: "no-store" }),
-        fetch(`/api/truck-utilize/breakdown?start=${toBdKey(startMonth)}&end=${toBdKey(endMonth)}`, { cache: "no-store" }),
-        fetch(`/api/truck-utilize/breakdown?start=${toBdKey(pS)}&end=${toBdKey(pE)}`, { cache: "no-store" }),
+        fetch(`/api/truck-utilize/breakdown?${bdParams(toBdKey(startMonth), toBdKey(endMonth))}`, { cache: "no-store" }),
+        fetch(`/api/truck-utilize/breakdown?${bdParams(toBdKey(pS), toBdKey(pE))}`, { cache: "no-store" }),
       ])
       const [j1, j2, j3, j4, j5, j6, j7, j8] = await Promise.all([s1.json(), s2.json(), d1.json(), d2.json(), c1.json(), c2.json(), b1.json(), b2.json()])
       if (!j1.success) throw new Error(j1.error || "summary failed")
@@ -235,17 +242,21 @@ export default function CostReportPage() {
     const pS = shiftYear(startMonth, -1), pE = shiftYear(endMonth, -1)
     ;(async () => {
       try {
-        const [c1, c2, d1, d2] = await Promise.all([
+        const [c1, c2, d1, d2, b1, b2] = await Promise.all([
           fetch(`/api/cost/counts?${countsParams(startMonth, endMonth)}`, { cache: "no-store" }),
           fetch(`/api/cost/counts?${countsParams(pS, pE)}`, { cache: "no-store" }),
           fetch(`/api/cost/detail?${countsParams(startMonth, endMonth)}`, { cache: "no-store" }),
           fetch(`/api/cost/detail?${countsParams(pS, pE)}`, { cache: "no-store" }),
+          fetch(`/api/truck-utilize/breakdown?${bdParams(toBdKey(startMonth), toBdKey(endMonth))}`, { cache: "no-store" }),
+          fetch(`/api/truck-utilize/breakdown?${bdParams(toBdKey(pS), toBdKey(pE))}`, { cache: "no-store" }),
         ])
-        const [j1, j2, j3, j4] = await Promise.all([c1.json(), c2.json(), d1.json(), d2.json()])
+        const [j1, j2, j3, j4, j5, j6] = await Promise.all([c1.json(), c2.json(), d1.json(), d2.json(), b1.json(), b2.json()])
         if (j1.success) setCounts(j1.data)
         if (j2.success) setCountsPrev(j2.data)
         if (j3.success) setDetCurr(j3.data)
         if (j4.success) setDetPrev(j4.data)
+        if (j5.success) setBdCurr(j5.data)
+        if (j6.success) setBdPrev(j6.data)
       } catch { /* keep previous data on transient failure */ }
     })()
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -883,7 +894,7 @@ export default function CostReportPage() {
                     <p className="text-xs text-gray-300">Slide 2 — Breakdown Rate</p>
                     <PngButton slideKey="breakdown" name={`mm-report-2-breakdown-${year}`} />
                   </div>
-                  <FilterTags note="* Breakdown Rate นับทั้ง fleet — ไม่ตาม filter" />
+                  <FilterTags note="* Breakdown Rate ตาม filter รถมีนา/รถร่วม — ไม่ตามคลัง (ข้อมูลรถไม่มีมิติคลัง)" />
                 </div>
               </div>
 
