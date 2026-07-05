@@ -407,6 +407,7 @@ function SupplierSection({ row, rank, isOverall, dimmed }: {
 }) {
   const [open, setOpen] = useState(isOverall)
   const lowData = row.total_records < 3
+  const stable  = row.total_records >= 3 && row.benchmark_pct >= 60
   return (
     <div
       style={{
@@ -454,7 +455,12 @@ function SupplierSection({ row, rank, isOverall, dimmed }: {
           </span>
         </span>
 
-        {lowData && <Chip tone="warning">ข้อมูลน้อย</Chip>}
+        {stable && !isOverall && <Chip tone="success">ราคานิ่ง</Chip>}
+        {lowData && (
+          <span style={{ fontFamily: FONT_BODY, fontSize: 11, color: PV.gray, flexShrink: 0 }}>
+            ข้อมูล {row.total_records} ครั้ง
+          </span>
+        )}
 
         <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: PV.gray, flexShrink: 0 }}>
           {fmt(row.min_price_trimmed ?? row.min_price)} – {fmt(row.max_price_trimmed ?? row.max_price)}
@@ -479,7 +485,9 @@ function SupplierSection({ row, rank, isOverall, dimmed }: {
             </span>
             <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: PV.gray }}>
               {row.iqr_lower != null && row.iqr_upper != null
-                ? <>ช่วงปกติ IQR: {fmt(Math.max(row.iqr_lower, 0))} – {fmt(row.iqr_upper)} · </>
+                ? row.iqr_lower <= (row.min_price_trimmed ?? row.min_price)
+                  ? <>เพดานราคาปกติ ≤ {fmt(row.iqr_upper)} · </>
+                  : <>ช่วงราคาปกติ {fmt(row.iqr_lower)} – {fmt(row.iqr_upper)} · </>
                 : <>ข้อมูลน้อย/ไม่กระจาย — ไม่ตัด outlier · </>}
               รวม {fmt0(row.total_qty)} ชิ้น
             </span>
@@ -492,8 +500,163 @@ function SupplierSection({ row, rank, isOverall, dimmed }: {
 
 // ── Product card ──────────────────────────────────────────────────────────────
 
-function ProductCard({ code, rows, selectedSupplier }: {
-  code: string; rows: BenchmarkRow[]; selectedSupplier: string | null
+function monthsAgo(ym: string): number {
+  if (!ym) return 0
+  const [y, m] = ym.split("-").map(Number)
+  const d = new Date()
+  return (d.getFullYear() - y) * 12 + (d.getMonth() + 1 - m)
+}
+
+function fmtMonthsAgo(ym: string): string {
+  const n = monthsAgo(ym)
+  if (n <= 0) return "เดือนนี้"
+  if (n === 1) return "เดือนที่แล้ว"
+  return `${n} เดือนก่อน`
+}
+
+/** คำแนะนำสำหรับจัดซื้อ: เจ้าถูกสุด + เงินที่จ่ายเกินราคาถูกสุด */
+function RecommendationCard({ rows, onViewTransactions, code }: {
+  rows: BenchmarkRow[]; code: string; onViewTransactions?: (code: string) => void
+}) {
+  const byPrice = [...rows].sort((a, b) =>
+    a.benchmark_price - b.benchmark_price || b.total_records - a.total_records)
+  const best = byPrice[0]
+  if (!best) return null
+  const totalQty  = rows.reduce((s, r) => s + r.total_qty, 0)
+  const totalCost = rows.reduce((s, r) => s + r.total_cost, 0)
+  const overpaid  = Math.max(0, totalCost - best.benchmark_price * totalQty)
+  const stale     = monthsAgo(best.last_date) > 6
+  const thin      = best.total_records < 3
+
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap",
+      background: `${PV.green}0D`, border: `1px solid ${PV.green}40`, borderRadius: 8, padding: "12px 16px",
+    }}>
+      <div style={{ flex: 1, minWidth: 260 }}>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: PV.green, textTransform: "uppercase", letterSpacing: 0.5 }}>
+          ราคาแนะนำ (เจ้าถูกสุด)
+        </div>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap", marginTop: 2 }}>
+          <span style={{ fontFamily: FONT_HEAD, fontSize: 28, fontWeight: 900, color: PV.green }}>
+            ฿{fmt(best.benchmark_price)}
+          </span>
+          <span style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 500, color: PV.ink }}>
+            {best.ซัพพลายเออร์}
+          </span>
+        </div>
+        <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: PV.gray, marginTop: 2 }}>
+          อ้างอิง {best.benchmark_count.toLocaleString()} ครั้ง ({best.benchmark_pct.toFixed(0)}% ของ {best.total_records.toLocaleString()} ครั้ง) · ซื้อล่าสุด {fmtMonthsAgo(best.last_date)}
+          {thin  && <span style={{ color: PV.warn }}> · ข้อมูลน้อย — ตรวจสอบก่อนใช้อ้างอิง</span>}
+          {stale && <span style={{ color: PV.warn }}> · ราคาอาจไม่เป็นปัจจุบัน</span>}
+        </div>
+      </div>
+      {overpaid > 0 && rows.length > 1 && (
+        <div style={{ textAlign: "right" }} title="เทียบกรณีซื้อทุกชิ้นที่ราคาแนะนำ — ตัวเลขเชิงโอกาส อาจมีเหตุผลอื่น เช่น งานด่วน/ของขาด/สเปคต่าง">
+          <div style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: PV.error, textTransform: "uppercase", letterSpacing: 0.5 }}>
+            จ่ายเกินราคาถูกสุด (12 เดือน)
+          </div>
+          <div style={{ fontFamily: FONT_HEAD, fontSize: 22, fontWeight: 700, color: PV.error }}>
+            ฿{fmt0(overpaid)}
+          </div>
+        </div>
+      )}
+      {onViewTransactions && (
+        <SecondaryButton onClick={() => onViewTransactions(code)}>
+          ดูรายการซื้อจริง →
+        </SecondaryButton>
+      )}
+    </div>
+  )
+}
+
+/** ตารางเปรียบเทียบซัพพลายเออร์ — มองแวบเดียวรู้ว่าใครถูก/แพง/สดแค่ไหน */
+function SupplierCompareTable({ rows, selectedSupplier, onSelectSupplier }: {
+  rows: BenchmarkRow[]
+  selectedSupplier: string | null
+  onSelectSupplier?: (s: string | null) => void
+}) {
+  const byPrice = [...rows].sort((a, b) =>
+    a.benchmark_price - b.benchmark_price || b.total_records - a.total_records)
+  const best = byPrice[0]
+  return (
+    <div style={{ border: `1px solid ${PV.border}`, borderRadius: 8, overflow: "hidden" }}>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: FONT_BODY, minWidth: 760 }}>
+          <thead>
+            <tr style={{ background: PV.bg, borderBottom: `1px solid ${PV.border}` }}>
+              {["ซัพพลายเออร์", "ราคากลาง (฿)", "เทียบเจ้าถูกสุด", "ครั้ง", "ความนิ่ง", "ซื้อล่าสุด", "มูลค่ารวม (฿)"].map((h, i) => (
+                <th key={h} style={{
+                  fontFamily: FONT_BODY, fontSize: 12, fontWeight: 500, color: PV.gray,
+                  padding: "8px 12px", textAlign: i === 0 ? "left" : "right", whiteSpace: "nowrap",
+                }}>
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {byPrice.map(r => {
+              const isBest  = r === best
+              const diffPct = best.benchmark_price > 0
+                ? ((r.benchmark_price - best.benchmark_price) / best.benchmark_price) * 100
+                : 0
+              const stable  = r.total_records >= 3 && r.benchmark_pct >= 60
+              const nAgo    = monthsAgo(r.last_date)
+              const active  = selectedSupplier === r.ซัพพลายเออร์
+              return (
+                <tr
+                  key={r.ซัพพลายเออร์}
+                  onClick={() => onSelectSupplier?.(active ? null : r.ซัพพลายเออร์)}
+                  style={{
+                    borderBottom: "1px solid #F3F4F6", cursor: onSelectSupplier ? "pointer" : "default",
+                    background: active ? `${PV.blue}0D` : isBest ? `${PV.green}0A` : undefined,
+                  }}
+                >
+                  <td style={{ padding: "8px 12px", fontSize: 13, fontWeight: isBest ? 700 : 500, color: PV.ink, maxWidth: 260 }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.ซัพพลายเออร์}</span>
+                      {isBest && <Chip tone="success">ถูกสุด</Chip>}
+                    </span>
+                  </td>
+                  <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: FONT_MONO, fontSize: 13, fontWeight: 600, color: isBest ? PV.green : PV.ink }}>
+                    {fmt(r.benchmark_price)}
+                  </td>
+                  <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: FONT_MONO, fontSize: 13, color: isBest ? PV.gray : diffPct > 25 ? PV.error : PV.warn }}>
+                    {isBest ? "—" : `+${diffPct.toFixed(0)}%`}
+                  </td>
+                  <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: FONT_MONO, fontSize: 13, color: PV.ink }}>
+                    {r.total_records.toLocaleString()}
+                  </td>
+                  <td style={{ padding: "8px 12px", textAlign: "right", whiteSpace: "nowrap" }}>
+                    {stable
+                      ? <Chip tone="success">นิ่ง {r.benchmark_pct.toFixed(0)}%</Chip>
+                      : <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: PV.gray }}>
+                          {r.total_records < 3 ? `ข้อมูล ${r.total_records} ครั้ง` : `${r.benchmark_pct.toFixed(0)}%`}
+                        </span>}
+                  </td>
+                  <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: FONT_BODY, fontSize: 12, color: nAgo > 6 ? PV.warn : PV.gray, whiteSpace: "nowrap" }}>
+                    {fmtMonthsAgo(r.last_date)}
+                  </td>
+                  <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: FONT_MONO, fontSize: 13, color: PV.gray }}>
+                    {fmt0(r.total_cost)}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function ProductCard({ code, rows, selectedSupplier, onSelectSupplier, onViewTransactions }: {
+  code: string
+  rows: BenchmarkRow[]
+  selectedSupplier: string | null
+  onSelectSupplier?: (s: string | null) => void
+  onViewTransactions?: (code: string) => void
 }) {
   const overall = aggregateProduct(rows)
   const ranked  = [...rows].sort((a, b) => b.total_cost - a.total_cost)
@@ -513,6 +676,14 @@ function ProductCard({ code, rows, selectedSupplier }: {
         <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: PV.gray }}>{rows.length} ซัพพลายเออร์</span>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: 16 }}>
+        <RecommendationCard rows={rows} code={code} onViewTransactions={onViewTransactions} />
+        {rows.length > 1 && (
+          <SupplierCompareTable
+            rows={rows}
+            selectedSupplier={selectedSupplier}
+            onSelectSupplier={onSelectSupplier}
+          />
+        )}
         {rows.length > 1 && <SupplierSection row={overall} rank={0} isOverall dimmed={false} />}
         {ranked.map((r, i) => (
           <SupplierSection
@@ -639,7 +810,10 @@ function SupplierFilter({ suppliers, selected, onSelect }: {
 
 // ── Tab 1: lookup ─────────────────────────────────────────────────────────────
 
-function LookupTab({ prefill }: { prefill?: { product?: string; supplier?: string; seq: number } }) {
+function LookupTab({ prefill, onViewTransactions }: {
+  prefill?: { product?: string; supplier?: string; seq: number }
+  onViewTransactions?: (code: string) => void
+}) {
   const [month, setMonth]       = useState(nowYM())
   const [product, setProduct]   = useState("")
   const [supplier, setSupplier] = useState("")
@@ -813,7 +987,14 @@ function LookupTab({ prefill }: { prefill?: { product?: string; supplier?: strin
 
           <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
             {Array.from(groups.entries()).map(([code, productRows]) => (
-              <ProductCard key={code} code={code} rows={productRows} selectedSupplier={selectedSupplier} />
+              <ProductCard
+                key={code}
+                code={code}
+                rows={productRows}
+                selectedSupplier={selectedSupplier}
+                onSelectSupplier={setSelectedSupplier}
+                onViewTransactions={onViewTransactions}
+              />
             ))}
           </div>
         </>
@@ -835,7 +1016,7 @@ function StatTile({ label, value, tone }: { label: string; value: string; tone?:
   )
 }
 
-function OverpricedTab() {
+function OverpricedTab({ prefill }: { prefill?: { product?: string; seq: number } }) {
   const [month, setMonth]       = useState(nowYM())
   const [product, setProduct]   = useState("")
   const [supplier, setSupplier] = useState("")
@@ -848,10 +1029,11 @@ function OverpricedTab() {
   const [error, setError]       = useState("")
   const [searched, setSearched] = useState(false)
 
-  async function load() {
+  const load = useCallback(async (overrides?: { product?: string }) => {
+    const p = overrides?.product ?? product
     setLoading(true); setError(""); setSearched(true)
     const params = new URLSearchParams({ month })
-    if (product.trim())  params.set("product_code", product.trim())
+    if (p.trim())        params.set("product_code", p.trim())
     if (supplier.trim()) params.set("supplier", supplier.trim())
     if (group.trim())    params.set("group", group.trim())
     try {
@@ -867,7 +1049,17 @@ function OverpricedTab() {
     } finally {
       setLoading(false)
     }
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [month, product, supplier, group])
+
+  // Drill-down from lookup: prefill product code and run immediately
+  useEffect(() => {
+    if (prefill && prefill.product !== undefined) {
+      setProduct(prefill.product)
+      load({ product: prefill.product })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefill?.seq])
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
@@ -1250,6 +1442,7 @@ function OverviewTab({ onDrillProduct, onDrillSupplier }: {
 export default function PriceBenchmarkPage() {
   const [tab, setTab] = useState<"overview" | "lookup" | "overpriced">("overview")
   const [prefill, setPrefill] = useState<{ product?: string; supplier?: string; seq: number } | undefined>()
+  const [opPrefill, setOpPrefill] = useState<{ product?: string; seq: number } | undefined>()
 
   const tabs = [
     { id: "overview" as const,   label: "ภาพรวม" },
@@ -1265,6 +1458,11 @@ export default function PriceBenchmarkPage() {
   function drillSupplier(name: string) {
     setPrefill(prev => ({ supplier: name, seq: (prev?.seq ?? 0) + 1 }))
     setTab("lookup")
+  }
+
+  function drillTransactions(code: string) {
+    setOpPrefill(prev => ({ product: code, seq: (prev?.seq ?? 0) + 1 }))
+    setTab("overpriced")
   }
 
   return (
@@ -1304,10 +1502,10 @@ export default function PriceBenchmarkPage() {
         <OverviewTab onDrillProduct={drillProduct} onDrillSupplier={drillSupplier} />
       </div>
       <div style={{ display: tab === "lookup" ? "block" : "none" }}>
-        <LookupTab prefill={prefill} />
+        <LookupTab prefill={prefill} onViewTransactions={drillTransactions} />
       </div>
       <div style={{ display: tab === "overpriced" ? "block" : "none" }}>
-        <OverpricedTab />
+        <OverpricedTab prefill={opPrefill} />
       </div>
     </div>
   )
