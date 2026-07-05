@@ -189,6 +189,9 @@ export default function BreakdownRatePage() {
       const dataUrl = await toPng(el, {
         pixelRatio: 2,
         backgroundColor: "#ffffff",
+        // the slide uses system fonts — skip web-font embedding, which throws
+        // CORS SecurityError on the Google Fonts stylesheet and slows capture
+        skipFonts: true,
         filter: (node) => !(node instanceof HTMLElement && node.dataset.noExport !== undefined),
       })
       const a = document.createElement("a")

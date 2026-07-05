@@ -616,6 +616,9 @@ export default function CostReportPage() {
       const dataUrl = await toPng(el, {
         pixelRatio: 2,
         backgroundColor: "#ffffff",
+        // slides use system fonts — skip web-font embedding, which throws a
+        // CORS SecurityError on the Google Fonts stylesheet and slows capture
+        skipFonts: true,
         // keep the PNG button itself out of the capture
         filter: (node) => !(node instanceof HTMLElement && node.dataset.noExport !== undefined),
       })
