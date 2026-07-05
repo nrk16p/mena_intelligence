@@ -32,7 +32,7 @@ const FONT_MONO = "'Fira Code', monospace"
 
 // ── Types (mirror API) ────────────────────────────────────────────────────────
 
-type PricePoint = { price: number; count: number; qty: number; cost: number; pct: number }
+type PricePoint = { price: number; count: number; qty: number; cost: number; pct: number; outlier?: boolean }
 
 type BenchmarkRow = {
   snapshot_month: string
@@ -47,6 +47,10 @@ type BenchmarkRow = {
   benchmark_pct: number
   min_price: number
   max_price: number
+  iqr_lower?: number | null
+  iqr_upper?: number | null
+  min_price_trimmed?: number
+  max_price_trimmed?: number
   total_records: number
   total_qty: number
   total_cost: number
@@ -71,6 +75,8 @@ type OverpricedRow = {
   benchmark_price: number
   benchmark_count: number
   benchmark_records: number
+  iqr_upper: number | null
+  severity: "warning" | "critical"
   diff: number
   diff_pct: number | null
   excess_total: number
@@ -106,6 +112,7 @@ type OverpricedSummary = {
   flagged_products: number
   flagged_suppliers: number
   excess_total: number
+  critical_count: number
   no_benchmark_count: number
 }
 
@@ -137,6 +144,26 @@ function nowYM() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
 }
 
+/** Weighted Tukey 1.5×IQR bounds over a price distribution sorted asc (mirrors lib). */
+function weightedIQRBounds(prices: { price: number; count: number }[]): { lower: number; upper: number } | null {
+  const total = prices.reduce((s, p) => s + p.count, 0)
+  if (total < 4) return null
+  const quantile = (pct: number): number => {
+    const target = pct * total
+    let cum = 0
+    for (const p of prices) {
+      cum += p.count
+      if (cum >= target) return p.price
+    }
+    return prices[prices.length - 1].price
+  }
+  const q1 = quantile(0.25)
+  const q3 = quantile(0.75)
+  const iqr = q3 - q1
+  if (iqr <= 0) return null
+  return { lower: q1 - 1.5 * iqr, upper: q3 + 1.5 * iqr }
+}
+
 /** Aggregate all supplier rows of one product into an "overall" row (mode tie → lowest price). */
 function aggregateProduct(rows: BenchmarkRow[]): BenchmarkRow {
   const map = new Map<number, { count: number; qty: number; cost: number }>()
@@ -148,9 +175,16 @@ function aggregateProduct(rows: BenchmarkRow[]): BenchmarkRow {
     }
   }
   const total = rows.reduce((s, r) => s + r.total_records, 0)
-  const prices: PricePoint[] = Array.from(map.entries())
+  const merged = Array.from(map.entries())
     .map(([price, v]) => ({ price, ...v, pct: (v.count / (total || 1)) * 100 }))
     .sort((a, b) => a.price - b.price)
+  const bounds = weightedIQRBounds(merged)
+  const prices: PricePoint[] = merged.map(p => ({
+    ...p,
+    outlier: !!bounds && (p.price < bounds.lower || p.price > bounds.upper),
+  }))
+  const inRange = prices.filter(p => !p.outlier)
+  const trimmed = inRange.length > 0 ? inRange : prices
   let mode = prices[0]
   for (const p of prices) if (p.count > mode.count) mode = p
   return {
@@ -161,6 +195,10 @@ function aggregateProduct(rows: BenchmarkRow[]): BenchmarkRow {
     benchmark_pct: mode ? (mode.count / (total || 1)) * 100 : 0,
     min_price: prices[0]?.price ?? 0,
     max_price: prices[prices.length - 1]?.price ?? 0,
+    iqr_lower: bounds?.lower ?? null,
+    iqr_upper: bounds?.upper ?? null,
+    min_price_trimmed: trimmed[0]?.price ?? 0,
+    max_price_trimmed: trimmed[trimmed.length - 1]?.price ?? 0,
     total_records: total,
     total_qty: rows.reduce((s, r) => s + r.total_qty, 0),
     total_cost: rows.reduce((s, r) => s + r.total_cost, 0),
@@ -287,8 +325,9 @@ function PriceRankingTable({ row }: { row: BenchmarkRow }) {
         </thead>
         <tbody>
           {row.prices.map((p, i) => {
-            const isMode = p.price === row.benchmark_price
-            const above  = p.price > row.benchmark_price
+            const isMode  = p.price === row.benchmark_price
+            const above   = p.price > row.benchmark_price
+            const outlier = !!p.outlier
             return (
               <tr
                 key={p.price}
@@ -296,6 +335,7 @@ function PriceRankingTable({ row }: { row: BenchmarkRow }) {
                   borderBottom: "1px solid #F3F4F6",
                   background: isMode ? `${PV.blue}08` : undefined,
                   height: 48,
+                  opacity: outlier ? 0.45 : 1,
                 }}
               >
                 <td style={{ padding: "8px 16px", fontSize: 14, color: PV.gray }}>
@@ -314,7 +354,8 @@ function PriceRankingTable({ row }: { row: BenchmarkRow }) {
                 <td style={{
                   padding: "8px 16px", textAlign: "right", fontFamily: FONT_MONO, fontSize: 14,
                   fontWeight: isMode ? 600 : 400,
-                  color: isMode ? PV.blueDk : above ? PV.error : PV.ink,
+                  color: outlier ? PV.gray : isMode ? PV.blueDk : above ? PV.error : PV.ink,
+                  textDecoration: outlier ? "line-through" : "none",
                 }}>
                   {fmt(p.price)}
                 </td>
@@ -340,7 +381,9 @@ function PriceRankingTable({ row }: { row: BenchmarkRow }) {
                   {fmt0(p.qty)}
                 </td>
                 <td style={{ padding: "8px 16px" }}>
-                  {isMode ? (
+                  {outlier ? (
+                    <Chip tone="error">outlier — ตัดออกจากช่วงปกติ</Chip>
+                  ) : isMode ? (
                     <Chip tone="info">ราคากลาง</Chip>
                   ) : above ? (
                     <Chip tone="error">สูงกว่าราคากลาง</Chip>
@@ -414,7 +457,7 @@ function SupplierSection({ row, rank, isOverall, dimmed }: {
         {lowData && <Chip tone="warning">ข้อมูลน้อย</Chip>}
 
         <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: PV.gray, flexShrink: 0 }}>
-          {fmt(row.min_price)} – {fmt(row.max_price)}
+          {fmt(row.min_price_trimmed ?? row.min_price)} – {fmt(row.max_price_trimmed ?? row.max_price)}
         </span>
         <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: PV.gray, flexShrink: 0 }}>
           {row.total_records.toLocaleString()} ครั้ง · ฿{fmt0(row.total_cost)}
@@ -430,11 +473,14 @@ function SupplierSection({ row, rank, isOverall, dimmed }: {
       {open && (
         <div style={{ borderTop: `1px solid ${PV.border}` }}>
           <PriceRankingTable row={row} />
-          <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 16px", background: PV.bg, borderTop: `1px solid ${PV.border}` }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", padding: "8px 16px", background: PV.bg, borderTop: `1px solid ${PV.border}` }}>
             <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: PV.gray }}>
               ช่วงข้อมูล {fmtYM(row.first_date)} – {fmtYM(row.last_date)} (window 12 เดือน: {fmtYM(row.window_start)} – {fmtYM(row.window_end)})
             </span>
-            <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: PV.gray }}>
+            <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: PV.gray }}>
+              {row.iqr_lower != null && row.iqr_upper != null
+                ? <>ช่วงปกติ IQR: {fmt(Math.max(row.iqr_lower, 0))} – {fmt(row.iqr_upper)} · </>
+                : <>ข้อมูลน้อย/ไม่กระจาย — ไม่ตัด outlier · </>}
               รวม {fmt0(row.total_qty)} ชิ้น
             </span>
           </div>
@@ -790,8 +836,8 @@ function OverpricedTab() {
           <div className="grid grid-cols-2 lg:grid-cols-4" style={{ gap: 16 }}>
             <StatTile label="รายการที่แพงกว่าราคากลาง" value={`${summary.flagged_count.toLocaleString()} / ${summary.receipts_checked.toLocaleString()}`} tone="error" />
             <StatTile label="มูลค่าส่วนเกินรวม (฿)" value={fmt0(summary.excess_total)} tone="error" />
-            <StatTile label="สินค้าที่ถูก flag" value={summary.flagged_products.toLocaleString()} />
-            <StatTile label="ซัพพลายเออร์ที่เกี่ยวข้อง" value={summary.flagged_suppliers.toLocaleString()} />
+            <StatTile label="หลุดช่วงปกติ IQR (วิกฤต)" value={(summary.critical_count ?? 0).toLocaleString()} tone="error" />
+            <StatTile label="สินค้า / ซัพพลายเออร์ที่เกี่ยวข้อง" value={`${summary.flagged_products.toLocaleString()} / ${summary.flagged_suppliers.toLocaleString()}`} />
           </div>
 
           {truncated && (
@@ -840,8 +886,9 @@ function OverpricedTab() {
                           <span style={{ fontSize: 10, color: PV.gray }}> ({r.benchmark_count}/{r.benchmark_records})</span>
                         </td>
                         <td style={{ padding: "8px 12px", textAlign: "right", whiteSpace: "nowrap" }}>
-                          <Chip tone="error">
+                          <Chip tone={r.severity === "critical" ? "error" : "warning"}>
                             +{fmt(r.diff)}{r.diff_pct !== null ? ` (${r.diff_pct.toFixed(1)}%)` : ""}
+                            {r.severity === "critical" ? " · หลุด IQR" : ""}
                           </Chip>
                         </td>
                         <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: FONT_MONO, fontSize: 13, color: PV.ink }}>{fmt0(r.รับ)}</td>

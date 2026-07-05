@@ -8,6 +8,7 @@ export type PricePoint = {
   qty:   number
   cost:  number
   pct:   number
+  outlier: boolean
 }
 
 export type BenchmarkDoc = {
@@ -23,6 +24,10 @@ export type BenchmarkDoc = {
   benchmark_pct:   number
   min_price: number
   max_price: number
+  iqr_lower: number | null
+  iqr_upper: number | null
+  min_price_trimmed: number
+  max_price_trimmed: number
   total_records: number
   total_qty:     number
   total_cost:    number
@@ -68,6 +73,32 @@ export function windowFor(month: string): { start: string; end: string } {
 
 export function isValidMonth(month: string | null): month is string {
   return !!month && /^\d{4}-(0[1-9]|1[0-2])$/.test(month)
+}
+
+/**
+ * Weighted IQR bounds (Tukey 1.5×IQR) over a price distribution sorted asc.
+ * Quantiles are weighted by occurrence count. Returns null when there is too
+ * little data (< 4 receipts) or no spread (IQR = 0) — no trimming in that case.
+ */
+export function weightedIQRBounds(
+  prices: { price: number; count: number }[]
+): { lower: number; upper: number } | null {
+  const total = prices.reduce((s, p) => s + p.count, 0)
+  if (total < 4) return null
+  const quantile = (pct: number): number => {
+    const target = pct * total
+    let cum = 0
+    for (const p of prices) {
+      cum += p.count
+      if (cum >= target) return p.price
+    }
+    return prices[prices.length - 1].price
+  }
+  const q1 = quantile(0.25)
+  const q3 = quantile(0.75)
+  const iqr = q3 - q1
+  if (iqr <= 0) return null
+  return { lower: q1 - 1.5 * iqr, upper: q3 + 1.5 * iqr }
 }
 
 /** Receipt filter shared by snapshot generation and the overpriced report. */
@@ -158,6 +189,11 @@ export async function generateSnapshot(month: string): Promise<{ row_count: numb
     let mode = valid[0]
     for (const p of valid) if (p.count > mode.count) mode = p
 
+    const bounds = weightedIQRBounds(valid as { price: number; count: number }[])
+    const isOutlier = (price: number) => !!bounds && (price < bounds.lower || price > bounds.upper)
+    const inRange = valid.filter(p => !isOutlier(p.price as number))
+    const trimmed = inRange.length > 0 ? inRange : valid
+
     docs.push({
       snapshot_month: month,
       window_start:   start,
@@ -171,6 +207,10 @@ export async function generateSnapshot(month: string): Promise<{ row_count: numb
       benchmark_pct:   (mode.count / total) * 100,
       min_price: valid[0].price as number,
       max_price: valid[valid.length - 1].price as number,
+      iqr_lower: bounds?.lower ?? null,
+      iqr_upper: bounds?.upper ?? null,
+      min_price_trimmed: trimmed[0].price as number,
+      max_price_trimmed: trimmed[trimmed.length - 1].price as number,
       total_records: total,
       total_qty:     r.total_qty,
       total_cost:    r.total_cost,
@@ -182,6 +222,7 @@ export async function generateSnapshot(month: string): Promise<{ row_count: numb
         qty:   p.qty,
         cost:  p.cost,
         pct:   (p.count / total) * 100,
+        outlier: isOutlier(p.price as number),
       })),
       computed_at,
     })

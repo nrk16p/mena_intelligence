@@ -32,12 +32,13 @@ export async function GET(req: Request) {
     const benchMatch: Record<string, unknown> = { snapshot_month: month }
     if (group) benchMatch["กลุ่มสินค้า"] = { $regex: escapeRegex(group), $options: "i" }
     const benchRows = await db.collection(SNAPSHOT_COLLECTION)
-      .find(benchMatch, { projection: { _id: 0, รหัสสินค้า: 1, ซัพพลายเออร์: 1, benchmark_price: 1, benchmark_count: 1, total_records: 1 } })
+      .find(benchMatch, { projection: { _id: 0, รหัสสินค้า: 1, ซัพพลายเออร์: 1, benchmark_price: 1, benchmark_count: 1, total_records: 1, iqr_upper: 1 } })
       .toArray()
-    const bench = new Map<string, { price: number; count: number; records: number }>()
+    const bench = new Map<string, { price: number; count: number; records: number; iqr_upper: number | null }>()
     for (const b of benchRows) {
       bench.set(`${b.รหัสสินค้า}||${b.ซัพพลายเออร์}`, {
         price: b.benchmark_price, count: b.benchmark_count, records: b.total_records,
+        iqr_upper: b.iqr_upper ?? null,
       })
     }
 
@@ -79,6 +80,7 @@ export async function GET(req: Request) {
     const flaggedProducts = new Set<string>()
     const flaggedSuppliers = new Set<string>()
     let excessSum = 0
+    let criticalCount = 0
 
     for (const r of receipts) {
       const price = r.ราคาทุน
@@ -89,7 +91,11 @@ export async function GET(req: Request) {
       if (price > b.price) {
         const qty = Number.isFinite(r.รับ) ? r.รับ : 0
         const excess = (price - b.price) * qty
+        // Above the Tukey upper fence (Q3 + 1.5×IQR) → far outside the normal
+        // price band, not just above the benchmark
+        const critical = b.iqr_upper !== null && price > b.iqr_upper
         excessSum += excess
+        if (critical) criticalCount++
         flaggedProducts.add(r.รหัสสินค้า)
         flaggedSuppliers.add(r.ซัพพลายเออร์)
         flagged.push({
@@ -97,6 +103,8 @@ export async function GET(req: Request) {
           benchmark_price: b.price,
           benchmark_count: b.count,
           benchmark_records: b.records,
+          iqr_upper: b.iqr_upper,
+          severity: critical ? "critical" : "warning",
           diff: price - b.price,
           diff_pct: b.price > 0 ? ((price - b.price) / b.price) * 100 : null,
           excess_total: excess,
@@ -115,6 +123,7 @@ export async function GET(req: Request) {
         flagged_products: flaggedProducts.size,
         flagged_suppliers: flaggedSuppliers.size,
         excess_total: excessSum,
+        critical_count: criticalCount,
         no_benchmark_count: noBenchmark,
       },
       truncated: flagged.length > MAX_ROWS,
