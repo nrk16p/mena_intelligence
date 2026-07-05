@@ -945,14 +945,17 @@ function OverpricedTab() {
             </div>
           ) : (
             <div style={{ background: PV.surface, border: `1px solid ${PV.border}`, borderRadius: 8, overflow: "hidden", boxShadow: "0 1px 2px rgba(0,0,0,0.06)" }}>
-              <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: FONT_BODY, minWidth: 1080 }}>
+              {/* Scrolls both axes so the sticky header stays pinned while browsing 500 rows */}
+              <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "70vh" }}>
+                <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, fontFamily: FONT_BODY, minWidth: 1080 }}>
                   <thead>
-                    <tr style={{ borderBottom: `1px solid ${PV.border}`, background: PV.bg }}>
+                    <tr>
                       {["#", "วันที่", "PO", "สินค้า", "ซัพพลายเออร์", "คลัง", "ราคาซื้อ", "ราคากลาง", "ส่วนต่าง", "จำนวน", "ส่วนเกินรวม (฿)"].map((h, i) => (
                         <th key={h} style={{
                           fontFamily: FONT_BODY, fontSize: 12, fontWeight: 500, color: PV.gray, padding: "10px 12px",
                           textAlign: i >= 6 ? "right" : "left", whiteSpace: "nowrap",
+                          position: "sticky", top: 0, zIndex: 2, background: PV.bg,
+                          boxShadow: `inset 0 -1px 0 ${PV.border}`,
                         }}>
                           {h}
                         </th>
