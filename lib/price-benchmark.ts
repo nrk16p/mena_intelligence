@@ -33,6 +33,24 @@ export type BenchmarkDoc = {
 }
 
 export const SNAPSHOT_COLLECTION = "price_benchmark"
+export const STATS_COLLECTION    = "price_benchmark_stats"
+
+export type MonthStats = {
+  month: string
+  summary: {
+    receipts_checked: number
+    flagged_count: number
+    flagged_products: number
+    flagged_suppliers: number
+    excess_total: number
+    no_benchmark_count: number
+  }
+  top_products:  { code: string; name: string; group: string; excess: number; count: number }[]
+  top_suppliers: { supplier: string; excess: number; count: number }[]
+  by_group:      { group: string; excess: number; count: number }[]
+  snapshot_pairs: number
+  computed_at: Date
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -180,6 +198,151 @@ export async function generateSnapshot(month: string): Promise<{ row_count: numb
   }
 
   return { row_count: docs.length, ms: Date.now() - t0 }
+}
+
+/**
+ * Compute dashboard stats for a month: join the month's receipts against the
+ * month's benchmark snapshot inside MongoDB ($lookup on the unique index) and
+ * aggregate flags, excess value, and top-N breakdowns.
+ */
+async function computeMonthStats(month: string): Promise<MonthStats> {
+  const client = await clientPromise
+  const db = client.db("atms")
+
+  const supplierNorm = {
+    $cond: {
+      if:   { $or: [{ $eq: ["$ซัพพลายเออร์", null] }, { $eq: ["$ซัพพลายเออร์", ""] }] },
+      then: "ไม่ระบุ",
+      else: "$ซัพพลายเออร์",
+    },
+  }
+
+  const [res] = await db.collection("stockmovement_v5").aggregate([
+    { $match: receiptMatch({ year_month: month, ราคาทุน: { $ne: null } }) },
+    { $addFields: { sup: supplierNorm } },
+    {
+      $lookup: {
+        from: SNAPSHOT_COLLECTION,
+        let: { p: "$รหัสสินค้า", s: "$sup" },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ["$snapshot_month", month] },
+                  { $eq: ["$รหัสสินค้า", "$$p"] },
+                  { $eq: ["$ซัพพลายเออร์", "$$s"] },
+                ],
+              },
+            },
+          },
+          { $project: { _id: 0, benchmark_price: 1 } },
+        ],
+        as: "bench",
+      },
+    },
+    { $addFields: { bench: { $first: "$bench.benchmark_price" } } },
+    {
+      $addFields: {
+        is_flagged: { $and: [{ $ne: ["$bench", null] }, { $gt: ["$ราคาทุน", "$bench"] }] },
+        excess: {
+          $cond: [
+            { $and: [{ $ne: ["$bench", null] }, { $gt: ["$ราคาทุน", "$bench"] }] },
+            { $multiply: [{ $subtract: ["$ราคาทุน", "$bench"] }, { $ifNull: ["$รับ", 0] }] },
+            0,
+          ],
+        },
+      },
+    },
+    {
+      $facet: {
+        summary: [
+          {
+            $group: {
+              _id: null,
+              receipts_checked: { $sum: 1 },
+              flagged_count:    { $sum: { $cond: ["$is_flagged", 1, 0] } },
+              excess_total:     { $sum: "$excess" },
+              no_benchmark_count: { $sum: { $cond: [{ $eq: ["$bench", null] }, 1, 0] } },
+            },
+          },
+        ],
+        flagged_products:  [{ $match: { is_flagged: true } }, { $group: { _id: "$รหัสสินค้า" } }, { $count: "n" }],
+        flagged_suppliers: [{ $match: { is_flagged: true } }, { $group: { _id: "$sup" } }, { $count: "n" }],
+        top_products: [
+          { $match: { is_flagged: true } },
+          {
+            $group: {
+              _id: "$รหัสสินค้า",
+              name:  { $last: "$ชื่อสินค้า" },
+              group: { $last: "$กลุ่มสินค้า" },
+              excess: { $sum: "$excess" },
+              count:  { $sum: 1 },
+            },
+          },
+          { $sort: { excess: -1 } },
+          { $limit: 10 },
+          { $project: { _id: 0, code: "$_id", name: 1, group: 1, excess: 1, count: 1 } },
+        ],
+        top_suppliers: [
+          { $match: { is_flagged: true } },
+          { $group: { _id: "$sup", excess: { $sum: "$excess" }, count: { $sum: 1 } } },
+          { $sort: { excess: -1 } },
+          { $limit: 10 },
+          { $project: { _id: 0, supplier: "$_id", excess: 1, count: 1 } },
+        ],
+        by_group: [
+          { $match: { is_flagged: true } },
+          { $group: { _id: { $ifNull: ["$กลุ่มสินค้า", "ไม่ระบุ"] }, excess: { $sum: "$excess" }, count: { $sum: 1 } } },
+          { $sort: { excess: -1 } },
+          { $limit: 12 },
+          { $project: { _id: 0, group: "$_id", excess: 1, count: 1 } },
+        ],
+      },
+    },
+  ], { allowDiskUse: true }).toArray()
+
+  const snapshot_pairs = await db.collection(SNAPSHOT_COLLECTION).countDocuments({ snapshot_month: month })
+  const s = res.summary[0] ?? { receipts_checked: 0, flagged_count: 0, excess_total: 0, no_benchmark_count: 0 }
+
+  return {
+    month,
+    summary: {
+      receipts_checked: s.receipts_checked,
+      flagged_count:    s.flagged_count,
+      flagged_products:  res.flagged_products[0]?.n ?? 0,
+      flagged_suppliers: res.flagged_suppliers[0]?.n ?? 0,
+      excess_total:     s.excess_total,
+      no_benchmark_count: s.no_benchmark_count,
+    },
+    top_products:  res.top_products,
+    top_suppliers: res.top_suppliers,
+    by_group:      res.by_group,
+    snapshot_pairs,
+    computed_at: new Date(),
+  }
+}
+
+/** Cached month stats (collection `price_benchmark_stats`); recompute on force. */
+export async function getMonthStats(month: string, force = false): Promise<MonthStats> {
+  const client = await clientPromise
+  const col = client.db("atms").collection(STATS_COLLECTION)
+
+  if (!force) {
+    const cached = await col.findOne({ month }, { projection: { _id: 0 } })
+    if (cached) return cached as unknown as MonthStats
+  }
+
+  await ensureSnapshot(month)
+  const stats = await computeMonthStats(month)
+  await col.updateOne({ month }, { $set: stats }, { upsert: true })
+  return stats
+}
+
+/** Drop cached stats for a month (called after a snapshot force-regenerate). */
+export async function invalidateMonthStats(month: string) {
+  const client = await clientPromise
+  await client.db("atms").collection(STATS_COLLECTION).deleteOne({ month })
 }
 
 /** Generate the snapshot for a month if it does not exist yet (lazy init). */

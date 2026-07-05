@@ -1,6 +1,9 @@
 "use client"
 
-import React, { useState } from "react"
+import React, { useCallback, useEffect, useRef, useState } from "react"
+import {
+  ResponsiveContainer, ComposedChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip,
+} from "recharts"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ระบบราคากลาง (Price Benchmark) — PropertyVue design system
@@ -71,6 +74,30 @@ type OverpricedRow = {
   diff: number
   diff_pct: number | null
   excess_total: number
+}
+
+type MonthStats = {
+  month: string
+  summary: {
+    receipts_checked: number
+    flagged_count: number
+    flagged_products: number
+    flagged_suppliers: number
+    excess_total: number
+    no_benchmark_count: number
+  }
+  top_products:  { code: string; name: string; group: string; excess: number; count: number }[]
+  top_suppliers: { supplier: string; excess: number; count: number }[]
+  by_group:      { group: string; excess: number; count: number }[]
+  snapshot_pairs: number
+  computed_at: string
+}
+
+type TrendPoint = {
+  month: string
+  excess_total: number
+  flagged_count: number
+  receipts_checked: number
 }
 
 type OverpricedSummary = {
@@ -457,7 +484,7 @@ function ProductCard({ code, rows, selectedSupplier }: {
 
 // ── Tab 1: lookup ─────────────────────────────────────────────────────────────
 
-function LookupTab() {
+function LookupTab({ prefill }: { prefill?: { product?: string; supplier?: string; seq: number } }) {
   const [month, setMonth]       = useState(nowYM())
   const [product, setProduct]   = useState("")
   const [supplier, setSupplier] = useState("")
@@ -472,16 +499,18 @@ function LookupTab() {
   const [totalProducts, setTotalProducts] = useState(0)
   const [selectedSupplier, setSelectedSupplier] = useState<string | null>(null)
 
-  async function search() {
-    if (!product.trim() && !supplier.trim() && !group.trim()) {
+  const search = useCallback(async (overrides?: { product?: string; supplier?: string }) => {
+    const p = overrides?.product  ?? product
+    const s = overrides?.supplier ?? supplier
+    if (!p.trim() && !s.trim() && !group.trim()) {
       setError("ระบุอย่างน้อย 1 เงื่อนไข: รหัสสินค้า ซัพพลายเออร์ หรือกลุ่มสินค้า")
       return
     }
     setLoading(true); setError(""); setSearched(true); setSelectedSupplier(null)
     const params = new URLSearchParams({ month })
-    if (product.trim())  params.set("product_code", product.trim())
-    if (supplier.trim()) params.set("supplier", supplier.trim())
-    if (group.trim())    params.set("group", group.trim())
+    if (p.trim())     params.set("product_code", p.trim())
+    if (s.trim())     params.set("supplier", s.trim())
+    if (group.trim()) params.set("group", group.trim())
     try {
       const res  = await fetch(`/api/price-benchmark/lookup?${params}`, { cache: "no-store" })
       const json = await res.json()
@@ -495,7 +524,18 @@ function LookupTab() {
     } finally {
       setLoading(false)
     }
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [month, product, supplier, group])
+
+  // Drill-down from the overview tab: prefill fields and search immediately
+  useEffect(() => {
+    if (prefill && (prefill.product !== undefined || prefill.supplier !== undefined)) {
+      setProduct(prefill.product ?? "")
+      setSupplier(prefill.supplier ?? "")
+      search({ product: prefill.product ?? "", supplier: prefill.supplier ?? "" })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefill?.seq])
 
   async function regenerate() {
     setRefreshing(true); setError("")
@@ -824,15 +864,265 @@ function OverpricedTab() {
   )
 }
 
+// ── Tab 0: overview dashboard ─────────────────────────────────────────────────
+
+function fmtCompact(v: number) {
+  if (Math.abs(v) >= 1_000_000) return `${(v / 1_000_000).toLocaleString("th-TH", { maximumFractionDigits: 2 })}M`
+  if (Math.abs(v) >= 1_000)     return `${(v / 1_000).toLocaleString("th-TH", { maximumFractionDigits: 0 })}k`
+  return fmt0(v)
+}
+
+function TrendTooltip({ active, payload }: { active?: boolean; payload?: { payload: TrendPoint }[] }) {
+  if (!active || !payload?.length) return null
+  const p = payload[0].payload
+  return (
+    <div style={{
+      background: PV.ink, color: "#fff", borderRadius: 8, padding: "6px 12px",
+      fontFamily: FONT_BODY, fontSize: 12, maxWidth: 220,
+      boxShadow: "0 10px 20px rgba(0,0,0,0.10), 0 20px 48px rgba(0,0,0,0.12)",
+    }}>
+      <div style={{ fontWeight: 700 }}>{fmtYM(p.month)}</div>
+      <div>ส่วนเกิน ฿{fmt0(p.excess_total)}</div>
+      <div style={{ opacity: 0.8 }}>{p.flagged_count.toLocaleString()} / {p.receipts_checked.toLocaleString()} รายการแพงกว่าราคากลาง</div>
+    </div>
+  )
+}
+
+function RankList({ title, items, onClick }: {
+  title: string
+  items: { key: string; label: string; sub?: string; excess: number; count: number }[]
+  onClick?: (key: string) => void
+}) {
+  const max = Math.max(...items.map(i => i.excess), 1)
+  return (
+    <div style={{ background: PV.surface, border: `1px solid ${PV.border}`, borderRadius: 8, boxShadow: "0 1px 2px rgba(0,0,0,0.06)", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+      <div style={{ padding: "12px 16px", borderBottom: `1px solid ${PV.border}`, fontFamily: FONT_HEAD, fontSize: 16, fontWeight: 600, color: PV.ink }}>
+        {title}
+      </div>
+      {items.length === 0 ? (
+        <div style={{ padding: 24, fontFamily: FONT_BODY, fontSize: 13, color: PV.gray, textAlign: "center" }}>ไม่มีรายการ</div>
+      ) : (
+        <div>
+          {items.map((it, i) => (
+            <button
+              key={it.key}
+              type="button"
+              onClick={() => onClick?.(it.key)}
+              title={`${it.label} — ส่วนเกิน ฿${fmt0(it.excess)} จาก ${it.count.toLocaleString()} รายการ`}
+              style={{
+                all: "unset", boxSizing: "border-box", display: "flex", alignItems: "center", gap: 12,
+                width: "100%", padding: "8px 16px", cursor: onClick ? "pointer" : "default",
+                borderBottom: i < items.length - 1 ? "1px solid #F3F4F6" : "none",
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = PV.bg }}
+              onMouseLeave={e => { e.currentTarget.style.background = "transparent" }}
+            >
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: "block", fontFamily: FONT_BODY, fontSize: 13, fontWeight: 500, color: PV.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {it.label}
+                </span>
+                {it.sub && (
+                  <span style={{ display: "block", fontFamily: FONT_MONO, fontSize: 11, color: PV.gray, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {it.sub}
+                  </span>
+                )}
+                <span style={{ display: "block", height: 4, background: "#F3F4F6", borderRadius: 9999, marginTop: 4, overflow: "hidden" }}>
+                  <span style={{ display: "block", width: `${(it.excess / max) * 100}%`, height: "100%", background: PV.blue, borderRadius: 9999 }} />
+                </span>
+              </span>
+              <span style={{ fontFamily: FONT_MONO, fontSize: 13, fontWeight: 600, color: PV.ink, flexShrink: 0 }}>
+                ฿{fmtCompact(it.excess)}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function OverviewTab({ onDrillProduct, onDrillSupplier }: {
+  onDrillProduct:  (code: string) => void
+  onDrillSupplier: (name: string) => void
+}) {
+  const [month, setMonth]     = useState(nowYM())
+  const [stats, setStats]     = useState<MonthStats | null>(null)
+  const [trend, setTrend]     = useState<TrendPoint[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError]     = useState("")
+  const [slow, setSlow]       = useState(false)
+  const loadedMonth = useRef<string | null>(null)
+
+  const load = useCallback(async (force = false) => {
+    setLoading(true); setError(""); setSlow(false)
+    const slowTimer = setTimeout(() => setSlow(true), 4000)
+    try {
+      if (force) {
+        const res = await fetch("/api/price-benchmark/snapshot", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ month, force: true }),
+        })
+        const j = await res.json()
+        if (!j.success) throw new Error(j.error || "API error")
+      }
+      const res  = await fetch(`/api/price-benchmark/dashboard?month=${month}${force ? "&force=1" : ""}`, { cache: "no-store" })
+      const json = await res.json()
+      if (!json.success) throw new Error(json.error || "API error")
+      setStats(json.current)
+      setTrend(json.trend)
+      loadedMonth.current = month
+    } catch (e: any) {
+      setError(e.message || "โหลดข้อมูลไม่สำเร็จ")
+    } finally {
+      clearTimeout(slowTimer)
+      setLoading(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [month])
+
+  useEffect(() => {
+    if (loadedMonth.current !== month) load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [month])
+
+  const s = stats?.summary
+  const flaggedPct = s && s.receipts_checked > 0 ? (s.flagged_count / s.receipts_checked) * 100 : 0
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+      {/* Controls */}
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 16, flexWrap: "wrap" }}>
+        <div>
+          <Label>เดือน</Label>
+          <input type="month" value={month} onChange={e => setMonth(e.target.value)} style={{ ...inputStyle, width: 180 }} />
+        </div>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
+          {stats && (
+            <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: PV.gray }}>
+              ราคากลาง {stats.snapshot_pairs.toLocaleString()} คู่สินค้า×ซัพพลายเออร์ · คำนวณล่าสุด {fmtDate(stats.computed_at)}
+            </span>
+          )}
+          <SecondaryButton onClick={() => load(true)} disabled={loading}>
+            {loading ? "กำลังคำนวณ..." : "คำนวณราคากลางใหม่"}
+          </SecondaryButton>
+        </div>
+      </div>
+
+      {error && (
+        <div style={{ fontFamily: FONT_BODY, fontSize: 14, color: PV.error, background: `${PV.error}10`, border: `1px solid ${PV.error}40`, borderRadius: 8, padding: 16 }}>
+          {error}
+        </div>
+      )}
+
+      {loading && (
+        <>
+          {slow && (
+            <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: PV.warn, background: `${PV.warn}10`, border: `1px solid ${PV.warn}40`, borderRadius: 8, padding: "10px 16px" }}>
+              กำลังสร้างราคากลางย้อนหลังครั้งแรก อาจใช้เวลาประมาณ 1 นาที — ครั้งถัดไปจะเร็วขึ้น
+            </div>
+          )}
+          <div className="grid grid-cols-2 lg:grid-cols-4" style={{ gap: 16 }}>
+            <Skeleton h={84} /><Skeleton h={84} /><Skeleton h={84} /><Skeleton h={84} />
+          </div>
+          <Skeleton h={260} />
+          <div className="grid grid-cols-1 lg:grid-cols-2" style={{ gap: 16 }}>
+            <Skeleton h={420} /><Skeleton h={420} />
+          </div>
+        </>
+      )}
+
+      {stats && s && !loading && (
+        <>
+          {/* KPI tiles */}
+          <div className="grid grid-cols-2 lg:grid-cols-4" style={{ gap: 16 }}>
+            <StatTile label="รายการแพงกว่าราคากลาง" value={`${s.flagged_count.toLocaleString()} / ${s.receipts_checked.toLocaleString()}`} tone="error" />
+            <StatTile label="มูลค่าส่วนเกินรวม (฿)" value={fmt0(s.excess_total)} tone="error" />
+            <StatTile label="% รายการที่ flag" value={`${flaggedPct.toFixed(1)}%`} />
+            <StatTile label="สินค้า / ซัพพลายเออร์ที่เกี่ยวข้อง" value={`${s.flagged_products.toLocaleString()} / ${s.flagged_suppliers.toLocaleString()}`} />
+          </div>
+
+          {/* 6-month trend */}
+          <div style={{ background: PV.surface, border: `1px solid ${PV.border}`, borderRadius: 8, boxShadow: "0 1px 2px rgba(0,0,0,0.06)", padding: "16px 16px 8px" }}>
+            <div style={{ fontFamily: FONT_HEAD, fontSize: 16, fontWeight: 600, color: PV.ink, marginBottom: 8 }}>
+              มูลค่าส่วนเกินจากราคากลาง 6 เดือนล่าสุด
+            </div>
+            <ResponsiveContainer width="100%" height={220}>
+              <ComposedChart data={trend} margin={{ top: 8, right: 8, bottom: 0, left: 8 }} barCategoryGap="28%">
+                <CartesianGrid vertical={false} stroke="#F3F4F6" />
+                <XAxis
+                  dataKey="month"
+                  tickFormatter={fmtYM}
+                  tick={{ fontFamily: FONT_BODY, fontSize: 12, fill: PV.gray }}
+                  axisLine={{ stroke: PV.border }} tickLine={false}
+                />
+                <YAxis
+                  tickFormatter={fmtCompact}
+                  tick={{ fontFamily: FONT_MONO, fontSize: 11, fill: PV.gray }}
+                  axisLine={false} tickLine={false} width={52}
+                />
+                <Tooltip content={<TrendTooltip />} cursor={{ fill: `${PV.blue}08` }} />
+                <Bar dataKey="excess_total" radius={[4, 4, 0, 0]} maxBarSize={56}>
+                  {trend.map(t => (
+                    <Cell key={t.month} fill={t.month === month ? PV.blue : `${PV.blue}59`} />
+                  ))}
+                </Bar>
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Top-10 drill-down lists */}
+          <div className="grid grid-cols-1 lg:grid-cols-2" style={{ gap: 16 }}>
+            <RankList
+              title="Top 10 สินค้า — ส่วนเกินสูงสุด"
+              items={stats.top_products.map(p => ({ key: p.code, label: p.name || p.code, sub: `${p.code} · ${p.group || "—"}`, excess: p.excess, count: p.count }))}
+              onClick={onDrillProduct}
+            />
+            <RankList
+              title="Top 10 ซัพพลายเออร์ — ส่วนเกินสูงสุด"
+              items={stats.top_suppliers.map(sp => ({ key: sp.supplier, label: sp.supplier, excess: sp.excess, count: sp.count }))}
+              onClick={onDrillSupplier}
+            />
+          </div>
+
+          {/* Group breakdown */}
+          {stats.by_group.length > 0 && (
+            <RankList
+              title="ส่วนเกินแยกตามกลุ่มสินค้า"
+              items={stats.by_group.map(g => ({ key: g.group, label: g.group, excess: g.excess, count: g.count }))}
+            />
+          )}
+
+          <p style={{ fontFamily: FONT_BODY, fontSize: 12, color: PV.gray, textAlign: "center" }}>
+            คลิกสินค้า/ซัพพลายเออร์เพื่อดูราคากลางและ ranking ราคาแบบละเอียด · ดูรายการ transaction ทั้งหมดได้ที่แท็บ "รายการซื้อแพงกว่าราคากลาง"
+          </p>
+        </>
+      )}
+    </div>
+  )
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function PriceBenchmarkPage() {
-  const [tab, setTab] = useState<"lookup" | "overpriced">("lookup")
+  const [tab, setTab] = useState<"overview" | "lookup" | "overpriced">("overview")
+  const [prefill, setPrefill] = useState<{ product?: string; supplier?: string; seq: number } | undefined>()
 
   const tabs = [
+    { id: "overview" as const,   label: "ภาพรวม" },
     { id: "lookup" as const,     label: "ค้นหาราคากลาง" },
     { id: "overpriced" as const, label: "รายการซื้อแพงกว่าราคากลาง" },
   ]
+
+  function drillProduct(code: string) {
+    setPrefill(prev => ({ product: code, seq: (prev?.seq ?? 0) + 1 }))
+    setTab("lookup")
+  }
+
+  function drillSupplier(name: string) {
+    setPrefill(prev => ({ supplier: name, seq: (prev?.seq ?? 0) + 1 }))
+    setTab("lookup")
+  }
 
   return (
     <div style={{ fontFamily: FONT_BODY, display: "flex", flexDirection: "column", gap: 24 }}>
@@ -867,7 +1157,15 @@ export default function PriceBenchmarkPage() {
         ))}
       </div>
 
-      {tab === "lookup" ? <LookupTab /> : <OverpricedTab />}
+      <div style={{ display: tab === "overview" ? "block" : "none" }}>
+        <OverviewTab onDrillProduct={drillProduct} onDrillSupplier={drillSupplier} />
+      </div>
+      <div style={{ display: tab === "lookup" ? "block" : "none" }}>
+        <LookupTab prefill={prefill} />
+      </div>
+      <div style={{ display: tab === "overpriced" ? "block" : "none" }}>
+        <OverpricedTab />
+      </div>
     </div>
   )
 }

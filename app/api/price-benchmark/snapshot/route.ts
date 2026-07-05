@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
-import { generateSnapshot, ensureSnapshot, isValidMonth, SNAPSHOT_COLLECTION } from "@/lib/price-benchmark"
+import { generateSnapshot, ensureSnapshot, invalidateMonthStats, isValidMonth, SNAPSHOT_COLLECTION } from "@/lib/price-benchmark"
 
 export const maxDuration = 60
 
@@ -16,6 +16,7 @@ export async function POST(req: Request) {
     }
 
     const result = force ? { generated: true, ...(await generateSnapshot(month!)) } : await ensureSnapshot(month!)
+    if (force) await invalidateMonthStats(month!)
     return NextResponse.json({ success: true, month, ...result })
   } catch (error: any) {
     console.error("price-benchmark/snapshot API error:", error)
