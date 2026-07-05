@@ -1,4 +1,5 @@
 import pool from "@/lib/mysql";
+import { platesForFlags } from "@/lib/plate-partner";
 import { NextResponse } from "next/server";
 
 // Same dummy-plate exclusions as /api/truck-utilize/breakdown
@@ -32,6 +33,20 @@ export async function GET(req: Request) {
       return NextResponse.json({ success: false, error: "year must be 2 digits (e.g. 26)" }, { status: 400 });
     }
 
+    // optional partner_flag filter (comma-separated dw_stockmovement values);
+    // plates with no flag in the datawarehouse drop out while filtering
+    const partnerFlag = searchParams.get("partner_flag");
+    let platesFilter: string[] | null = null;
+    if (partnerFlag) {
+      platesFilter = await platesForFlags(partnerFlag);
+      if (platesFilter && platesFilter.length === 0) {
+        return NextResponse.json({ success: true, data: [] });
+      }
+    }
+    const plateClause = platesFilter
+      ? ` AND REPLACE(license_plate, ' ', '') IN (${platesFilter.map(() => "?").join(",")})`
+      : "";
+
     const placeholders = EXCLUDED_PLATES.map(() => "?").join(",");
     const [rows] = await pool.query<any[]>(
       `SELECT
@@ -50,11 +65,11 @@ export async function GET(req: Request) {
        FROM performance_vehicle_daily
        WHERE license_plate NOT LIKE '%(%'
          AND license_plate NOT IN (${placeholders})
-         AND month_year LIKE ?
+         AND month_year LIKE ?${plateClause}
        GROUP BY code, month_year
        HAVING code IS NOT NULL
        ORDER BY code, month_year`,
-      [...EXCLUDED_PLATES, `%-${year}`]
+      [...EXCLUDED_PLATES, `%-${year}`, ...(platesFilter ?? [])]
     );
 
     return NextResponse.json({ success: true, data: rows });

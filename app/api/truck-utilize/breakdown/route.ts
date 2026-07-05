@@ -1,30 +1,6 @@
 import pool from "@/lib/mysql";
-import clientPromise from "@/lib/mongo";
+import { platesForFlags } from "@/lib/plate-partner";
 import { NextResponse } from "next/server";
-
-// plate → latest partner_flag from dw_stockmovement, cached for 10 min
-// (plates verified 2026-07: ML/MS real plates match ~100%; misses are dummies)
-let plateFlagCache: { at: number; map: Map<string, string> } | null = null;
-
-async function getPlateFlagMap(): Promise<Map<string, string>> {
-  if (plateFlagCache && Date.now() - plateFlagCache.at < 10 * 60 * 1000) {
-    return plateFlagCache.map;
-  }
-  const client = await clientPromise;
-  const rows = await client
-    .db("datawarehouse")
-    .collection("dw_stockmovement")
-    .aggregate([
-      { $match: { ทะเบียน: { $nin: [null, ""] }, partner_flag: { $nin: [null, ""] } } },
-      { $sort: { month_year: 1 } },
-      { $group: { _id: "$ทะเบียน", flag: { $last: "$partner_flag" } } },
-    ])
-    .toArray();
-  const norm = (s: string) => String(s).replace(/\s+/g, "").trim();
-  const map = new Map<string, string>(rows.map((r: any) => [norm(r._id), r.flag]));
-  plateFlagCache = { at: Date.now(), map };
-  return map;
-}
 
 const EXCLUDED_PLATES = [
   "C001-01-01","C001-01-02","C001-01-03","C001-01-04",
@@ -53,13 +29,9 @@ export async function GET(req: Request) {
     // Plates with no flag in the datawarehouse are excluded while filtering.
     let platesFilter: string[] | null = null;
     if (partnerFlag) {
-      const flags = new Set(partnerFlag.split(",").map((f) => f.trim()).filter(Boolean));
-      if (flags.size > 0) {
-        const map = await getPlateFlagMap();
-        platesFilter = [...map.entries()].filter(([, f]) => flags.has(f)).map(([p]) => p);
-        if (platesFilter.length === 0) {
-          return NextResponse.json({ success: true, data: [] });
-        }
+      platesFilter = await platesForFlags(partnerFlag);
+      if (platesFilter && platesFilter.length === 0) {
+        return NextResponse.json({ success: true, data: [] });
       }
     }
 

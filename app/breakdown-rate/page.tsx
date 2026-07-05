@@ -41,6 +41,9 @@ const MONTH_LABEL: Record<string, string> = {
 
 const daysInMonth = (year: number, mm: string) => new Date(year, Number(mm), 0).getDate()
 
+// partner_flag vocabulary (dw_stockmovement) — flags present in these 6 fleets
+const FLAG_OPTIONS = ["รถมีนา", "รถร่วมมีนา", "รถร่วมภายนอกบริษัท", "รถสำนักงาน"]
+
 type MonthCell = {
   mm: string
   pCurr: number | null
@@ -63,6 +66,7 @@ export default function BreakdownRatePage() {
   const [loading, setLoading]       = useState(true)
   const [error, setError]           = useState("")
   const [focusFleet, setFocusFleet] = useState<string | null>(null)
+  const [flagFilter, setFlagFilter] = useState<Set<string>>(new Set())
   const [savingPng, setSavingPng]   = useState(false)
   const slideRef = useRef<HTMLDivElement | null>(null)
 
@@ -84,14 +88,16 @@ export default function BreakdownRatePage() {
     ? `${MONTH_LABEL[months[0]]} – ${MONTH_LABEL[months[months.length - 1]]} ${year}`
     : String(year)
 
+  const flagParam = flagFilter.size > 0 ? `&partner_flag=${encodeURIComponent([...flagFilter].join(","))}` : ""
+
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       setLoading(true); setError("")
       try {
         const [rc, rp] = await Promise.all([
-          fetch(`/api/breakdown-rate/customers?year=${yy(year)}`,     { cache: "no-store" }),
-          fetch(`/api/breakdown-rate/customers?year=${yy(prevYear)}`, { cache: "no-store" }),
+          fetch(`/api/breakdown-rate/customers?year=${yy(year)}${flagParam}`,     { cache: "no-store" }),
+          fetch(`/api/breakdown-rate/customers?year=${yy(prevYear)}${flagParam}`, { cache: "no-store" }),
         ])
         const [jc, jp] = await Promise.all([rc.json(), rp.json()])
         if (!jc.success) throw new Error(jc.error || "API error")
@@ -104,7 +110,7 @@ export default function BreakdownRatePage() {
       }
     })()
     return () => { cancelled = true }
-  }, [year, prevYear])
+  }, [year, prevYear, flagParam])
 
   // ── Per-customer monthly stats (same math as /fleet-report + MM Report) ─────
   const fleets = useMemo(() => CUSTOMERS.map((c) => {
@@ -241,6 +247,39 @@ export default function BreakdownRatePage() {
         </div>
       </div>
 
+      {/* Partner-flag filter */}
+      <div className="flex flex-wrap items-center gap-1.5" data-no-export>
+        <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Partner Flag:</span>
+        <button
+          onClick={() => setFlagFilter(new Set())}
+          className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+            flagFilter.size === 0 ? "border-transparent bg-emerald-600 text-white" : "border-gray-200 bg-white text-gray-500 hover:border-emerald-400"
+          }`}
+        >
+          ทั้งหมด
+        </button>
+        {FLAG_OPTIONS.map((f) => (
+          <button
+            key={f}
+            onClick={() => setFlagFilter((prev) => {
+              const next = new Set(prev)
+              if (next.has(f)) next.delete(f); else next.add(f)
+              return next
+            })}
+            className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+              flagFilter.has(f) ? "border-transparent bg-emerald-600 text-white" : "border-gray-200 bg-white text-gray-500 hover:border-emerald-400"
+            }`}
+          >
+            {f}
+          </button>
+        ))}
+        {flagFilter.size > 0 && (
+          <span className="text-[10px] text-amber-600">
+            * รถที่ไม่มีข้อมูล flag ในคลังข้อมูล (TDM 17 คัน) จะถูกตัดออกเมื่อกรอง
+          </span>
+        )}
+      </div>
+
       {error && <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
 
       {loading && (
@@ -257,7 +296,7 @@ export default function BreakdownRatePage() {
       )}
 
       {!loading && hasData && (
-        <section ref={slideRef} className="rounded-2xl bg-white p-8 shadow-sm">
+        <section ref={slideRef} className="rounded-2xl bg-white p-6 shadow-sm 2xl:aspect-video">
           {/* Slide header — same anatomy as cost-report slide 2 */}
           <div className="mb-4 flex items-start justify-between border-b pb-4">
             <div>
@@ -280,6 +319,13 @@ export default function BreakdownRatePage() {
                 </button>
               </div>
               <p className="text-[10px] text-gray-300">รถลูกค้าโครงการ คลังขอนแก่น + คลังลาดกระบัง</p>
+              {flagFilter.size > 0 && (
+                <div className="flex flex-wrap justify-end gap-1">
+                  {[...flagFilter].map((f) => (
+                    <span key={f} className="rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-semibold text-emerald-700">{f}</span>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
@@ -334,63 +380,50 @@ export default function BreakdownRatePage() {
             </div>
           </div>
 
-          {/* Per-customer cards — same anatomy as ML/MS cards on the slide */}
-          <div className="grid gap-5 lg:grid-cols-2">
+          {/* Per-customer cards — 6 in one row (16:9 slide layout) */}
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
             {fleets.map((f) => (
-              <div key={f.code} className="rounded-2xl border border-gray-100 p-5" style={{ borderLeft: `4px solid ${f.color}` }}>
-                <div className="mb-3 flex items-baseline justify-between">
-                  <p className="text-sm font-bold" style={{ color: f.color }}>{f.code} · {f.name}</p>
-                  <p className="text-[10px] text-gray-400">
-                    เฉลี่ย <span className={`font-bold ${pctColor(f.avg)}`}>{f.avg !== null ? `${f.avg.toFixed(2)}%` : "—"}</span>
+              <div key={f.code} className="rounded-xl border border-gray-100 p-3" style={{ borderTop: `3px solid ${f.color}` }}>
+                <div className="flex items-baseline justify-between">
+                  <p className="text-sm font-bold" style={{ color: f.color }}>{f.code}</p>
+                  <p className="text-xs">
+                    <span className={`font-bold ${pctColor(f.avg)}`}>{f.avg !== null ? `${f.avg.toFixed(2)}%` : "—"}</span>
                     {f.avgYoy !== null && (
-                      <span className={`ml-1 font-bold ${f.avgYoy > 0 ? "text-red-500" : "text-emerald-600"}`}>
-                        {f.avgYoy > 0 ? "▲" : "▼"} {Math.abs(f.avgYoy).toFixed(0)}%
+                      <span className={`ml-1 text-[10px] font-bold ${f.avgYoy > 0 ? "text-red-500" : "text-emerald-600"}`}>
+                        {f.avgYoy > 0 ? "▲" : "▼"}{Math.abs(f.avgYoy).toFixed(0)}%
                       </span>
                     )}
                   </p>
                 </div>
+                <p className="truncate text-[9px] text-gray-400">{f.name}</p>
 
-                <div className="mb-3 grid grid-cols-3 gap-2">
-                  <div className="rounded-xl bg-gray-50 px-3 py-2">
-                    <p className="text-[10px] text-gray-400">Best</p>
-                    <p className="mt-0.5 text-sm font-bold text-emerald-700">
-                      {f.best ? `${MONTH_LABEL[f.best.mm]} — ${f.best.pCurr!.toFixed(2)}%` : "—"}
-                    </p>
-                  </div>
-                  <div className="rounded-xl bg-gray-50 px-3 py-2">
-                    <p className="text-[10px] text-gray-400">Worst</p>
-                    <p className="mt-0.5 text-sm font-bold text-red-500">
-                      {f.worst ? `${MONTH_LABEL[f.worst.mm]} — ${f.worst.pCurr!.toFixed(2)}%` : "—"}
-                    </p>
-                  </div>
-                  <div className="rounded-xl bg-gray-50 px-3 py-2">
-                    <p className="text-[10px] text-gray-400">Trucks</p>
-                    <p className="mt-0.5 text-sm font-bold text-gray-800">{f.trucks ?? "—"}</p>
-                  </div>
-                </div>
+                <p className="mt-1.5 mb-1 flex items-center justify-between rounded-lg bg-gray-50 px-2 py-1 text-[9px] leading-tight text-gray-500">
+                  <span>B <span className="font-bold text-emerald-700">{f.best ? `${MONTH_LABEL[f.best.mm]} ${f.best.pCurr!.toFixed(1)}%` : "—"}</span></span>
+                  <span>W <span className="font-bold text-red-500">{f.worst ? `${MONTH_LABEL[f.worst.mm]} ${f.worst.pCurr!.toFixed(1)}%` : "—"}</span></span>
+                  <span className="font-bold text-gray-700">{f.trucks ?? "—"} คัน</span>
+                </p>
 
-                <table className="w-full text-xs">
+                <table className="w-full text-[10px]">
                   <thead>
-                    <tr className="border-b text-left text-[10px] text-gray-400">
-                      <th className="py-1.5 pr-2 font-medium">Mo</th>
-                      <th className="py-1.5 pr-2 font-medium">{yy(year)}</th>
-                      <th className="py-1.5 pr-2 font-medium">{yy(prevYear)}</th>
-                      <th className="py-1.5 font-medium">YoY</th>
+                    <tr className="border-b text-left text-[9px] text-gray-400">
+                      <th className="py-1 pr-1 font-medium">Mo</th>
+                      <th className="py-1 pr-1 font-medium">{yy(year)}</th>
+                      <th className="py-1 pr-1 font-medium">{yy(prevYear)}</th>
+                      <th className="py-1 font-medium">YoY</th>
                     </tr>
                   </thead>
                   <tbody>
                     {f.rows.map((r) => (
                       <tr key={r.mm} className="border-b last:border-b-0">
-                        <td className="py-1.5 pr-2 text-gray-600">{MONTH_LABEL[r.mm]}</td>
-                        <td className={`py-1.5 pr-2 font-semibold tabular-nums ${pctColor(r.pCurr)}`}>
-                          {r.pCurr !== null ? `${r.pCurr.toFixed(2)}%` : "—"}
-                          {r.nCurr !== null && <div className="text-[9px] font-normal leading-tight text-gray-400">{r.nCurr.toFixed(1)}</div>}
+                        <td className="py-1 pr-1 text-gray-600">{MONTH_LABEL[r.mm]}</td>
+                        <td className={`py-1 pr-1 font-semibold tabular-nums ${pctColor(r.pCurr)}`}>
+                          {r.pCurr !== null ? `${r.pCurr.toFixed(1)}%` : "—"}
+                          {r.nCurr !== null && <span className="ml-0.5 text-[8px] font-normal text-gray-400">{r.nCurr.toFixed(1)}</span>}
                         </td>
-                        <td className="py-1.5 pr-2 tabular-nums text-gray-500">
-                          {r.pPrev !== null ? `${r.pPrev.toFixed(2)}%` : "—"}
-                          {r.nPrev !== null && <div className="text-[9px] leading-tight text-gray-300">{r.nPrev.toFixed(1)}</div>}
+                        <td className="py-1 pr-1 tabular-nums text-gray-500">
+                          {r.pPrev !== null ? `${r.pPrev.toFixed(1)}%` : "—"}
                         </td>
-                        <td className={`py-1.5 font-semibold tabular-nums ${
+                        <td className={`py-1 font-semibold tabular-nums ${
                           r.yoy === null ? "text-gray-300" : r.yoy > 0 ? "text-red-500" : "text-emerald-700"
                         }`}>
                           {r.yoy !== null ? `${r.yoy > 0 ? "+" : ""}${r.yoy.toFixed(0)}%` : "—"}
