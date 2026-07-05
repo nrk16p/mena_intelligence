@@ -612,20 +612,29 @@ export default function CostReportPage() {
     if (!el) return
     setSavingPng(key)
     try {
-      const { toPng } = await import("html-to-image")
-      const dataUrl = await toPng(el, {
+      const { toBlob } = await import("html-to-image")
+      const opts = {
         pixelRatio: 2,
         backgroundColor: "#ffffff",
         // slides use system fonts — skip web-font embedding, which throws a
         // CORS SecurityError on the Google Fonts stylesheet and slows capture
         skipFonts: true,
         // keep the PNG button itself out of the capture
-        filter: (node) => !(node instanceof HTMLElement && node.dataset.noExport !== undefined),
-      })
+        filter: (node: Node) => !(node instanceof HTMLElement && node.dataset.noExport !== undefined),
+      }
+      // WebKit/Safari: first capture can come back blank — warm up, then capture
+      await toBlob(el, opts)
+      const blob = await toBlob(el, opts)
+      if (!blob) throw new Error("capture returned empty image")
+      // blob + object URL downloads reliably across Chrome/Safari/Firefox
+      const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.download = `${name}.png`
-      a.href = dataUrl
+      a.href = url
+      document.body.appendChild(a)
       a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 10_000)
     } catch (e) {
       console.error("save png failed", e)
     } finally {

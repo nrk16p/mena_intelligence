@@ -182,24 +182,35 @@ export default function BreakdownRatePage() {
 
   const savePng = async () => {
     const el = slideRef.current
-    if (!el) return
+    if (!el || savingPng) return
     setSavingPng(true)
     try {
-      const { toPng } = await import("html-to-image")
-      const dataUrl = await toPng(el, {
+      const { toBlob } = await import("html-to-image")
+      const opts = {
         pixelRatio: 2,
         backgroundColor: "#ffffff",
         // the slide uses system fonts — skip web-font embedding, which throws
         // CORS SecurityError on the Google Fonts stylesheet and slows capture
         skipFonts: true,
-        filter: (node) => !(node instanceof HTMLElement && node.dataset.noExport !== undefined),
-      })
+        filter: (node: Node) => !(node instanceof HTMLElement && node.dataset.noExport !== undefined),
+      }
+      // WebKit/Safari: first capture can come back blank — warm up, then capture
+      await toBlob(el, opts)
+      const blob = await toBlob(el, opts)
+      if (!blob) throw new Error("capture returned empty image")
+      // blob + object URL downloads reliably across Chrome/Safari/Firefox
+      // (data: URLs on an un-attached anchor silently fail on Safari)
+      const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.download = `breakdown-rate-customers-${year}.png`
-      a.href = dataUrl
+      a.href = url
+      document.body.appendChild(a)
       a.click()
-    } catch (e) {
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 10_000)
+    } catch (e: any) {
       console.error("save png failed", e)
+      setError(`บันทึก PNG ไม่สำเร็จ: ${e?.message || e}`)
     } finally {
       setSavingPng(false)
     }
