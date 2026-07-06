@@ -2,7 +2,8 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react"
 import {
-  ResponsiveContainer, ComposedChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, ComposedChart, Area, Bar, Cell, Line, ReferenceLine, Scatter,
+  XAxis, YAxis, ZAxis, CartesianGrid, Tooltip,
 } from "recharts"
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -297,6 +298,154 @@ function SecondaryButton({ children, disabled, onClick }: { children: React.Reac
     >
       {children}
     </button>
+  )
+}
+
+// ── Price Band Timeline (min–max band + mode line + purchase dots) ────────────
+
+type TimelineMonth = {
+  month: string
+  min: number | null
+  max: number | null
+  mode: number | null
+  mode_count: number | null
+  count: number
+  points: { price: number; count: number; qty: number; outlier: boolean }[]
+}
+
+function fmtYMShort(ym: string) {
+  const [y, m] = ym.split("-")
+  return `${TH_MONTHS[Number(m)] ?? m}${String(Number(y) + 543).slice(-2)}`
+}
+
+function TimelineTooltip({ active, payload }: {
+  active?: boolean
+  payload?: { payload: Record<string, unknown>; dataKey?: unknown; name?: string }[]
+}) {
+  if (!active || !payload?.length) return null
+  const p = payload[0].payload as Partial<TimelineMonth> & { price?: number; count?: number; outlier?: boolean }
+  const box: React.CSSProperties = {
+    background: PV.ink, color: "#fff", borderRadius: 8, padding: "6px 12px",
+    fontFamily: FONT_BODY, fontSize: 12, maxWidth: 240,
+    boxShadow: "0 10px 20px rgba(0,0,0,0.10), 0 20px 48px rgba(0,0,0,0.12)",
+  }
+  // dot hover
+  if (p.price !== undefined) {
+    return (
+      <div style={box}>
+        <div style={{ fontWeight: 700 }}>{fmtYM(String(p.month))} — ฿{fmt(p.price)}</div>
+        <div style={{ opacity: 0.85 }}>{Number(p.count).toLocaleString()} ครั้ง{p.outlier ? " · outlier" : ""}</div>
+      </div>
+    )
+  }
+  // band / mode hover
+  if (p.mode === null || p.mode === undefined) return null
+  return (
+    <div style={box}>
+      <div style={{ fontWeight: 700 }}>{fmtYM(String(p.month))}</div>
+      <div>mode ฿{fmt(p.mode)} ({p.mode_count} ครั้ง)</div>
+      <div style={{ opacity: 0.85 }}>ช่วง {fmt(p.min ?? null)} – {fmt(p.max ?? null)} · รวม {p.count} ครั้ง</div>
+    </div>
+  )
+}
+
+function PriceTimelineChart({ code, month, supplier, benchmark, auto }: {
+  code: string
+  month: string
+  supplier: string | null
+  benchmark: number
+  auto: boolean
+}) {
+  const [data, setData]       = useState<TimelineMonth[] | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [wanted, setWanted]   = useState(auto)
+
+  useEffect(() => { setWanted(auto) }, [auto])
+
+  useEffect(() => {
+    if (!wanted) return
+    let cancelled = false
+    ;(async () => {
+      setLoading(true)
+      try {
+        const params = new URLSearchParams({ month, product_code: code })
+        if (supplier) params.set("supplier", supplier)
+        const res  = await fetch(`/api/price-benchmark/timeline?${params}`, { cache: "no-store" })
+        const json = await res.json()
+        if (!cancelled && json.success) setData(json.monthly)
+      } catch { /* keep silent — chart is supplementary */ }
+      finally { if (!cancelled) setLoading(false) }
+    })()
+    return () => { cancelled = true }
+  }, [wanted, code, month, supplier])
+
+  if (!wanted) {
+    return (
+      <div style={{ padding: "10px 16px", border: `1px dashed ${PV.border}`, borderRadius: 8, textAlign: "center" }}>
+        <button
+          type="button"
+          onClick={() => setWanted(true)}
+          style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 500, color: PV.blue, background: "none", border: "none", cursor: "pointer" }}
+        >
+          แสดงกราฟแนวโน้มราคา 12 เดือน
+        </button>
+      </div>
+    )
+  }
+
+  if (loading || !data) return <Skeleton h={220} />
+
+  const chartData = data.map((m) => ({ ...m, band: m.min !== null && m.max !== null ? [m.min, m.max] : null }))
+  const dots        = data.flatMap((m) => m.points.filter(p => !p.outlier).map(p => ({ month: m.month, ...p })))
+  const outlierDots = data.flatMap((m) => m.points.filter(p =>  p.outlier).map(p => ({ month: m.month, ...p })))
+
+  return (
+    <div style={{ border: `1px solid ${PV.border}`, borderRadius: 8, padding: "12px 8px 4px", background: PV.surface }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0 12px 6px", flexWrap: "wrap", gap: 8 }}>
+        <span style={{ fontFamily: FONT_HEAD, fontSize: 14, fontWeight: 600, color: PV.ink }}>
+          แนวโน้มราคา 12 เดือน{supplier ? ` — ${supplier}` : " — ทุกซัพพลายเออร์"}
+        </span>
+        <span style={{ fontFamily: FONT_BODY, fontSize: 11, color: PV.gray }}>
+          แถบเทา = ช่วง min–max · เส้นน้ำเงิน = ราคาที่พบบ่อยสุดรายเดือน · เส้นประเขียว = ราคากลาง · จุดแดง = outlier
+        </span>
+      </div>
+      <ResponsiveContainer width="100%" height={220}>
+        <ComposedChart data={chartData} margin={{ top: 8, right: 16, bottom: 0, left: 8 }}>
+          <CartesianGrid vertical={false} stroke="#F3F4F6" />
+          <XAxis
+            dataKey="month"
+            tickFormatter={fmtYMShort}
+            tick={{ fontFamily: FONT_BODY, fontSize: 11, fill: PV.gray }}
+            axisLine={{ stroke: PV.border }} tickLine={false}
+            allowDuplicatedCategory={false}
+          />
+          <YAxis
+            tickFormatter={(v: number) => v.toLocaleString("th-TH")}
+            tick={{ fontFamily: FONT_MONO, fontSize: 10, fill: PV.gray }}
+            axisLine={false} tickLine={false} width={64}
+            domain={["auto", "auto"]}
+          />
+          <ZAxis type="number" dataKey="count" range={[30, 220]} />
+          <Tooltip content={<TimelineTooltip />} />
+          <Area
+            dataKey="band" name="ช่วง min–max" type="monotone" connectNulls
+            stroke="none" fill="#9CA3AF" fillOpacity={0.18} activeDot={false}
+          />
+          <Line
+            dataKey="mode" name="ราคาที่พบบ่อยสุด" type="monotone" connectNulls
+            stroke={PV.blue} strokeWidth={2.5}
+            dot={{ r: 3, fill: PV.blue, strokeWidth: 0 }} activeDot={{ r: 5 }}
+          />
+          <Scatter data={dots} dataKey="price" name="ราคาซื้อจริง" fill={PV.gray} fillOpacity={0.55} />
+          <Scatter data={outlierDots} dataKey="price" name="outlier" fill={PV.error} fillOpacity={0.8} shape="cross" />
+          <ReferenceLine
+            y={benchmark}
+            stroke={PV.green} strokeWidth={1.5} strokeDasharray="6 4"
+            label={{ value: `ราคากลาง ${fmt(benchmark)}`, position: "insideTopRight", fill: PV.green, fontSize: 11, fontFamily: FONT_BODY }}
+          />
+        </ComposedChart>
+      </ResponsiveContainer>
+    </div>
   )
 }
 
@@ -651,10 +800,12 @@ function SupplierCompareTable({ rows, selectedSupplier, onSelectSupplier }: {
   )
 }
 
-function ProductCard({ code, rows, selectedSupplier, onSelectSupplier, onViewTransactions }: {
+function ProductCard({ code, rows, month, selectedSupplier, autoChart, onSelectSupplier, onViewTransactions }: {
   code: string
   rows: BenchmarkRow[]
+  month: string
   selectedSupplier: string | null
+  autoChart: boolean
   onSelectSupplier?: (s: string | null) => void
   onViewTransactions?: (code: string) => void
 }) {
@@ -684,6 +835,13 @@ function ProductCard({ code, rows, selectedSupplier, onSelectSupplier, onViewTra
             onSelectSupplier={onSelectSupplier}
           />
         )}
+        <PriceTimelineChart
+          code={code}
+          month={month}
+          supplier={selectedSupplier}
+          benchmark={overall.benchmark_price}
+          auto={autoChart}
+        />
         {rows.length > 1 && <SupplierSection row={overall} rank={0} isOverall dimmed={false} />}
         {ranked.map((r, i) => (
           <SupplierSection
@@ -991,7 +1149,9 @@ function LookupTab({ prefill, onViewTransactions }: {
                 key={code}
                 code={code}
                 rows={productRows}
+                month={month}
                 selectedSupplier={selectedSupplier}
+                autoChart={groups.size <= 8}
                 onSelectSupplier={setSelectedSupplier}
                 onViewTransactions={onViewTransactions}
               />
