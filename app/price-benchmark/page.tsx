@@ -1165,13 +1165,29 @@ function LookupTab({ prefill, onViewTransactions }: {
 
 // ── Tab 2: overpriced report ──────────────────────────────────────────────────
 
-function StatTile({ label, value, tone }: { label: string; value: string; tone?: "error" | "default" }) {
+function StatTile({ label, value, tone, sub, hint }: {
+  label: string
+  value: string
+  tone?: "error" | "default"
+  sub?: string
+  hint?: string
+}) {
   return (
-    <div style={{ background: PV.surface, border: `1px solid ${PV.border}`, borderRadius: 8, padding: 16, boxShadow: "0 1px 2px rgba(0,0,0,0.06)" }}>
-      <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 500, color: PV.gray }}>{label}</div>
+    <div
+      title={hint}
+      style={{ background: PV.surface, border: `1px solid ${PV.border}`, borderRadius: 8, padding: 16, boxShadow: "0 1px 2px rgba(0,0,0,0.06)" }}
+    >
+      <div style={{ fontFamily: FONT_BODY, fontSize: 12, fontWeight: 500, color: PV.gray }}>
+        {label}{hint ? <span style={{ marginLeft: 4, color: "#D1D5DB", cursor: "help" }}>ⓘ</span> : null}
+      </div>
       <div style={{ fontFamily: FONT_HEAD, fontSize: 24, fontWeight: 700, color: tone === "error" ? PV.error : PV.ink, marginTop: 4 }}>
         {value}
       </div>
+      {sub && (
+        <div style={{ fontFamily: FONT_BODY, fontSize: 11, lineHeight: 1.45, color: PV.gray, marginTop: 4 }}>
+          {sub}
+        </div>
+      )}
     </div>
   )
 }
@@ -1441,12 +1457,14 @@ function OverviewTab({ onDrillProduct, onDrillSupplier }: {
   onDrillSupplier: (name: string) => void
 }) {
   const [month, setMonth]     = useState(nowYM())
+  const [group, setGroup]     = useState("")
+  const [groupOptions, setGroupOptions] = useState<string[]>([])
   const [stats, setStats]     = useState<MonthStats | null>(null)
   const [trend, setTrend]     = useState<TrendPoint[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState("")
   const [slow, setSlow]       = useState(false)
-  const loadedMonth = useRef<string | null>(null)
+  const loadedKey = useRef<string | null>(null)
 
   const load = useCallback(async (force = false) => {
     setLoading(true); setError(""); setSlow(false)
@@ -1461,12 +1479,16 @@ function OverviewTab({ onDrillProduct, onDrillSupplier }: {
         const j = await res.json()
         if (!j.success) throw new Error(j.error || "API error")
       }
-      const res  = await fetch(`/api/price-benchmark/dashboard?month=${month}${force ? "&force=1" : ""}`, { cache: "no-store" })
+      const params = new URLSearchParams({ month })
+      if (group) params.set("group", group)
+      if (force) params.set("force", "1")
+      const res  = await fetch(`/api/price-benchmark/dashboard?${params}`, { cache: "no-store" })
       const json = await res.json()
       if (!json.success) throw new Error(json.error || "API error")
       setStats(json.current)
       setTrend(json.trend)
-      loadedMonth.current = month
+      if (Array.isArray(json.group_options)) setGroupOptions(json.group_options)
+      loadedKey.current = `${month}|${group}`
     } catch (e: any) {
       setError(e.message || "โหลดข้อมูลไม่สำเร็จ")
     } finally {
@@ -1474,12 +1496,12 @@ function OverviewTab({ onDrillProduct, onDrillSupplier }: {
       setLoading(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [month])
+  }, [month, group])
 
   useEffect(() => {
-    if (loadedMonth.current !== month) load()
+    if (loadedKey.current !== `${month}|${group}`) load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [month])
+  }, [month, group])
 
   const s = stats?.summary
   const flaggedPct = s && s.receipts_checked > 0 ? (s.flagged_count / s.receipts_checked) * 100 : 0
@@ -1491,6 +1513,19 @@ function OverviewTab({ onDrillProduct, onDrillSupplier }: {
         <div>
           <Label>เดือน</Label>
           <input type="month" value={month} onChange={e => setMonth(e.target.value)} style={{ ...inputStyle, width: 180 }} />
+        </div>
+        <div>
+          <Label>กลุ่มสินค้า</Label>
+          <select
+            value={group}
+            onChange={e => setGroup(e.target.value)}
+            style={{ ...inputStyle, width: 240 }}
+          >
+            <option value="">ทุกกลุ่มสินค้า</option>
+            {groupOptions.map(g => (
+              <option key={g} value={g}>{g}</option>
+            ))}
+          </select>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
           {stats && (
@@ -1531,11 +1566,39 @@ function OverviewTab({ onDrillProduct, onDrillSupplier }: {
         <>
           {/* KPI tiles */}
           <div className="grid grid-cols-2 lg:grid-cols-4" style={{ gap: 16 }}>
-            <StatTile label="รายการแพงกว่าราคากลาง" value={`${s.flagged_count.toLocaleString()} / ${s.receipts_checked.toLocaleString()}`} tone="error" />
-            <StatTile label="มูลค่าส่วนเกินรวม (฿)" value={fmt0(s.excess_total)} tone="error" />
-            <StatTile label="% รายการที่ flag" value={`${flaggedPct.toFixed(1)}%`} />
-            <StatTile label="สินค้า / ซัพพลายเออร์ที่เกี่ยวข้อง" value={`${s.flagged_products.toLocaleString()} / ${s.flagged_suppliers.toLocaleString()}`} />
+            <StatTile
+              label="รายการซื้อแพงกว่าราคากลาง"
+              value={`${s.flagged_count.toLocaleString()} รายการ`}
+              tone="error"
+              sub={`จากรายการรับเข้าที่ตรวจทั้งหมด ${s.receipts_checked.toLocaleString()} รายการ ในเดือน ${fmtYM(month)}${group ? ` เฉพาะกลุ่ม ${group}` : ""}`}
+              hint="รายการรับเข้า (รับ > 0) ที่ราคาต่อหน่วยสูงกว่าราคากลางของสินค้า×ซัพพลายเออร์คู่นั้น แม้แต่บาทเดียวก็นับ"
+            />
+            <StatTile
+              label="เงินที่จ่ายเกินราคากลาง"
+              value={`฿${fmt0(s.excess_total)}`}
+              tone="error"
+              sub="ถ้าทุกรายการซื้อได้ที่ราคากลาง เดือนนี้จะประหยัดได้เท่านี้"
+              hint="ตัวเลขเชิงโอกาส — บางรายการอาจมีเหตุผล เช่น ของขาด งานด่วน หรือสเปคต่างกัน คำนวณจาก (ราคาซื้อ − ราคากลาง) × จำนวนชิ้น รวมทุกรายการที่แพงกว่า"
+            />
+            <StatTile
+              label="สัดส่วนที่ซื้อแพงกว่า"
+              value={`${flaggedPct.toFixed(1)}%`}
+              sub={flaggedPct > 0
+                ? `คิดง่าย ๆ ทุก ${Math.max(2, Math.round(100 / flaggedPct))} รายการซื้อ มี 1 รายการแพงกว่าราคากลาง`
+                : "ไม่มีรายการที่แพงกว่าราคากลางเลย"}
+            />
+            <StatTile
+              label="กระจายอยู่ที่ใคร"
+              value={`${s.flagged_products.toLocaleString()} สินค้า`}
+              sub={`เกี่ยวข้องกับซัพพลายเออร์ ${s.flagged_suppliers.toLocaleString()} ราย — ดูตัวท็อปได้จากอันดับด้านล่าง`}
+            />
           </div>
+
+          {/* วิธีอ่าน */}
+          <p style={{ fontFamily: FONT_BODY, fontSize: 11, color: PV.gray, margin: "-8px 2px 0" }}>
+            วิธีอ่าน: <b>ราคากลาง</b> = ราคาที่พบบ่อยสุดใน 12 เดือนย้อนหลังของสินค้า×ซัพพลายเออร์แต่ละคู่ ·{" "}
+            <b>แพงกว่า</b> = ราคาซื้อจริงสูงกว่าราคากลาง (ไม่มีเผื่อเปอร์เซ็นต์) · ชี้ที่ ⓘ บนการ์ดเพื่อดูรายละเอียด
+          </p>
 
           {/* 6-month trend */}
           <div style={{ background: PV.surface, border: `1px solid ${PV.border}`, borderRadius: 8, boxShadow: "0 1px 2px rgba(0,0,0,0.06)", padding: "16px 16px 8px" }}>

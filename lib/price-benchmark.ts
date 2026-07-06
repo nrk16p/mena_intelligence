@@ -42,6 +42,7 @@ export const STATS_COLLECTION    = "price_benchmark_stats"
 
 export type MonthStats = {
   month: string
+  group: string | null
   summary: {
     receipts_checked: number
     flagged_count: number
@@ -246,7 +247,7 @@ export async function generateSnapshot(month: string): Promise<{ row_count: numb
  * month's benchmark snapshot inside MongoDB ($lookup on the unique index) and
  * aggregate flags, excess value, and top-N breakdowns.
  */
-async function computeMonthStats(month: string): Promise<MonthStats> {
+async function computeMonthStats(month: string, group: string | null = null): Promise<MonthStats> {
   const client = await clientPromise
   const db = client.db("atms")
 
@@ -259,7 +260,7 @@ async function computeMonthStats(month: string): Promise<MonthStats> {
   }
 
   const [res] = await db.collection("stockmovement_v5").aggregate([
-    { $match: receiptMatch({ year_month: month, ราคาทุน: { $ne: null } }) },
+    { $match: receiptMatch({ year_month: month, ราคาทุน: { $ne: null }, ...(group ? { กลุ่มสินค้า: group } : {}) }) },
     { $addFields: { sup: supplierNorm } },
     {
       $lookup: {
@@ -343,11 +344,15 @@ async function computeMonthStats(month: string): Promise<MonthStats> {
     },
   ], { allowDiskUse: true }).toArray()
 
-  const snapshot_pairs = await db.collection(SNAPSHOT_COLLECTION).countDocuments({ snapshot_month: month })
+  const snapshot_pairs = await db.collection(SNAPSHOT_COLLECTION).countDocuments({
+    snapshot_month: month,
+    ...(group ? { กลุ่มสินค้า: group } : {}),
+  })
   const s = res.summary[0] ?? { receipts_checked: 0, flagged_count: 0, excess_total: 0, no_benchmark_count: 0 }
 
   return {
     month,
+    group,
     summary: {
       receipts_checked: s.receipts_checked,
       flagged_count:    s.flagged_count,
@@ -364,26 +369,30 @@ async function computeMonthStats(month: string): Promise<MonthStats> {
   }
 }
 
-/** Cached month stats (collection `price_benchmark_stats`); recompute on force. */
-export async function getMonthStats(month: string, force = false): Promise<MonthStats> {
+/**
+ * Cached month stats (collection `price_benchmark_stats`, keyed month × group);
+ * group = null → all product groups. Recompute on force.
+ */
+export async function getMonthStats(month: string, force = false, group: string | null = null): Promise<MonthStats> {
   const client = await clientPromise
   const col = client.db("atms").collection(STATS_COLLECTION)
 
   if (!force) {
-    const cached = await col.findOne({ month }, { projection: { _id: 0 } })
-    if (cached) return cached as unknown as MonthStats
+    // { group: null } also matches legacy docs saved before the group field existed
+    const cached = await col.findOne({ month, group: group ?? null }, { projection: { _id: 0 } })
+    if (cached) return { group: null, ...cached } as unknown as MonthStats
   }
 
   await ensureSnapshot(month)
-  const stats = await computeMonthStats(month)
-  await col.updateOne({ month }, { $set: stats }, { upsert: true })
+  const stats = await computeMonthStats(month, group)
+  await col.updateOne({ month, group: group ?? null }, { $set: stats }, { upsert: true })
   return stats
 }
 
-/** Drop cached stats for a month (called after a snapshot force-regenerate). */
+/** Drop cached stats for a month — every group variant (after snapshot regen). */
 export async function invalidateMonthStats(month: string) {
   const client = await clientPromise
-  await client.db("atms").collection(STATS_COLLECTION).deleteOne({ month })
+  await client.db("atms").collection(STATS_COLLECTION).deleteMany({ month })
 }
 
 /** Generate the snapshot for a month if it does not exist yet (lazy init). */

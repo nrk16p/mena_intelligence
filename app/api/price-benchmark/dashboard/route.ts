@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
-import { getMonthStats, isValidMonth } from "@/lib/price-benchmark"
+import clientPromise from "@/lib/mongo"
+import { getMonthStats, isValidMonth, SNAPSHOT_COLLECTION } from "@/lib/price-benchmark"
 
 export const maxDuration = 300
 
@@ -25,6 +26,7 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url)
     const month = searchParams.get("month")
     const force = searchParams.get("force") === "1"
+    const group = searchParams.get("group")?.trim() || null
 
     if (!isValidMonth(month)) {
       return NextResponse.json({ success: false, error: "month must be YYYY-MM" }, { status: 400 })
@@ -35,7 +37,7 @@ export async function GET(req: Request) {
     // Sequential on purpose: each month may lazily build its snapshot (heavy)
     const trend = []
     for (const m of months) {
-      const stats = await getMonthStats(m, force && m === month)
+      const stats = await getMonthStats(m, force && m === month, group)
       trend.push({
         month: m,
         excess_total:  stats.summary.excess_total,
@@ -44,9 +46,17 @@ export async function GET(req: Request) {
       })
     }
 
-    const current = await getMonthStats(month)
+    const current = await getMonthStats(month, false, group)
 
-    return NextResponse.json({ success: true, month, current, trend })
+    // full product-group list for the filter dropdown (from the month's snapshot)
+    const client = await clientPromise
+    const groupOptions = (await client
+      .db("atms")
+      .collection(SNAPSHOT_COLLECTION)
+      .distinct("กลุ่มสินค้า", { snapshot_month: month, กลุ่มสินค้า: { $nin: [null, ""] } }))
+      .sort((a: string, b: string) => a.localeCompare(b, "th"))
+
+    return NextResponse.json({ success: true, month, group, current, trend, group_options: groupOptions })
   } catch (error: any) {
     console.error("price-benchmark/dashboard API error:", error)
     return NextResponse.json({ success: false, error: error.message || "Internal Server Error" }, { status: 500 })
