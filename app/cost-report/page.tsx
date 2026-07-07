@@ -820,7 +820,7 @@ export default function CostReportPage() {
                     {chartSeries.top.map((g, i) => {
                       const isLast = !chartSeries.restLabel && i === chartSeries.top.length - 1
                       return (
-                        <Bar key={g.group} dataKey={CHART_SHORT[g.group] ?? g.group} stackId="cg"
+                        <Bar key={g.group} dataKey={CHART_SHORT[g.group] ?? g.group} stackId="cg" isAnimationActive={false}
                           fill={GROUP_COLOR[g.group]} radius={isLast ? [4, 4, 0, 0] : 0}>
                           {isLast && (
                             <LabelList dataKey="total" position="top"
@@ -830,12 +830,12 @@ export default function CostReportPage() {
                       )
                     })}
                     {chartSeries.restLabel && (
-                      <Bar dataKey={chartSeries.restLabel} stackId="cg" fill="#cbd5e1" radius={[4, 4, 0, 0]}>
+                      <Bar dataKey={chartSeries.restLabel} stackId="cg" fill="#cbd5e1" radius={[4, 4, 0, 0]} isAnimationActive={false}>
                         <LabelList dataKey="total" position="top"
                           style={{ fontSize: 11, fill: "#111827", fontWeight: 700 }} formatter={fmtLabel} />
                       </Bar>
                     )}
-                    <Line dataKey={`รวม ${prevYear}`} type="monotone" stroke="#111827" strokeWidth={2}
+                    <Line dataKey={`รวม ${prevYear}`} type="monotone" stroke="#111827" strokeWidth={2} isAnimationActive={false}
                       strokeDasharray="4 3" dot={{ r: 3, fill: "#111827", strokeWidth: 0 }} />
                   </ComposedChart>
                 </ResponsiveContainer>
@@ -915,7 +915,7 @@ export default function CostReportPage() {
                 <div className="lg:col-span-2">
                   <p className="mb-2 text-xs font-semibold text-gray-700">Breakdown Rate รายเดือน — {year} (เส้นทึบ) vs {prevYear} (เส้นประ)</p>
                   <ResponsiveContainer width="100%" height={240}>
-                    <ComposedChart data={bdChart} margin={{ top: 12, right: 12, left: 0, bottom: 0 }}>
+                    <ComposedChart data={bdChart} margin={{ top: 20, right: 12, left: 0, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
                       <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
                       <YAxis tickFormatter={(v) => `${v}%`} tick={{ fontSize: 10, fill: "#9ca3af" }} axisLine={false} tickLine={false} width={40} />
@@ -927,10 +927,14 @@ export default function CostReportPage() {
                       <Legend formatter={(v) => <span style={{ fontSize: 10, color: "#6b7280" }}>{v}</span>} />
                       {bdFleets.map((f) => (
                         <React.Fragment key={f.key}>
-                          <Line dataKey={f.key} name={`${f.key} ${year}`} type="monotone" connectNulls
+                          <Line dataKey={f.key} name={`${f.key} ${year}`} type="monotone" connectNulls isAnimationActive={false}
                             stroke={BD_FLEET_COLOR[f.key]} strokeWidth={2.5}
-                            dot={{ r: 3.5, fill: BD_FLEET_COLOR[f.key], strokeWidth: 0 }} activeDot={{ r: 5 }} />
-                          <Line dataKey={`${f.key} ${prevYear}`} name={`${f.key} ${prevYear}`} type="monotone" connectNulls
+                            dot={{ r: 3.5, fill: BD_FLEET_COLOR[f.key], strokeWidth: 0 }} activeDot={{ r: 5 }}>
+                            <LabelList dataKey={f.key} position="top" offset={8}
+                              style={{ fontSize: 9, fill: BD_FLEET_COLOR[f.key], fontWeight: 600 }}
+                              formatter={(v: any) => (v === null || v === undefined ? "" : `${Number(v).toFixed(1)}%`)} />
+                          </Line>
+                          <Line dataKey={`${f.key} ${prevYear}`} name={`${f.key} ${prevYear}`} type="monotone" connectNulls isAnimationActive={false}
                             stroke={BD_FLEET_COLOR[f.key]} strokeWidth={1.5} strokeDasharray="5 4" strokeOpacity={0.45}
                             dot={{ r: 2, fill: BD_FLEET_COLOR[f.key], strokeWidth: 0, fillOpacity: 0.45 }} />
                         </React.Fragment>
@@ -1107,22 +1111,22 @@ export default function CostReportPage() {
                           return <span style={{ fontSize: 11, color: "#6b7280" }}>{map[v] ?? v}</span>
                         }}
                       />
-                      <Bar yAxisId="cost" dataKey="auNai" name="auNai" fill="#0ea5e9" radius={[4, 4, 0, 0]}>
+                      <Bar yAxisId="cost" dataKey="auNai" name="auNai" fill="#0ea5e9" radius={[4, 4, 0, 0]} isAnimationActive={false}>
                         <LabelList dataKey="auNai" position="top" style={{ fontSize: 9, fill: "#0284c7", fontWeight: 600 }} formatter={fmtLabel} />
                       </Bar>
-                      <Bar yAxisId="cost" dataKey="auNok" name="auNok" fill="#f97316" radius={[4, 4, 0, 0]}>
+                      <Bar yAxisId="cost" dataKey="auNok" name="auNok" fill="#f97316" radius={[4, 4, 0, 0]} isAnimationActive={false}>
                         <LabelList dataKey="auNok" position="top" style={{ fontSize: 9, fill: "#ea580c", fontWeight: 600 }} formatter={fmtLabel} />
                       </Bar>
-                      <Line yAxisId="cost" dataKey="prevNai" name="prevNai" type="monotone" stroke="#0ea5e9" strokeWidth={1.5}
+                      <Line yAxisId="cost" dataKey="prevNai" name="prevNai" type="monotone" stroke="#0ea5e9" strokeWidth={1.5} isAnimationActive={false}
                         strokeDasharray="5 4" strokeOpacity={0.45} dot={{ r: 2, fill: "#0ea5e9", strokeWidth: 0, fillOpacity: 0.45 }} />
-                      <Line yAxisId="cost" dataKey="prevNok" name="prevNok" type="monotone" stroke="#f97316" strokeWidth={1.5}
+                      <Line yAxisId="cost" dataKey="prevNok" name="prevNok" type="monotone" stroke="#f97316" strokeWidth={1.5} isAnimationActive={false}
                         strokeDasharray="5 4" strokeOpacity={0.45} dot={{ r: 2, fill: "#f97316", strokeWidth: 0, fillOpacity: 0.45 }} />
-                      <Line yAxisId="plates" dataKey="naiPlates" name="naiPlates" type="monotone" stroke="#0369a1"
+                      <Line yAxisId="plates" dataKey="naiPlates" name="naiPlates" type="monotone" stroke="#0369a1" isAnimationActive={false}
                         strokeWidth={2} dot={{ r: 3, fill: "#0369a1", strokeWidth: 0 }} activeDot={{ r: 5 }}>
                         <LabelList dataKey="naiPlates" position="top" offset={8}
                           style={{ fontSize: 9, fill: "#0369a1", fontWeight: 700 }} formatter={(v: any) => (Number(v) > 0 ? v : "")} />
                       </Line>
-                      <Line yAxisId="plates" dataKey="nokPlates" name="nokPlates" type="monotone" stroke="#9a3412"
+                      <Line yAxisId="plates" dataKey="nokPlates" name="nokPlates" type="monotone" stroke="#9a3412" isAnimationActive={false}
                         strokeWidth={2} dot={{ r: 3, fill: "#9a3412", strokeWidth: 0 }} activeDot={{ r: 5 }}>
                         <LabelList dataKey="nokPlates" position="bottom" offset={8}
                           style={{ fontSize: 9, fill: "#9a3412", fontWeight: 700 }} formatter={(v: any) => (Number(v) > 0 ? v : "")} />
@@ -1258,10 +1262,10 @@ export default function CostReportPage() {
                         <YAxis tickFormatter={fmtLabel} tick={{ fontSize: 10, fill: "#9ca3af" }} axisLine={false} tickLine={false} width={44} />
                         <Tooltip formatter={(v: any, n: any) => [`฿${fmtNum(Number(v))}`, n === "curr" ? `${year}` : `${prevYear}`]}
                           contentStyle={{ borderRadius: 12, fontSize: 11, border: "1px solid #e5e7eb" }} />
-                        <Bar dataKey="curr" fill={GROUP_COLOR[g.group]} radius={[4, 4, 0, 0]}>
+                        <Bar dataKey="curr" fill={GROUP_COLOR[g.group]} radius={[4, 4, 0, 0]} isAnimationActive={false}>
                           <LabelList dataKey="curr" position="top" style={{ fontSize: 9, fill: "#6b7280", fontWeight: 600 }} formatter={fmtLabel} />
                         </Bar>
-                        <Line dataKey="prev" type="monotone" stroke="#111827" strokeWidth={2}
+                        <Line dataKey="prev" type="monotone" stroke="#111827" strokeWidth={2} isAnimationActive={false}
                           strokeDasharray="4 3" dot={{ r: 2.5, fill: "#111827", strokeWidth: 0 }} />
                       </ComposedChart>
                     </ResponsiveContainer>
