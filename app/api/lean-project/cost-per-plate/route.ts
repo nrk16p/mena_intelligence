@@ -2,12 +2,22 @@ import clientPromise from "@/lib/mongo";
 import { getCostGroup } from "@/lib/cost-groups";
 import { NextResponse } from "next/server";
 
+// Source: atms.stockmovement_v5 (raw, 2023-01+) — NOT datawarehouse.dw_stockmovement,
+// which starts 2025-01 and drops ~9% of rows via ETL rules. Totals here therefore
+// run slightly higher than /cost for overlapping months.
+
 // คลังสินค้า → warehouse bucket (unexpected values fall into อื่น ๆ)
 const WAREHOUSE_GROUPS: Record<string, string> = {
   "คลังลาดกระบัง": "ลาดกระบัง + ขอนแก่น",
   "คลังขอนแก่น":   "ลาดกระบัง + ขอนแก่น",
   "คลังสระบุรี":    "สระบุรี + DIST",
   "คลัง DIST":     "สระบุรี + DIST",
+};
+
+// v5 has no partner_flag column; plate → flag comes from dw_stockmovement
+const FLEET_FLAGS: Record<string, string[]> = {
+  mena:    ["รถมีนา"],
+  partner: ["รถร่วมมีนา", "รถร่วมMC", "รถร่วมภายนอกบริษัท"],
 };
 
 type PivotRow = {
@@ -26,29 +36,45 @@ function addTo(map: Map<string, Set<string>>, key: string, plates: string[]) {
   for (const p of plates) s.add(p);
 }
 
+// Dummy plates (e.g. สบ.00000) carry cost but are not real trucks — keep their
+// cost in totals, exclude them from unique-plate counts.
+function isRealPlate(p: string): boolean {
+  return !!p && !p.includes("00000");
+}
+
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const fleet = searchParams.get("fleet"); // all (default) | mena | partner
 
-    const match: Record<string, any> = {};
-    if (fleet === "mena")    match.partner_flag = "รถมีนา";
-    if (fleet === "partner") match.partner_flag = { $regex: "^รถร่วม" };
-
     const client = await clientPromise;
-    const col = client.db("datawarehouse").collection("dw_stockmovement");
+    const v5 = client.db("atms").collection("stockmovement_v5");
 
-    const raw = await col
+    const match: Record<string, any> = { จ่าย: { $gt: 0 } };
+
+    if (fleet && FLEET_FLAGS[fleet]) {
+      const flagRows = await client
+        .db("datawarehouse")
+        .collection("dw_stockmovement")
+        .aggregate([
+          { $match: { ทะเบียน: { $nin: [null, ""] }, partner_flag: { $in: FLEET_FLAGS[fleet] } } },
+          { $group: { _id: "$ทะเบียน" } },
+        ])
+        .toArray();
+      match.ทะเบียน = { $in: flagRows.map((r) => r._id) };
+    }
+
+    const raw = await v5
       .aggregate([
         { $match: match },
         {
           $group: {
             _id: {
-              year: { $substrCP: ["$month_year", 0, 4] },
+              year: { $substrCP: ["$year_month", 0, 4] },
               purpose: "$จุดประสงค์ในการเบิก",
               warehouse: "$คลังสินค้า",
             },
-            total_cost: { $sum: "$total_cost" },
+            total_cost: { $sum: "$ยอดเงิน" },
             plates: { $addToSet: "$ทะเบียน" },
           },
         },
@@ -68,7 +94,7 @@ export async function GET(req: Request) {
         WAREHOUSE_GROUPS[(r._id.warehouse ?? "").trim()] ?? "อื่น ๆ";
       const cost_group = getCostGroup(r._id.purpose || "");
       const year = r._id.year;
-      const plates: string[] = (r.plates ?? []).filter(Boolean);
+      const plates: string[] = (r.plates ?? []).filter(isRealPlate);
 
       const key = `${warehouse_group}|${cost_group}|${year}`;
       const cur = costAcc.get(key);
