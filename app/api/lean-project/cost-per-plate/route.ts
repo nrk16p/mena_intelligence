@@ -2,9 +2,14 @@ import clientPromise from "@/lib/mongo";
 import { getCostGroup } from "@/lib/cost-groups";
 import { NextResponse } from "next/server";
 
-// Source: atms.stockmovement_v5 (raw, 2023-01+) — NOT datawarehouse.dw_stockmovement,
-// which starts 2025-01 and drops ~9% of rows via ETL rules. Totals here therefore
-// run slightly higher than /cost for overlapping months.
+// Source: atms.stockmovement_v5 (2023-01+), processed with the SAME rules the
+// ext_WD_data ETL uses to build dw_stockmovement (the /cost source):
+//   1. only rows with a WD (withdrawal document)
+//   2. group by WD+date+item+plate+price+supplier, net returns against issues:
+//      actual_issue = max(sum จ่าย - sum รับ, 0)
+//   3. total_cost = actual_issue × ราคาทุน
+// dw itself additionally filters month_year to 2025|2026 — we skip that filter,
+// which is what gives this page 2023+ history with /cost-identical semantics.
 
 // คลังสินค้า → warehouse bucket (unexpected values fall into อื่น ๆ)
 const WAREHOUSE_GROUPS: Record<string, string> = {
@@ -50,7 +55,19 @@ export async function GET(req: Request) {
     const client = await clientPromise;
     const v5 = client.db("atms").collection("stockmovement_v5");
 
-    const match: Record<string, any> = { จ่าย: { $gt: 0 } };
+    // Mirror the ETL exactly: WD.notna() + pandas groupby dropping rows where
+    // any groupby key is NaN (supplier is the only key the ETL fills first).
+    const match: Record<string, any> = {
+      WD: { $ne: null },
+      วันที่: { $ne: null },
+      คลังสินค้า: { $ne: null },
+      จุดประสงค์ในการเบิก: { $ne: null },
+      รหัสสินค้า: { $ne: null },
+      ชื่อสินค้า: { $ne: null },
+      กลุ่มสินค้า: { $ne: null },
+      เลขรถ: { $ne: null },
+      ทะเบียน: { $ne: null },
+    };
 
     if (fleet && FLEET_FLAGS[fleet]) {
       const flagRows = await client
@@ -65,20 +82,55 @@ export async function GET(req: Request) {
     }
 
     const raw = await v5
-      .aggregate([
-        { $match: match },
-        {
-          $group: {
-            _id: {
-              year: { $substrCP: ["$year_month", 0, 4] },
-              purpose: "$จุดประสงค์ในการเบิก",
-              warehouse: "$คลังสินค้า",
+      .aggregate(
+        [
+          { $match: match },
+          // Stage 1: WD+item granularity (mirrors the ETL's groupby), netting
+          // receipts (returns) against issues within each group.
+          {
+            $group: {
+              _id: {
+                date: "$วันที่",
+                wd: "$WD",
+                warehouse: "$คลังสินค้า",
+                purpose: "$จุดประสงค์ในการเบิก",
+                sku: "$รหัสสินค้า",
+                sku_name: "$ชื่อสินค้า",
+                sku_group: "$กลุ่มสินค้า",
+                truck_no: "$เลขรถ",
+                plate: "$ทะเบียน",
+                price: { $ifNull: ["$ราคาทุน", 0] },
+                supplier: { $ifNull: ["$ซัพพลายเออร์", ""] },
+              },
+              sum_receive: { $sum: { $ifNull: ["$รับ", 0] } },
+              sum_issue: { $sum: { $ifNull: ["$จ่าย", 0] } },
             },
-            total_cost: { $sum: "$ยอดเงิน" },
-            plates: { $addToSet: "$ทะเบียน" },
           },
-        },
-      ])
+          {
+            $project: {
+              year: { $dateToString: { format: "%Y", date: "$_id.date" } },
+              purpose: "$_id.purpose",
+              warehouse: "$_id.warehouse",
+              plate: "$_id.plate",
+              line_cost: {
+                $multiply: [
+                  { $max: [{ $subtract: ["$sum_issue", "$sum_receive"] }, 0] },
+                  { $ifNull: ["$_id.price", 0] },
+                ],
+              },
+            },
+          },
+          // Stage 2: roll up to year × purpose × warehouse for the pivot
+          {
+            $group: {
+              _id: { year: "$year", purpose: "$purpose", warehouse: "$warehouse" },
+              total_cost: { $sum: "$line_cost" },
+              plates: { $addToSet: "$plate" },
+            },
+          },
+        ],
+        { allowDiskUse: true }
+      )
       .toArray();
 
     // Costs are summed; unique plates merged as sets at row / bucket / year level
