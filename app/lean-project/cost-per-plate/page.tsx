@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { COST_GROUP_ORDER } from "@/lib/cost-groups"
-import { RefreshCw } from "lucide-react"
+import { RefreshCw, Truck } from "lucide-react"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -11,11 +11,28 @@ type ApiRow = {
   cost_group: string
   year: string
   total_cost: number
+  plate_count: number
 }
+
+type ApiPayload = {
+  data: ApiRow[]
+  bucket_plate_counts: { warehouse_group: string; year: string; plate_count: number }[]
+  bucket_total_plate_counts: { warehouse_group: string; plate_count: number }[]
+  year_plate_counts: { year: string; plate_count: number }[]
+  total_plate_count: number
+}
+
+type Fleet = "all" | "mena" | "partner"
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const WAREHOUSE_GROUP_ORDER = ["ลาดกระบัง + ขอนแก่น", "สระบุรี + DIST", "อื่น ๆ"]
+
+const FLEET_OPTIONS: { value: Fleet; label: string }[] = [
+  { value: "all",     label: "ทั้งหมด" },
+  { value: "mena",    label: "รถมีนา" },
+  { value: "partner", label: "รถร่วม" },
+]
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -32,7 +49,8 @@ function sortCostGroups(a: string, b: string): number {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function CostPerPlatePage() {
-  const [rows, setRows]       = useState<ApiRow[]>([])
+  const [payload, setPayload] = useState<ApiPayload | null>(null)
+  const [fleet, setFleet]     = useState<Fleet>("all")
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState<string | null>(null)
 
@@ -40,26 +58,34 @@ export default function CostPerPlatePage() {
     setLoading(true)
     setError(null)
     try {
-      const res  = await fetch("/api/lean-project/cost-per-plate")
+      const res  = await fetch(`/api/lean-project/cost-per-plate?fleet=${fleet}`)
       const json = await res.json()
       if (!json.success) throw new Error(json.error || "โหลดข้อมูลไม่สำเร็จ")
-      setRows(json.data as ApiRow[])
+      setPayload(json as ApiPayload)
     } catch (e: any) {
       setError(e.message || "โหลดข้อมูลไม่สำเร็จ")
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [fleet])
 
   useEffect(() => { load() }, [load])
 
   // ── Pivot shaping ───────────────────────────────────────────────────────────
 
   const pivot = useMemo(() => {
+    const rows = payload?.data ?? []
     const years = [...new Set(rows.map((r) => r.year))].sort()
 
     type CgRow = { cost_group: string; byYear: Record<string, number>; total: number }
-    type Section = { warehouse_group: string; groups: CgRow[]; subtotal: Record<string, number>; subtotalAll: number }
+    type Section = {
+      warehouse_group: string
+      groups: CgRow[]
+      subtotal: Record<string, number>
+      subtotalAll: number
+      platesByYear: Record<string, number>
+      platesTotal: number
+    }
 
     const sections: Section[] = []
 
@@ -82,11 +108,20 @@ export default function CostPerPlatePage() {
         subtotalAll += cg.total
       }
 
+      const platesByYear: Record<string, number> = {}
+      for (const pc of payload?.bucket_plate_counts ?? []) {
+        if (pc.warehouse_group === wg) platesByYear[pc.year] = pc.plate_count
+      }
+      const platesTotal =
+        payload?.bucket_total_plate_counts?.find((b) => b.warehouse_group === wg)?.plate_count ?? 0
+
       sections.push({
         warehouse_group: wg,
         groups: [...byCg.values()].sort((a, b) => sortCostGroups(a.cost_group, b.cost_group)),
         subtotal,
         subtotalAll,
+        platesByYear,
+        platesTotal,
       })
     }
 
@@ -97,8 +132,18 @@ export default function CostPerPlatePage() {
       grandAll += s.subtotalAll
     }
 
-    return { years, sections, grand, grandAll }
-  }, [rows])
+    const grandPlatesByYear: Record<string, number> = {}
+    for (const pc of payload?.year_plate_counts ?? []) grandPlatesByYear[pc.year] = pc.plate_count
+
+    return {
+      years,
+      sections,
+      grand,
+      grandAll,
+      grandPlatesByYear,
+      grandPlatesTotal: payload?.total_plate_count ?? 0,
+    }
+  }, [payload])
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -116,17 +161,37 @@ export default function CostPerPlatePage() {
               Lean Project — cost group × year (แยกตามกลุ่มคลังสินค้า)
             </p>
           </div>
-          <button
-            onClick={load}
-            disabled={loading}
-            className="flex items-center gap-1.5 rounded-lg border border-gray-200 dark:border-white/10
-              bg-white dark:bg-white/5 px-3 py-1.5 text-[12px] font-medium
-              text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/10
-              disabled:opacity-50 transition-colors"
-          >
-            <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
-            รีเฟรช
-          </button>
+
+          <div className="flex items-center gap-2">
+            {/* Fleet filter */}
+            <div className="flex rounded-lg border border-gray-200 dark:border-white/10 bg-white dark:bg-white/5 p-0.5">
+              {FLEET_OPTIONS.map((o) => (
+                <button
+                  key={o.value}
+                  onClick={() => setFleet(o.value)}
+                  className={`rounded-md px-3 py-1 text-[12px] font-medium transition-colors ${
+                    fleet === o.value
+                      ? "bg-cyan-600 text-white shadow-sm"
+                      : "text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
+                  }`}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+
+            <button
+              onClick={load}
+              disabled={loading}
+              className="flex items-center gap-1.5 rounded-lg border border-gray-200 dark:border-white/10
+                bg-white dark:bg-white/5 px-3 py-1.5 text-[12px] font-medium
+                text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/10
+                disabled:opacity-50 transition-colors"
+            >
+              <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
+              รีเฟรช
+            </button>
+          </div>
         </div>
 
         {/* Error */}
@@ -194,6 +259,23 @@ export default function CostPerPlatePage() {
                     {fmt(pivot.grandAll)}
                   </td>
                 </tr>
+
+                {/* Grand unique plates */}
+                <tr className="bg-gray-100 dark:bg-white/6">
+                  <td className="sticky left-0 bg-gray-100 dark:bg-[#20242f] px-4 pb-2.5 pt-0.5">
+                    <span className="flex items-center gap-1.5 text-[12px] font-medium text-cyan-700 dark:text-cyan-400">
+                      <Truck size={12} /> Unique ทะเบียน (คัน)
+                    </span>
+                  </td>
+                  {pivot.years.map((y) => (
+                    <td key={y} className="px-4 pb-2.5 pt-0.5 text-right text-[12px] font-semibold text-cyan-700 dark:text-cyan-400 tabular-nums">
+                      {fmt(pivot.grandPlatesByYear[y] ?? 0)}
+                    </td>
+                  ))}
+                  <td className="px-4 pb-2.5 pt-0.5 text-right text-[12px] font-semibold text-cyan-700 dark:text-cyan-400 tabular-nums">
+                    {fmt(pivot.grandPlatesTotal)}
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -214,6 +296,8 @@ function SectionRows({
     groups: { cost_group: string; byYear: Record<string, number>; total: number }[]
     subtotal: Record<string, number>
     subtotalAll: number
+    platesByYear: Record<string, number>
+    platesTotal: number
   }
   years: string[]
 }) {
@@ -261,6 +345,23 @@ function SectionRows({
         ))}
         <td className="px-4 py-2 text-right font-bold text-gray-900 dark:text-white tabular-nums">
           {fmt(section.subtotalAll)}
+        </td>
+      </tr>
+
+      {/* Unique plates */}
+      <tr className="bg-gray-50 dark:bg-white/3">
+        <td className="sticky left-0 bg-gray-50 dark:bg-[#1a1d27] px-4 pb-2 pt-0.5 pl-7">
+          <span className="flex items-center gap-1.5 text-[12px] font-medium text-cyan-700 dark:text-cyan-400">
+            <Truck size={12} /> Unique ทะเบียน (คัน)
+          </span>
+        </td>
+        {years.map((y) => (
+          <td key={y} className="px-4 pb-2 pt-0.5 text-right text-[12px] font-semibold text-cyan-700 dark:text-cyan-400 tabular-nums">
+            {fmt(section.platesByYear[y] ?? 0)}
+          </td>
+        ))}
+        <td className="px-4 pb-2 pt-0.5 text-right text-[12px] font-semibold text-cyan-700 dark:text-cyan-400 tabular-nums">
+          {fmt(section.platesTotal)}
         </td>
       </tr>
     </>

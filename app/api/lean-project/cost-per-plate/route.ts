@@ -15,15 +15,32 @@ type PivotRow = {
   cost_group: string;
   year: string;
   total_cost: number;
+  plate_count: number;
 };
 
-export async function GET() {
+type PlateCount = { warehouse_group?: string; year: string; plate_count: number };
+
+function addTo(map: Map<string, Set<string>>, key: string, plates: string[]) {
+  let s = map.get(key);
+  if (!s) { s = new Set(); map.set(key, s); }
+  for (const p of plates) s.add(p);
+}
+
+export async function GET(req: Request) {
   try {
+    const { searchParams } = new URL(req.url);
+    const fleet = searchParams.get("fleet"); // all (default) | mena | partner
+
+    const match: Record<string, any> = {};
+    if (fleet === "mena")    match.partner_flag = "รถมีนา";
+    if (fleet === "partner") match.partner_flag = { $regex: "^รถร่วม" };
+
     const client = await clientPromise;
     const col = client.db("datawarehouse").collection("dw_stockmovement");
 
     const raw = await col
       .aggregate([
+        { $match: match },
         {
           $group: {
             _id: {
@@ -32,24 +49,65 @@ export async function GET() {
               warehouse: "$คลังสินค้า",
             },
             total_cost: { $sum: "$total_cost" },
+            plates: { $addToSet: "$ทะเบียน" },
           },
         },
       ])
       .toArray();
 
-    const acc = new Map<string, PivotRow>();
+    // Costs are summed; unique plates merged as sets at row / bucket / year level
+    const costAcc = new Map<string, Omit<PivotRow, "plate_count">>();
+    const rowPlates    = new Map<string, Set<string>>(); // bucket|cg|year
+    const bucketPlates = new Map<string, Set<string>>(); // bucket|year
+    const bucketAll    = new Map<string, Set<string>>(); // bucket (all years)
+    const yearPlates   = new Map<string, Set<string>>(); // year
+    const grandAll     = new Set<string>();
+
     for (const r of raw) {
       const warehouse_group =
         WAREHOUSE_GROUPS[(r._id.warehouse ?? "").trim()] ?? "อื่น ๆ";
       const cost_group = getCostGroup(r._id.purpose || "");
       const year = r._id.year;
+      const plates: string[] = (r.plates ?? []).filter(Boolean);
+
       const key = `${warehouse_group}|${cost_group}|${year}`;
-      const cur = acc.get(key);
+      const cur = costAcc.get(key);
       if (cur) cur.total_cost += r.total_cost;
-      else acc.set(key, { warehouse_group, cost_group, year, total_cost: r.total_cost });
+      else costAcc.set(key, { warehouse_group, cost_group, year, total_cost: r.total_cost });
+
+      addTo(rowPlates, key, plates);
+      addTo(bucketPlates, `${warehouse_group}|${year}`, plates);
+      addTo(bucketAll, warehouse_group, plates);
+      addTo(yearPlates, year, plates);
+      for (const p of plates) grandAll.add(p);
     }
 
-    return NextResponse.json({ success: true, data: [...acc.values()] });
+    const data: PivotRow[] = [...costAcc.entries()].map(([key, row]) => ({
+      ...row,
+      plate_count: rowPlates.get(key)?.size ?? 0,
+    }));
+
+    const bucket_plate_counts: PlateCount[] = [...bucketPlates.entries()].map(([key, s]) => {
+      const [warehouse_group, year] = key.split("|");
+      return { warehouse_group, year, plate_count: s.size };
+    });
+    const bucket_total_plate_counts = [...bucketAll.entries()].map(([warehouse_group, s]) => ({
+      warehouse_group,
+      plate_count: s.size,
+    }));
+    const year_plate_counts: PlateCount[] = [...yearPlates.entries()].map(([year, s]) => ({
+      year,
+      plate_count: s.size,
+    }));
+
+    return NextResponse.json({
+      success: true,
+      data,
+      bucket_plate_counts,
+      bucket_total_plate_counts,
+      year_plate_counts,
+      total_plate_count: grandAll.size,
+    });
   } catch (error: any) {
     console.error("lean-project/cost-per-plate API error:", error);
     return NextResponse.json(
