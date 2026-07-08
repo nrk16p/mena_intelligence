@@ -27,7 +27,6 @@ import {
   Settings2,
   Shield,
   ClipboardList,
-  Gauge,
 } from "lucide-react"
 import { ThemeToggle } from "./theme-toggle"
 
@@ -161,18 +160,6 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/stock-budget-ladkrabang", label: "Stock Budget",    icon: PackageSearch },
       { href: "/price-benchmark",         label: "Price Benchmark", icon: TrendingUp },
       { href: "/supplier-analysis",       label: "Suppliers",       icon: Users },
-    ],
-  },
-  {
-    label:        "Lean Project",
-    groupIcon:    Gauge,
-    dot:          "bg-cyan-500",
-    iconColor:    "text-cyan-500 dark:text-cyan-400",
-    activeBg:     "bg-cyan-50 dark:bg-cyan-950/40",
-    activeText:   "text-cyan-700 dark:text-cyan-300",
-    activeBorder: "border-cyan-500",
-    items: [
-      { href: "/lean-project/cost-per-plate", label: "Cost per Plate", icon: BarChart3 },
     ],
   },
   {

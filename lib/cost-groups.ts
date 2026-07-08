@@ -1,4 +1,4 @@
-// Shared จุดประสงค์ในการเบิก → Cost Group mapping (used by /cost and /lean-project)
+// Shared จุดประสงค์ในการเบิก → Cost Group mapping (used by /cost)
 export const COST_GROUP_MAP: Record<string, string> = {
   "PM น้ำมันเครื่อง":        "PM - Preventive Maintenance",
   "PM ช่วงล่าง":             "PM - Preventive Maintenance",
