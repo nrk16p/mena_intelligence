@@ -47,12 +47,45 @@ function isRealPlate(p: string): boolean {
   return !!p && !p.includes("00000");
 }
 
+// Recomputing takes 15-30s (two-stage aggregation over ~450k rows), so results
+// are snapshotted per fleet in Mongo. Normal loads read the snapshot; ?refresh=1
+// recomputes and overwrites it.
+export const maxDuration = 60;
+
+const SNAPSHOT_COLLECTION = "lean_cost_per_plate_snapshot";
+
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
-    const fleet = searchParams.get("fleet"); // all (default) | mena | partner
+    const fleet = searchParams.get("fleet") || "all"; // all | mena | partner
+    const refresh = searchParams.get("refresh") === "1";
 
     const client = await clientPromise;
+    const snapshots = client.db("datawarehouse").collection(SNAPSHOT_COLLECTION);
+
+    if (!refresh) {
+      const snap = await snapshots.findOne({ fleet });
+      if (snap?.payload) {
+        return NextResponse.json({ ...snap.payload, generated_at: snap.generated_at });
+      }
+    }
+
+    const payload = await computePayload(client, fleet);
+    const generated_at = new Date();
+    await snapshots.replaceOne({ fleet }, { fleet, payload, generated_at }, { upsert: true });
+
+    return NextResponse.json({ ...payload, generated_at });
+  } catch (error: any) {
+    console.error("lean-project/cost-per-plate API error:", error);
+    return NextResponse.json(
+      { success: false, error: error.message || "Internal Server Error" },
+      { status: 500 }
+    );
+  }
+}
+
+async function computePayload(client: Awaited<typeof clientPromise>, fleet: string) {
+  {
     const v5 = client.db("atms").collection("stockmovement_v5");
 
     // Mirror the ETL exactly: WD.notna() + pandas groupby dropping rows where
@@ -193,7 +226,7 @@ export async function GET(req: Request) {
       plate_count: s.size,
     }));
 
-    return NextResponse.json({
+    return {
       success: true,
       data,
       cg_total_plate_counts,
@@ -202,12 +235,6 @@ export async function GET(req: Request) {
       bucket_total_plate_counts,
       year_plate_counts,
       total_plate_count: grandAll.size,
-    });
-  } catch (error: any) {
-    console.error("lean-project/cost-per-plate API error:", error);
-    return NextResponse.json(
-      { success: false, error: error.message || "Internal Server Error" },
-      { status: 500 }
-    );
+    };
   }
 }

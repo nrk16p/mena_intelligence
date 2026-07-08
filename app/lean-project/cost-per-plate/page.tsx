@@ -56,11 +56,11 @@ export default function CostPerPlatePage() {
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState<string | null>(null)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (refresh = false) => {
     setLoading(true)
     setError(null)
     try {
-      const res  = await fetch(`/api/lean-project/cost-per-plate?fleet=${fleet}`)
+      const res  = await fetch(`/api/lean-project/cost-per-plate?fleet=${fleet}${refresh ? "&refresh=1" : ""}`)
       const json = await res.json()
       if (!json.success) throw new Error(json.error || "โหลดข้อมูลไม่สำเร็จ")
       setPayload(json as ApiPayload)
@@ -205,7 +205,8 @@ export default function CostPerPlatePage() {
             </div>
 
             <button
-              onClick={load}
+              onClick={() => load(true)}
+              title="คำนวณใหม่จากข้อมูลล่าสุด (ใช้เวลา ~30 วินาที)"
               disabled={loading}
               className="flex items-center gap-1.5 rounded-lg border border-gray-200 dark:border-white/10
                 bg-white dark:bg-white/5 px-3 py-1.5 text-[12px] font-medium
@@ -223,7 +224,7 @@ export default function CostPerPlatePage() {
           <div className="rounded-xl border border-red-200 dark:border-red-800/40 bg-red-50 dark:bg-red-950/20
             px-4 py-3 text-[13px] text-red-600 dark:text-red-400 flex items-center justify-between gap-3">
             <span>{error}</span>
-            <button onClick={load} className="font-semibold underline underline-offset-2 shrink-0">ลองใหม่</button>
+            <button onClick={() => load()} className="font-semibold underline underline-offset-2 shrink-0">ลองใหม่</button>
           </div>
         )}
 
