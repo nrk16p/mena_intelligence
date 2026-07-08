@@ -166,7 +166,6 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label:        "Lean Project",
     groupIcon:    Gauge,
-    permissionKey: "lean-project",
     dot:          "bg-cyan-500",
     iconColor:    "text-cyan-500 dark:text-cyan-400",
     activeBg:     "bg-cyan-50 dark:bg-cyan-950/40",

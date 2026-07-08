@@ -6,7 +6,7 @@ export type UserPermissions = {
   allowedGroups: string[]
 }
 
-const ALL_GROUPS = ["vehicle", "fuel", "ops", "mixer", "procurement", "lean-project", "maintenance", "admin"]
+const ALL_GROUPS = ["vehicle", "fuel", "ops", "mixer", "procurement", "maintenance", "admin"]
 
 export async function getUserPermissions(
   email: string | null | undefined
