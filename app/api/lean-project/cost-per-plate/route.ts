@@ -109,6 +109,7 @@ export async function GET(req: Request) {
           {
             $project: {
               year: { $dateToString: { format: "%Y", date: "$_id.date" } },
+              month: { $dateToString: { format: "%Y-%m", date: "$_id.date" } },
               purpose: "$_id.purpose",
               warehouse: "$_id.warehouse",
               plate: "$_id.plate",
@@ -126,6 +127,7 @@ export async function GET(req: Request) {
               _id: { year: "$year", purpose: "$purpose", warehouse: "$warehouse" },
               total_cost: { $sum: "$line_cost" },
               plates: { $addToSet: "$plate" },
+              months: { $addToSet: "$month" },
             },
           },
         ],
@@ -136,6 +138,8 @@ export async function GET(req: Request) {
     // Costs are summed; unique plates merged as sets at row / bucket / year level
     const costAcc = new Map<string, Omit<PivotRow, "plate_count">>();
     const rowPlates    = new Map<string, Set<string>>(); // bucket|cg|year
+    const cgPlates     = new Map<string, Set<string>>(); // bucket|cg (all years)
+    const yearMonths   = new Map<string, Set<string>>(); // year → distinct months
     const bucketPlates = new Map<string, Set<string>>(); // bucket|year
     const bucketAll    = new Map<string, Set<string>>(); // bucket (all years)
     const yearPlates   = new Map<string, Set<string>>(); // year
@@ -154,6 +158,8 @@ export async function GET(req: Request) {
       else costAcc.set(key, { warehouse_group, cost_group, year, total_cost: r.total_cost });
 
       addTo(rowPlates, key, plates);
+      addTo(cgPlates, `${warehouse_group}|${cost_group}`, plates);
+      addTo(yearMonths, year, (r.months ?? []).filter(Boolean));
       addTo(bucketPlates, `${warehouse_group}|${year}`, plates);
       addTo(bucketAll, warehouse_group, plates);
       addTo(yearPlates, year, plates);
@@ -163,6 +169,15 @@ export async function GET(req: Request) {
     const data: PivotRow[] = [...costAcc.entries()].map(([key, row]) => ({
       ...row,
       plate_count: rowPlates.get(key)?.size ?? 0,
+    }));
+
+    const cg_total_plate_counts = [...cgPlates.entries()].map(([key, s]) => {
+      const [warehouse_group, cost_group] = key.split("|");
+      return { warehouse_group, cost_group, plate_count: s.size };
+    });
+    const months_per_year = [...yearMonths.entries()].map(([year, s]) => ({
+      year,
+      months: s.size,
     }));
 
     const bucket_plate_counts: PlateCount[] = [...bucketPlates.entries()].map(([key, s]) => {
@@ -181,6 +196,8 @@ export async function GET(req: Request) {
     return NextResponse.json({
       success: true,
       data,
+      cg_total_plate_counts,
+      months_per_year,
       bucket_plate_counts,
       bucket_total_plate_counts,
       year_plate_counts,

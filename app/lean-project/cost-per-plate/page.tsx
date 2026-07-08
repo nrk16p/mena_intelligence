@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import React, { useCallback, useEffect, useMemo, useState } from "react"
 import { COST_GROUP_ORDER } from "@/lib/cost-groups"
 import { RefreshCw, Truck } from "lucide-react"
 
@@ -16,6 +16,8 @@ type ApiRow = {
 
 type ApiPayload = {
   data: ApiRow[]
+  cg_total_plate_counts: { warehouse_group: string; cost_group: string; plate_count: number }[]
+  months_per_year: { year: string; months: number }[]
   bucket_plate_counts: { warehouse_group: string; year: string; plate_count: number }[]
   bucket_total_plate_counts: { warehouse_group: string; plate_count: number }[]
   year_plate_counts: { year: string; plate_count: number }[]
@@ -77,7 +79,13 @@ export default function CostPerPlatePage() {
     const rows = payload?.data ?? []
     const years = [...new Set(rows.map((r) => r.year))].sort()
 
-    type CgRow = { cost_group: string; byYear: Record<string, number>; total: number }
+    type CgRow = {
+      cost_group: string
+      byYear: Record<string, number>
+      total: number
+      platesByYear: Record<string, number>
+      platesTotal: number
+    }
     type Section = {
       warehouse_group: string
       groups: CgRow[]
@@ -96,9 +104,19 @@ export default function CostPerPlatePage() {
       const byCg = new Map<string, CgRow>()
       for (const r of wgRows) {
         let cg = byCg.get(r.cost_group)
-        if (!cg) { cg = { cost_group: r.cost_group, byYear: {}, total: 0 }; byCg.set(r.cost_group, cg) }
+        if (!cg) {
+          cg = { cost_group: r.cost_group, byYear: {}, total: 0, platesByYear: {}, platesTotal: 0 }
+          byCg.set(r.cost_group, cg)
+        }
         cg.byYear[r.year] = (cg.byYear[r.year] ?? 0) + r.total_cost
+        cg.platesByYear[r.year] = (cg.platesByYear[r.year] ?? 0) + r.plate_count
         cg.total += r.total_cost
+      }
+      for (const cg of byCg.values()) {
+        cg.platesTotal =
+          payload?.cg_total_plate_counts?.find(
+            (c) => c.warehouse_group === wg && c.cost_group === cg.cost_group
+          )?.plate_count ?? 0
       }
 
       const subtotal: Record<string, number> = {}
@@ -135,6 +153,10 @@ export default function CostPerPlatePage() {
     const grandPlatesByYear: Record<string, number> = {}
     for (const pc of payload?.year_plate_counts ?? []) grandPlatesByYear[pc.year] = pc.plate_count
 
+    const monthsByYear: Record<string, number> = {}
+    for (const m of payload?.months_per_year ?? []) monthsByYear[m.year] = m.months
+    const totalMonths = years.reduce((s, y) => s + (monthsByYear[y] ?? 0), 0)
+
     return {
       years,
       sections,
@@ -142,6 +164,8 @@ export default function CostPerPlatePage() {
       grandAll,
       grandPlatesByYear,
       grandPlatesTotal: payload?.total_plate_count ?? 0,
+      monthsByYear,
+      totalMonths,
     }
   }, [payload])
 
@@ -228,7 +252,7 @@ export default function CostPerPlatePage() {
                 <tr className="border-b border-gray-200 dark:border-white/8 bg-gray-50 dark:bg-white/4">
                   <th className="sticky left-0 bg-gray-50 dark:bg-[#1a1d27] px-4 py-2.5 text-left font-semibold
                     text-gray-600 dark:text-gray-300 min-w-[220px]">
-                    Cost Group
+                    Cost Group <span className="font-normal text-[11px] text-cyan-600 dark:text-cyan-500">/ เฉลี่ย/คัน/เดือน</span>
                   </th>
                   {pivot.years.map((y) => (
                     <th key={y} className="px-4 py-2.5 text-right font-semibold text-gray-600 dark:text-gray-300 min-w-[110px]">
@@ -242,7 +266,13 @@ export default function CostPerPlatePage() {
               </thead>
               <tbody>
                 {pivot.sections.map((s) => (
-                  <SectionRows key={s.warehouse_group} section={s} years={pivot.years} />
+                  <SectionRows
+                    key={s.warehouse_group}
+                    section={s}
+                    years={pivot.years}
+                    monthsByYear={pivot.monthsByYear}
+                    totalMonths={pivot.totalMonths}
+                  />
                 ))}
 
                 {/* Grand total */}
@@ -290,16 +320,26 @@ export default function CostPerPlatePage() {
 function SectionRows({
   section,
   years,
+  monthsByYear,
+  totalMonths,
 }: {
   section: {
     warehouse_group: string
-    groups: { cost_group: string; byYear: Record<string, number>; total: number }[]
+    groups: {
+      cost_group: string
+      byYear: Record<string, number>
+      total: number
+      platesByYear: Record<string, number>
+      platesTotal: number
+    }[]
     subtotal: Record<string, number>
     subtotalAll: number
     platesByYear: Record<string, number>
     platesTotal: number
   }
   years: string[]
+  monthsByYear: Record<string, number>
+  totalMonths: number
 }) {
   return (
     <>
@@ -313,24 +353,41 @@ function SectionRows({
         </td>
       </tr>
 
-      {/* Cost group rows */}
+      {/* Cost group rows + avg per plate per month */}
       {section.groups.map((g) => (
-        <tr
-          key={g.cost_group}
-          className="border-t border-gray-100 dark:border-white/5 hover:bg-gray-50 dark:hover:bg-white/4 transition-colors"
-        >
-          <td className="sticky left-0 bg-white dark:bg-[#161922] px-4 py-2 pl-7 text-gray-700 dark:text-gray-300">
-            {g.cost_group}
-          </td>
-          {years.map((y) => (
-            <td key={y} className="px-4 py-2 text-right text-gray-700 dark:text-gray-300 tabular-nums">
-              {g.byYear[y] != null ? fmt(g.byYear[y]) : <span className="text-gray-300 dark:text-gray-600">—</span>}
+        <React.Fragment key={g.cost_group}>
+          <tr className="border-t border-gray-100 dark:border-white/5 hover:bg-gray-50 dark:hover:bg-white/4 transition-colors">
+            <td className="sticky left-0 bg-white dark:bg-[#161922] px-4 py-2 pl-7 text-gray-700 dark:text-gray-300">
+              {g.cost_group}
             </td>
-          ))}
-          <td className="px-4 py-2 text-right font-semibold text-gray-800 dark:text-gray-200 tabular-nums">
-            {fmt(g.total)}
-          </td>
-        </tr>
+            {years.map((y) => (
+              <td key={y} className="px-4 py-2 text-right text-gray-700 dark:text-gray-300 tabular-nums">
+                {g.byYear[y] != null ? fmt(g.byYear[y]) : <span className="text-gray-300 dark:text-gray-600">—</span>}
+              </td>
+            ))}
+            <td className="px-4 py-2 text-right font-semibold text-gray-800 dark:text-gray-200 tabular-nums">
+              {fmt(g.total)}
+            </td>
+          </tr>
+          <tr className="hover:bg-gray-50 dark:hover:bg-white/4 transition-colors">
+            <td className="sticky left-0 bg-white dark:bg-[#161922] px-4 pb-1.5 pt-0 pl-10 text-[11px] text-cyan-600 dark:text-cyan-500">
+              เฉลี่ย/คัน/เดือน
+            </td>
+            {years.map((y) => {
+              const plates = g.platesByYear[y] ?? 0
+              const months = monthsByYear[y] ?? 0
+              const ok = g.byYear[y] != null && plates > 0 && months > 0
+              return (
+                <td key={y} className="px-4 pb-1.5 pt-0 text-right text-[11px] text-cyan-600 dark:text-cyan-500 tabular-nums">
+                  {ok ? fmt(g.byYear[y] / plates / months) : "—"}
+                </td>
+              )
+            })}
+            <td className="px-4 pb-1.5 pt-0 text-right text-[11px] text-cyan-600 dark:text-cyan-500 tabular-nums">
+              {g.platesTotal > 0 && totalMonths > 0 ? fmt(g.total / g.platesTotal / totalMonths) : "—"}
+            </td>
+          </tr>
+        </React.Fragment>
       ))}
 
       {/* Subtotal */}
