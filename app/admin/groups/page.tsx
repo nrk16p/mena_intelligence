@@ -9,6 +9,7 @@ const SECTION_KEYS = [
   { key: "ops",          label: "Ops" },
   { key: "mixer",        label: "Mixer" },
   { key: "procurement",  label: "Procurement" },
+  { key: "lean-project", label: "Lean Project" },
   { key: "maintenance",  label: "Maintenance" },
 ]
 
