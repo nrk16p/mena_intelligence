@@ -49,13 +49,18 @@ export async function GET(req: Request) {
         : []),
       {
         $group: {
-          _id: { m: "$year_month", price: "$ราคาทุน" },
+          _id: { m: "$year_month", price: "$ราคาทุน", s: "$sup" },
           count: { $sum: 1 },
           qty:   { $sum: "$รับ" },
         },
       },
       { $sort: { "_id.m": 1, "_id.price": 1 } },
     ]).toArray()
+
+    // Suppliers present in the window, ranked by purchase count (for chart colouring/legend)
+    const supTotals = new Map<string, number>()
+    for (const r of rows) supTotals.set(r._id.s, (supTotals.get(r._id.s) ?? 0) + r.count)
+    const suppliers = [...supTotals.entries()].sort((a, b) => b[1] - a[1]).map(([s]) => s)
 
     // IQR over the whole window (weighted) → outlier flags for the dots
     const distMap = new Map<number, number>()
@@ -74,26 +79,30 @@ export async function GET(req: Request) {
       }
     }
 
-    const byMonth = new Map<string, { price: number; count: number; qty: number }[]>()
+    const byMonth = new Map<string, { price: number; count: number; qty: number; supplier: string }[]>()
     for (const r of rows) {
       const arr = byMonth.get(r._id.m) ?? []
-      arr.push({ price: r._id.price, count: r.count, qty: r.qty })
+      arr.push({ price: r._id.price, count: r.count, qty: r.qty, supplier: r._id.s })
       byMonth.set(r._id.m, arr)
     }
 
     const monthly = monthsAxis.map((m) => {
+      // pts are per price×supplier; band/mode are computed over prices (across suppliers)
       const pts = (byMonth.get(m) ?? []).sort((a, b) => a.price - b.price)
       if (pts.length === 0) {
         return { month: m, min: null, max: null, mode: null, mode_count: null, count: 0, points: [] }
       }
-      let mode = pts[0]
-      for (const p of pts) if (p.count > mode.count) mode = p // tie → lowest (sorted asc)
+      const priceAgg = new Map<number, number>()
+      for (const p of pts) priceAgg.set(p.price, (priceAgg.get(p.price) ?? 0) + p.count)
+      const prices = [...priceAgg.entries()].sort((a, b) => a[0] - b[0]) // [price, count] asc
+      let mode = prices[0]
+      for (const p of prices) if (p[1] > mode[1]) mode = p // tie → lowest (sorted asc)
       return {
         month: m,
-        min: pts[0].price,
-        max: pts[pts.length - 1].price,
-        mode: mode.price,
-        mode_count: mode.count,
+        min: prices[0][0],
+        max: prices[prices.length - 1][0],
+        mode: mode[0],
+        mode_count: mode[1],
         count: pts.reduce((s, p) => s + p.count, 0),
         points: pts.map((p) => ({ ...p, outlier: isOutlier(p.price) })),
       }
@@ -105,6 +114,7 @@ export async function GET(req: Request) {
       window_start: start,
       window_end: end,
       iqr: bounds,
+      suppliers,
       monthly,
     })
   } catch (error: any) {

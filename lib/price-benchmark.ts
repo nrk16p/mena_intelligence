@@ -39,6 +39,75 @@ export type BenchmarkDoc = {
 
 export const SNAPSHOT_COLLECTION = "price_benchmark"
 export const STATS_COLLECTION    = "price_benchmark_stats"
+export const CONTRACT_COLLECTION = "price_contract"
+
+/**
+ * Product groups excluded from the whole benchmark system.
+ * Fuel (น้ำมันเชื้อเพลิง) prices are market-driven and near-unique, so the mode
+ * benchmark is meaningless — cut it everywhere (snapshot gen + all read paths).
+ */
+export const EXCLUDED_GROUPS = ["น้ำมันเชื้อเพลิง"]
+
+/**
+ * Mongo condition for the `กลุ่มสินค้า` field that always drops EXCLUDED_GROUPS.
+ * - groups given → keep only the requested (non-excluded) groups ($in)
+ * - none given   → everything except the excluded groups ($nin)
+ */
+export function groupFilter(groups?: string[] | null) {
+  const list = (groups ?? []).map(g => g?.trim()).filter((g): g is string => !!g && !EXCLUDED_GROUPS.includes(g))
+  return list.length > 0 ? { $in: list } : { $nin: EXCLUDED_GROUPS }
+}
+
+export type ContractDoc = {
+  รหัสสินค้า:   string
+  ชื่อสินค้า:   string
+  ซัพพลายเออร์: string
+  contract_price:  number
+  effective_start: string        // YYYY-MM (inclusive)
+  effective_end:   string | null // YYYY-MM (inclusive), null = open-ended
+  note?:        string
+  uploaded_by:  string
+  uploaded_at:  Date
+}
+
+/**
+ * Contract prices in effect for `month`, keyed `รหัสสินค้า||ซัพพลายเออร์`.
+ * When several contracts overlap the month, the one with the latest
+ * effective_start wins. Optionally scoped to a set of product codes.
+ */
+export async function getContractMap(
+  month: string,
+  codes?: string[]
+): Promise<Map<string, ContractDoc>> {
+  const client = await clientPromise
+  const col = client.db("atms").collection(CONTRACT_COLLECTION)
+  const match: Record<string, unknown> = {
+    effective_start: { $lte: month },
+    $or: [{ effective_end: null }, { effective_end: { $gte: month } }],
+  }
+  if (codes && codes.length > 0) match["รหัสสินค้า"] = { $in: codes }
+
+  const rows = await col
+    .find(match, { projection: { _id: 0 } })
+    .sort({ effective_start: 1 })
+    .toArray()
+
+  // later effective_start overwrites earlier for the same key
+  const map = new Map<string, ContractDoc>()
+  for (const r of rows) map.set(`${r.รหัสสินค้า}||${r.ซัพพลายเออร์}`, r as unknown as ContractDoc)
+  return map
+}
+
+/** Months that already have a benchmark snapshot (sorted asc) + min/max. */
+export async function getAvailableMonths(): Promise<{ months: string[]; min: string | null; max: string | null }> {
+  const client = await clientPromise
+  const months = (await client
+    .db("atms")
+    .collection(SNAPSHOT_COLLECTION)
+    .distinct("snapshot_month")) as string[]
+  months.sort()
+  return { months, min: months[0] ?? null, max: months[months.length - 1] ?? null }
+}
 
 export type MonthStats = {
   month: string
@@ -135,7 +204,7 @@ export async function generateSnapshot(month: string): Promise<{ row_count: numb
   const { start, end } = windowFor(month)
 
   const pipeline = [
-    { $match: receiptMatch({ year_month: { $gte: start, $lte: end } }) },
+    { $match: receiptMatch({ year_month: { $gte: start, $lte: end }, กลุ่มสินค้า: groupFilter() }) },
     {
       $addFields: {
         ซัพพลายเออร์: {
@@ -260,7 +329,7 @@ async function computeMonthStats(month: string, group: string | null = null): Pr
   }
 
   const [res] = await db.collection("stockmovement_v5").aggregate([
-    { $match: receiptMatch({ year_month: month, ราคาทุน: { $ne: null }, ...(group ? { กลุ่มสินค้า: group } : {}) }) },
+    { $match: receiptMatch({ year_month: month, ราคาทุน: { $ne: null }, กลุ่มสินค้า: groupFilter(group ? [group] : null) }) },
     { $addFields: { sup: supplierNorm } },
     {
       $lookup: {
@@ -346,7 +415,7 @@ async function computeMonthStats(month: string, group: string | null = null): Pr
 
   const snapshot_pairs = await db.collection(SNAPSHOT_COLLECTION).countDocuments({
     snapshot_month: month,
-    ...(group ? { กลุ่มสินค้า: group } : {}),
+    กลุ่มสินค้า: groupFilter(group ? [group] : null),
   })
   const s = res.summary[0] ?? { receipts_checked: 0, flagged_count: 0, excess_total: 0, no_benchmark_count: 0 }
 

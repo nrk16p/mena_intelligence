@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
-import { getMonthStats, isValidMonth, SNAPSHOT_COLLECTION } from "@/lib/price-benchmark"
+import { EXCLUDED_GROUPS, getMonthStats, isValidMonth, SNAPSHOT_COLLECTION } from "@/lib/price-benchmark"
 
 export const maxDuration = 300
 
@@ -53,7 +53,7 @@ export async function GET(req: Request) {
     const groupOptions = (await client
       .db("atms")
       .collection(SNAPSHOT_COLLECTION)
-      .distinct("กลุ่มสินค้า", { snapshot_month: month, กลุ่มสินค้า: { $nin: [null, ""] } }))
+      .distinct("กลุ่มสินค้า", { snapshot_month: month, กลุ่มสินค้า: { $nin: [null, "", ...EXCLUDED_GROUPS] } }))
       .sort((a: string, b: string) => a.localeCompare(b, "th"))
 
     return NextResponse.json({ success: true, month, group, current, trend, group_options: groupOptions })

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
-import { ensureSnapshot, escapeRegex, isValidMonth, SNAPSHOT_COLLECTION } from "@/lib/price-benchmark"
+import { ensureSnapshot, escapeRegex, getContractMap, groupFilter, isValidMonth, SNAPSHOT_COLLECTION } from "@/lib/price-benchmark"
 
 export const maxDuration = 60
 
@@ -16,12 +16,14 @@ export async function GET(req: Request) {
     const month       = searchParams.get("month")
     const productCode = searchParams.get("product_code")?.trim()
     const supplier    = searchParams.get("supplier")?.trim()
-    const group       = searchParams.get("group")?.trim()
+    // `groups` = comma-separated exact group names (multi-select); legacy `group` still accepted
+    const groups      = (searchParams.get("groups") ?? searchParams.get("group") ?? "")
+      .split(",").map(s => s.trim()).filter(Boolean)
 
     if (!isValidMonth(month)) {
       return NextResponse.json({ success: false, error: "month must be YYYY-MM" }, { status: 400 })
     }
-    if (!productCode && !supplier && !group) {
+    if (!productCode && !supplier && groups.length === 0) {
       return NextResponse.json(
         { success: false, error: "ระบุอย่างน้อย 1 เงื่อนไข: product_code, supplier หรือ group" },
         { status: 400 }
@@ -36,7 +38,8 @@ export async function GET(req: Request) {
     const match: Record<string, unknown> = { snapshot_month: month }
     if (productCode) match["รหัสสินค้า"]   = { $regex: escapeRegex(productCode), $options: "i" }
     if (supplier)    match["ซัพพลายเออร์"] = { $regex: escapeRegex(supplier),    $options: "i" }
-    if (group)       match["กลุ่มสินค้า"]  = { $regex: escapeRegex(group), $options: "i" }
+    // always constrain กลุ่มสินค้า so fuel is dropped even when no group is selected
+    match["กลุ่มสินค้า"] = groupFilter(groups)
 
     // Pick the top product codes by spend, then return every supplier row for them
     const topProducts = await col.aggregate([
@@ -52,6 +55,20 @@ export async function GET(req: Request) {
       .sort({ total_cost: -1 })
       .toArray()
 
+    // Overlay negotiated contract prices in effect for this month (per สินค้า×ซัพพลายเออร์)
+    const contractMap = await getContractMap(month, codes)
+    const data = rows.map(r => {
+      const c = contractMap.get(`${r.รหัสสินค้า}||${r.ซัพพลายเออร์}`)
+      return c
+        ? {
+            ...r,
+            contract_price: c.contract_price,
+            contract_effective_start: c.effective_start,
+            contract_effective_end: c.effective_end,
+          }
+        : r
+    })
+
     const totalProducts = (await col.distinct("รหัสสินค้า", match)).length
 
     return NextResponse.json({
@@ -60,7 +77,7 @@ export async function GET(req: Request) {
       snapshot,
       total_products: totalProducts,
       truncated: totalProducts > MAX_PRODUCTS,
-      data: rows,
+      data,
     })
   } catch (error: any) {
     console.error("price-benchmark/lookup API error:", error)

@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useCallback, useEffect, useRef, useState } from "react"
+import * as XLSX from "xlsx"
 import {
   ResponsiveContainer, ComposedChart, Area, Bar, Cell, Line, ReferenceLine, Scatter,
   XAxis, YAxis, ZAxis, CartesianGrid, Tooltip,
@@ -59,6 +60,9 @@ type BenchmarkRow = {
   last_date: string
   prices: PricePoint[]
   computed_at: string
+  contract_price?: number
+  contract_effective_start?: string
+  contract_effective_end?: string | null
 }
 
 type OverpricedRow = {
@@ -143,6 +147,12 @@ function fmtDate(iso: string) {
 function nowYM() {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
+}
+
+function shiftMonth(ym: string, delta: number): string {
+  const [y, m] = ym.split("-").map(Number)
+  const d = new Date(Date.UTC(y, m - 1 + delta, 1))
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`
 }
 
 /** Weighted Tukey 1.5×IQR bounds over a price distribution sorted asc (mirrors lib). */
@@ -310,8 +320,15 @@ type TimelineMonth = {
   mode: number | null
   mode_count: number | null
   count: number
-  points: { price: number; count: number; qty: number; outlier: boolean }[]
+  points: { price: number; count: number; qty: number; supplier: string; outlier: boolean }[]
 }
+
+// Distinct colours for per-supplier scatter points (cycles for >10 suppliers)
+const SUPPLIER_COLORS = [
+  "#2563EB", "#16A34A", "#D97706", "#9333EA", "#DB2777",
+  "#0891B2", "#CA8A04", "#4F46E5", "#059669", "#E11D48",
+]
+const supplierColor = (i: number) => SUPPLIER_COLORS[i % SUPPLIER_COLORS.length]
 
 function fmtYMShort(ym: string) {
   const [y, m] = ym.split("-")
@@ -323,7 +340,7 @@ function TimelineTooltip({ active, payload }: {
   payload?: { payload: Record<string, unknown>; dataKey?: unknown; name?: string }[]
 }) {
   if (!active || !payload?.length) return null
-  const p = payload[0].payload as Partial<TimelineMonth> & { price?: number; count?: number; outlier?: boolean }
+  const p = payload[0].payload as Partial<TimelineMonth> & { price?: number; count?: number; outlier?: boolean; supplier?: string }
   const box: React.CSSProperties = {
     background: PV.ink, color: "#fff", borderRadius: 8, padding: "6px 12px",
     fontFamily: FONT_BODY, fontSize: 12, maxWidth: 240,
@@ -334,6 +351,7 @@ function TimelineTooltip({ active, payload }: {
     return (
       <div style={box}>
         <div style={{ fontWeight: 700 }}>{fmtYM(String(p.month))} — ฿{fmt(p.price)}</div>
+        {p.supplier && <div style={{ opacity: 0.9 }}>{p.supplier}</div>}
         <div style={{ opacity: 0.85 }}>{Number(p.count).toLocaleString()} ครั้ง{p.outlier ? " · outlier" : ""}</div>
       </div>
     )
@@ -357,6 +375,7 @@ function PriceTimelineChart({ code, month, supplier, benchmark, auto }: {
   auto: boolean
 }) {
   const [data, setData]       = useState<TimelineMonth[] | null>(null)
+  const [suppliers, setSuppliers] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [wanted, setWanted]   = useState(auto)
 
@@ -372,7 +391,7 @@ function PriceTimelineChart({ code, month, supplier, benchmark, auto }: {
         if (supplier) params.set("supplier", supplier)
         const res  = await fetch(`/api/price-benchmark/timeline?${params}`, { cache: "no-store" })
         const json = await res.json()
-        if (!cancelled && json.success) setData(json.monthly)
+        if (!cancelled && json.success) { setData(json.monthly); setSuppliers(json.suppliers ?? []) }
       } catch { /* keep silent — chart is supplementary */ }
       finally { if (!cancelled) setLoading(false) }
     })()
@@ -396,8 +415,22 @@ function PriceTimelineChart({ code, month, supplier, benchmark, auto }: {
   if (loading || !data) return <Skeleton h={220} />
 
   const chartData = data.map((m) => ({ ...m, band: m.min !== null && m.max !== null ? [m.min, m.max] : null }))
-  const dots        = data.flatMap((m) => m.points.filter(p => !p.outlier).map(p => ({ month: m.month, ...p })))
-  const outlierDots = data.flatMap((m) => m.points.filter(p =>  p.outlier).map(p => ({ month: m.month, ...p })))
+  // colour the top-10 suppliers; the long tail shares one "อื่นๆ" colour
+  const colorMap = new Map<string, string>()
+  suppliers.slice(0, SUPPLIER_COLORS.length).forEach((s, i) => colorMap.set(s, supplierColor(i)))
+  const colorOf = (s: string) => colorMap.get(s) ?? PV.gray
+  const hasTail = suppliers.length > SUPPLIER_COLORS.length
+  // one scatter series per supplier (non-outlier dots) so points are visually separable
+  const bySupplier = new Map<string, { month: string; price: number; count: number; qty: number; outlier: boolean }[]>()
+  for (const m of data) {
+    for (const p of m.points) {
+      if (p.outlier) continue
+      const arr = bySupplier.get(p.supplier) ?? []
+      arr.push({ month: m.month, ...p })
+      bySupplier.set(p.supplier, arr)
+    }
+  }
+  const outlierDots = data.flatMap((m) => m.points.filter(p => p.outlier).map(p => ({ month: m.month, ...p })))
 
   return (
     <div style={{ border: `1px solid ${PV.border}`, borderRadius: 8, padding: "12px 8px 4px", background: PV.surface }}>
@@ -406,9 +439,26 @@ function PriceTimelineChart({ code, month, supplier, benchmark, auto }: {
           แนวโน้มราคา 12 เดือน{supplier ? ` — ${supplier}` : " — ทุกซัพพลายเออร์"}
         </span>
         <span style={{ fontFamily: FONT_BODY, fontSize: 11, color: PV.gray }}>
-          แถบเทา = ช่วง min–max · เส้นน้ำเงิน = ราคาที่พบบ่อยสุดรายเดือน · เส้นประเขียว = ราคากลาง · จุดแดง = outlier
+          แถบเทา = ช่วง min–max · เส้นน้ำเงิน = ราคาที่พบบ่อยสุดรายเดือน · เส้นประเขียว = ราคากลาง · จุดแยกสีตามซัพพลายเออร์ · กากบาทแดง = outlier
         </span>
       </div>
+      {/* supplier colour legend */}
+      {!supplier && suppliers.length > 1 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px", padding: "0 12px 8px" }}>
+          {suppliers.slice(0, SUPPLIER_COLORS.length).map((s, i) => (
+            <span key={s} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontFamily: FONT_BODY, fontSize: 11, color: PV.gray, maxWidth: 220 }}>
+              <span style={{ width: 9, height: 9, borderRadius: 9999, background: supplierColor(i), flexShrink: 0 }} />
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s}</span>
+            </span>
+          ))}
+          {hasTail && (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontFamily: FONT_BODY, fontSize: 11, color: PV.gray }}>
+              <span style={{ width: 9, height: 9, borderRadius: 9999, background: PV.gray, flexShrink: 0 }} />
+              อื่นๆ ({suppliers.length - SUPPLIER_COLORS.length})
+            </span>
+          )}
+        </div>
+      )}
       <ResponsiveContainer width="100%" height={220}>
         <ComposedChart data={chartData} margin={{ top: 8, right: 16, bottom: 0, left: 8 }}>
           <CartesianGrid vertical={false} stroke="#F3F4F6" />
@@ -436,8 +486,10 @@ function PriceTimelineChart({ code, month, supplier, benchmark, auto }: {
             stroke={PV.blue} strokeWidth={2.5}
             dot={{ r: 3, fill: PV.blue, strokeWidth: 0 }} activeDot={{ r: 5 }}
           />
-          <Scatter data={dots} dataKey="price" name="ราคาซื้อจริง" fill={PV.gray} fillOpacity={0.55} />
-          <Scatter data={outlierDots} dataKey="price" name="outlier" fill={PV.error} fillOpacity={0.8} shape="cross" />
+          {[...bySupplier.entries()].map(([s, ds]) => (
+            <Scatter key={s} data={ds} dataKey="price" name={s} fill={colorOf(s)} fillOpacity={0.7} />
+          ))}
+          <Scatter data={outlierDots} dataKey="price" name="outlier" fill={PV.error} fillOpacity={0.85} shape="cross" />
           <ReferenceLine
             y={benchmark}
             stroke={PV.green} strokeWidth={1.5} strokeDasharray="6 4"
@@ -604,6 +656,11 @@ function SupplierSection({ row, rank, isOverall, dimmed }: {
           </span>
         </span>
 
+        {row.contract_price != null && (
+          <Chip tone={row.benchmark_price > row.contract_price ? "warning" : "success"}>
+            สัญญา ฿{fmt(row.contract_price)}
+          </Chip>
+        )}
         {stable && !isOverall && <Chip tone="success">ราคานิ่ง</Chip>}
         {lowData && (
           <span style={{ fontFamily: FONT_BODY, fontSize: 11, color: PV.gray, flexShrink: 0 }}>
@@ -734,7 +791,7 @@ function SupplierCompareTable({ rows, selectedSupplier, onSelectSupplier }: {
         <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: FONT_BODY, minWidth: 760 }}>
           <thead>
             <tr style={{ background: PV.bg, borderBottom: `1px solid ${PV.border}` }}>
-              {["ซัพพลายเออร์", "ราคากลาง (฿)", "เทียบเจ้าถูกสุด", "ครั้ง", "ความนิ่ง", "ซื้อล่าสุด", "มูลค่ารวม (฿)"].map((h, i) => (
+              {["ซัพพลายเออร์", "ราคากลาง (฿)", "ราคาสัญญา (฿)", "เทียบเจ้าถูกสุด", "ครั้ง", "ความนิ่ง", "ซื้อล่าสุด", "มูลค่ารวม (฿)"].map((h, i) => (
                 <th key={h} style={{
                   fontFamily: FONT_BODY, fontSize: 12, fontWeight: 500, color: PV.gray,
                   padding: "8px 12px", textAlign: i === 0 ? "left" : "right", whiteSpace: "nowrap",
@@ -770,6 +827,19 @@ function SupplierCompareTable({ rows, selectedSupplier, onSelectSupplier }: {
                   </td>
                   <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: FONT_MONO, fontSize: 13, fontWeight: 600, color: isBest ? PV.green : PV.ink }}>
                     {fmt(r.benchmark_price)}
+                  </td>
+                  <td
+                    style={{ padding: "8px 12px", textAlign: "right", fontFamily: FONT_MONO, fontSize: 13, color: r.contract_price == null ? PV.gray : PV.ink }}
+                    title={r.contract_price != null ? `ราคาสัญญา${r.contract_effective_start ? ` (มีผล ${fmtYM(r.contract_effective_start)}${r.contract_effective_end ? `–${fmtYM(r.contract_effective_end)}` : " เป็นต้นไป"})` : ""}` : "ไม่มีราคาสัญญา"}
+                  >
+                    {r.contract_price != null ? (
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, justifyContent: "flex-end" }}>
+                        {fmt(r.contract_price)}
+                        {r.benchmark_price > r.contract_price
+                          ? <span style={{ fontSize: 10, color: PV.error }} title="ราคากลางสูงกว่าราคาสัญญา">▲</span>
+                          : <span style={{ fontSize: 10, color: PV.green }} title="ราคากลางไม่เกินราคาสัญญา">✓</span>}
+                      </span>
+                    ) : "—"}
                   </td>
                   <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: FONT_MONO, fontSize: 13, color: isBest ? PV.gray : diffPct > 25 ? PV.error : PV.warn }}>
                     {isBest ? "—" : `+${diffPct.toFixed(0)}%`}
@@ -966,6 +1036,280 @@ function SupplierFilter({ suppliers, selected, onSelect }: {
   )
 }
 
+// ── Group multi-select ────────────────────────────────────────────────────────
+
+function GroupMultiSelect({ options, selected, onChange }: {
+  options: string[]
+  selected: string[]
+  onChange: (v: string[]) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState("")
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener("mousedown", onDoc)
+    return () => document.removeEventListener("mousedown", onDoc)
+  }, [open])
+
+  const filtered = query.trim()
+    ? options.filter(o => o.toLowerCase().includes(query.trim().toLowerCase()))
+    : options
+  const toggle = (g: string) =>
+    onChange(selected.includes(g) ? selected.filter(x => x !== g) : [...selected, g])
+
+  const label = selected.length === 0 ? "ทุกกลุ่มสินค้า" : `${selected.length} กลุ่ม`
+
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        style={{ ...inputStyle, display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", textAlign: "left" }}
+      >
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: selected.length ? PV.ink : PV.gray }}>
+          {label}
+        </span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={PV.gray} strokeWidth="2" style={{ flexShrink: 0 }}>
+          <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {selected.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
+          {selected.map(g => (
+            <span key={g} style={{ display: "inline-flex", alignItems: "center", gap: 4, background: `${PV.blue}12`, color: PV.blue, fontFamily: FONT_BODY, fontSize: 11, padding: "2px 8px", borderRadius: 4 }}>
+              {g}
+              <span onClick={() => toggle(g)} style={{ cursor: "pointer", fontWeight: 700 }}>×</span>
+            </span>
+          ))}
+        </div>
+      )}
+      {open && (
+        <div style={{
+          position: "absolute", zIndex: 20, top: "calc(100% + 4px)", left: 0, right: 0,
+          background: PV.surface, border: `1px solid ${PV.border}`, borderRadius: 8,
+          boxShadow: "0 10px 20px rgba(0,0,0,0.10), 0 20px 48px rgba(0,0,0,0.12)", maxHeight: 300, overflow: "auto",
+        }}>
+          <div style={{ padding: 8, position: "sticky", top: 0, background: PV.surface, borderBottom: `1px solid ${PV.border}`, display: "flex", gap: 8, alignItems: "center" }}>
+            <input
+              autoFocus
+              type="text"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="ค้นหากลุ่ม..."
+              style={{ ...inputStyle, height: 32, fontSize: 13 }}
+            />
+            {selected.length > 0 && (
+              <button type="button" onClick={() => onChange([])} style={{ fontFamily: FONT_BODY, fontSize: 12, color: PV.blue, background: "none", border: "none", cursor: "pointer", whiteSpace: "nowrap" }}>
+                ล้าง
+              </button>
+            )}
+          </div>
+          {filtered.length === 0 ? (
+            <div style={{ padding: 12, fontFamily: FONT_BODY, fontSize: 13, color: PV.gray, textAlign: "center" }}>ไม่พบกลุ่ม</div>
+          ) : filtered.map(g => {
+            const on = selected.includes(g)
+            return (
+              <button
+                key={g}
+                type="button"
+                onClick={() => toggle(g)}
+                style={{
+                  all: "unset", boxSizing: "border-box", display: "flex", alignItems: "center", gap: 8,
+                  width: "100%", padding: "8px 12px", cursor: "pointer",
+                  background: on ? `${PV.blue}0A` : "transparent",
+                  fontFamily: FONT_BODY, fontSize: 13, color: PV.ink,
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = PV.bg }}
+                onMouseLeave={e => { e.currentTarget.style.background = on ? `${PV.blue}0A` : "transparent" }}
+              >
+                <span style={{
+                  width: 16, height: 16, borderRadius: 4, flexShrink: 0,
+                  border: `1.5px solid ${on ? PV.blue : PV.border}`, background: on ? PV.blue : PV.surface,
+                  display: "inline-flex", alignItems: "center", justifyContent: "center",
+                }}>
+                  {on && <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3"><path d="M20 6L9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+                </span>
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Product autocomplete (รหัส + ชื่อสินค้า) ───────────────────────────────────
+
+type ProductHit = { code: string; name: string; group: string }
+
+function ProductCombobox({ month, value, onChange, onPick }: {
+  month: string
+  value: string
+  onChange: (v: string) => void
+  onPick?: (code: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [hits, setHits] = useState<ProductHit[]>([])
+  const [loading, setLoading] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener("mousedown", onDoc)
+    return () => document.removeEventListener("mousedown", onDoc)
+  }, [open])
+
+  // debounced fetch on query change
+  useEffect(() => {
+    if (!open) return
+    const q = value.trim()
+    let cancelled = false
+    setLoading(true)
+    const t = setTimeout(async () => {
+      try {
+        const params = new URLSearchParams({ month })
+        if (q) params.set("q", q)
+        const res = await fetch(`/api/price-benchmark/products?${params}`, { cache: "no-store" })
+        const json = await res.json()
+        if (!cancelled && json.success) setHits(json.data)
+      } catch { /* silent */ }
+      finally { if (!cancelled) setLoading(false) }
+    }, 250)
+    return () => { cancelled = true; clearTimeout(t) }
+  }, [value, month, open])
+
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <input
+        type="text"
+        value={value}
+        onChange={e => { onChange(e.target.value); if (!open) setOpen(true) }}
+        onFocus={() => setOpen(true)}
+        placeholder="รหัส/ชื่อสินค้า — พิมพ์เพื่อค้นหา"
+        style={inputStyle}
+      />
+      {open && (value.trim() !== "" || hits.length > 0) && (
+        <div style={{
+          position: "absolute", zIndex: 20, top: "calc(100% + 4px)", left: 0, right: 0,
+          background: PV.surface, border: `1px solid ${PV.border}`, borderRadius: 8,
+          boxShadow: "0 10px 20px rgba(0,0,0,0.10), 0 20px 48px rgba(0,0,0,0.12)", maxHeight: 320, overflow: "auto",
+        }}>
+          {loading && hits.length === 0 ? (
+            <div style={{ padding: 12, fontFamily: FONT_BODY, fontSize: 13, color: PV.gray, textAlign: "center" }}>กำลังค้นหา...</div>
+          ) : hits.length === 0 ? (
+            <div style={{ padding: 12, fontFamily: FONT_BODY, fontSize: 13, color: PV.gray, textAlign: "center" }}>ไม่พบสินค้า</div>
+          ) : hits.map(h => (
+            <button
+              key={h.code}
+              type="button"
+              onClick={() => { onChange(h.code); setOpen(false); onPick?.(h.code) }}
+              style={{
+                all: "unset", boxSizing: "border-box", display: "flex", alignItems: "center", gap: 10,
+                width: "100%", padding: "8px 12px", cursor: "pointer",
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = PV.bg }}
+              onMouseLeave={e => { e.currentTarget.style.background = "transparent" }}
+            >
+              <span style={{ fontFamily: FONT_MONO, fontSize: 12, fontWeight: 600, color: PV.blue, flexShrink: 0, minWidth: 84 }}>{h.code}</span>
+              <span style={{ flex: 1, minWidth: 0, fontFamily: FONT_BODY, fontSize: 13, color: PV.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.name || "—"}</span>
+              {h.group && <span style={{ fontFamily: FONT_BODY, fontSize: 11, color: PV.gray, flexShrink: 0 }}>{h.group}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Contract-price upload ─────────────────────────────────────────────────────
+
+function ContractUpload({ onUploaded }: { onUploaded?: () => void }) {
+  const [open, setOpen]       = useState(false)
+  const [busy, setBusy]       = useState(false)
+  const [result, setResult]   = useState<{ total_rows: number; accepted: number; upserted: number; modified: number; error_count: number; errors: { row: number; reason: string }[] } | null>(null)
+  const [error, setError]     = useState("")
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  function downloadTemplate() {
+    const rows = [
+      { รหัสสินค้า: "LB00090", ชื่อสินค้า: "ตัวอย่างสินค้า", ซัพพลายเออร์: "บริษัท ตัวอย่าง จำกัด", ราคาสัญญา: 1250, เริ่ม: "2026-01", สิ้นสุด: "2026-12", หมายเหตุ: "" },
+    ]
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, "contract")
+    XLSX.writeFile(wb, "contract-price-template.xlsx")
+  }
+
+  async function upload() {
+    const file = fileRef.current?.files?.[0]
+    if (!file) { setError("เลือกไฟล์ก่อน"); return }
+    setBusy(true); setError(""); setResult(null)
+    try {
+      const fd = new FormData()
+      fd.append("file", file)
+      const res = await fetch("/api/price-benchmark/contract", { method: "POST", body: fd })
+      const json = await res.json()
+      if (!json.success) throw new Error(json.error || "อัปโหลดไม่สำเร็จ")
+      setResult(json)
+      onUploaded?.()
+    } catch (e: any) {
+      setError(e.message || "อัปโหลดไม่สำเร็จ")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div style={{ background: PV.surface, border: `1px solid ${PV.border}`, borderRadius: 8, boxShadow: "0 1px 2px rgba(0,0,0,0.06)" }}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        style={{ all: "unset", boxSizing: "border-box", cursor: "pointer", width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px 16px" }}
+      >
+        <span style={{ fontFamily: FONT_HEAD, fontSize: 14, fontWeight: 600, color: PV.ink }}>อัปโหลดราคาสัญญา (ราคาที่เจรจากับซัพ)</span>
+        <span style={{ fontFamily: FONT_BODY, fontSize: 11, color: PV.gray }}>Excel/CSV รายสินค้า × ซัพพลายเออร์</span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={PV.gray} strokeWidth="2" style={{ marginLeft: "auto", transform: open ? "rotate(180deg)" : undefined, transition: "transform 150ms" }}>
+          <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {open && (
+        <div style={{ borderTop: `1px solid ${PV.border}`, padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+          <p style={{ fontFamily: FONT_BODY, fontSize: 12, color: PV.gray, margin: 0 }}>
+            คอลัมน์: <b>รหัสสินค้า</b>, ชื่อสินค้า, <b>ซัพพลายเออร์</b>, <b>ราคาสัญญา</b>, <b>เริ่ม</b> (YYYY-MM), สิ้นสุด (YYYY-MM, ว่าง = ไม่มีกำหนด), หมายเหตุ ·
+            ราคาจะแสดงในผลค้นหาเป็น "ราคาสัญญา" ตามช่วงเวลาที่มีผล
+          </p>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ fontFamily: FONT_BODY, fontSize: 13 }} />
+            <PrimaryButton onClick={upload} disabled={busy}>{busy ? "กำลังอัปโหลด..." : "อัปโหลด"}</PrimaryButton>
+            <SecondaryButton onClick={downloadTemplate}>ดาวน์โหลด template</SecondaryButton>
+          </div>
+          {error && (
+            <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: PV.error, background: `${PV.error}10`, border: `1px solid ${PV.error}40`, borderRadius: 8, padding: "8px 12px" }}>
+              {error}
+            </div>
+          )}
+          {result && (
+            <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: PV.ink, background: PV.bg, border: `1px solid ${PV.border}`, borderRadius: 8, padding: "10px 12px" }}>
+              อ่าน {result.total_rows.toLocaleString()} แถว · บันทึกใหม่ {result.upserted.toLocaleString()} · อัปเดต {result.modified.toLocaleString()}
+              {result.error_count > 0 && <span style={{ color: PV.warn }}> · ข้าม {result.error_count.toLocaleString()} แถว</span>}
+              {result.errors.length > 0 && (
+                <ul style={{ margin: "6px 0 0", paddingLeft: 18, color: PV.gray, fontSize: 12 }}>
+                  {result.errors.slice(0, 8).map((er, i) => <li key={i}>แถว {er.row}: {er.reason}</li>)}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Tab 1: lookup ─────────────────────────────────────────────────────────────
 
 function LookupTab({ prefill, onViewTransactions }: {
@@ -975,7 +1319,8 @@ function LookupTab({ prefill, onViewTransactions }: {
   const [month, setMonth]       = useState(nowYM())
   const [product, setProduct]   = useState("")
   const [supplier, setSupplier] = useState("")
-  const [group, setGroup]       = useState("")
+  const [groups, setGroups]     = useState<string[]>([])
+  const [groupOptions, setGroupOptions] = useState<string[]>([])
 
   const [rows, setRows]           = useState<BenchmarkRow[]>([])
   const [loading, setLoading]     = useState(false)
@@ -986,18 +1331,31 @@ function LookupTab({ prefill, onViewTransactions }: {
   const [totalProducts, setTotalProducts] = useState(0)
   const [selectedSupplier, setSelectedSupplier] = useState<string | null>(null)
 
+  // group options for the multi-select (fuel already excluded server-side)
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res  = await fetch(`/api/price-benchmark/groups?month=${month}`, { cache: "no-store" })
+        const json = await res.json()
+        if (!cancelled && json.success) setGroupOptions(json.groups ?? [])
+      } catch { /* non-critical */ }
+    })()
+    return () => { cancelled = true }
+  }, [month])
+
   const search = useCallback(async (overrides?: { product?: string; supplier?: string }) => {
     const p = overrides?.product  ?? product
     const s = overrides?.supplier ?? supplier
-    if (!p.trim() && !s.trim() && !group.trim()) {
+    if (!p.trim() && !s.trim() && groups.length === 0) {
       setError("ระบุอย่างน้อย 1 เงื่อนไข: รหัสสินค้า ซัพพลายเออร์ หรือกลุ่มสินค้า")
       return
     }
     setLoading(true); setError(""); setSearched(true); setSelectedSupplier(null)
     const params = new URLSearchParams({ month })
-    if (p.trim())     params.set("product_code", p.trim())
-    if (s.trim())     params.set("supplier", s.trim())
-    if (group.trim()) params.set("group", group.trim())
+    if (p.trim())      params.set("product_code", p.trim())
+    if (s.trim())      params.set("supplier", s.trim())
+    if (groups.length) params.set("groups", groups.join(","))
     try {
       const res  = await fetch(`/api/price-benchmark/lookup?${params}`, { cache: "no-store" })
       const json = await res.json()
@@ -1012,7 +1370,7 @@ function LookupTab({ prefill, onViewTransactions }: {
       setLoading(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [month, product, supplier, group])
+  }, [month, product, supplier, groups])
 
   // Drill-down from the overview tab: prefill fields and search immediately
   useEffect(() => {
@@ -1042,11 +1400,11 @@ function LookupTab({ prefill, onViewTransactions }: {
     }
   }
 
-  const groups = new Map<string, BenchmarkRow[]>()
+  const productGroups = new Map<string, BenchmarkRow[]>()
   for (const r of rows) {
-    const arr = groups.get(r.รหัสสินค้า) ?? []
+    const arr = productGroups.get(r.รหัสสินค้า) ?? []
     arr.push(r)
-    groups.set(r.รหัสสินค้า, arr)
+    productGroups.set(r.รหัสสินค้า, arr)
   }
   // Supplier facets ranked by spend — most relevant filter targets first
   const supplierAgg = new Map<string, { records: number; cost: number }>()
@@ -1073,8 +1431,13 @@ function LookupTab({ prefill, onViewTransactions }: {
             <input type="month" value={month} onChange={e => setMonth(e.target.value)} style={inputStyle} />
           </div>
           <div>
-            <Label>รหัสสินค้า</Label>
-            <input type="text" value={product} onChange={e => setProduct(e.target.value)} placeholder="เช่น LB00090" style={inputStyle} />
+            <Label>รหัส / ชื่อสินค้า</Label>
+            <ProductCombobox
+              month={month}
+              value={product}
+              onChange={setProduct}
+              onPick={(code) => search({ product: code })}
+            />
           </div>
           <div>
             <Label>ซัพพลายเออร์</Label>
@@ -1082,7 +1445,7 @@ function LookupTab({ prefill, onViewTransactions }: {
           </div>
           <div>
             <Label>กลุ่มสินค้า</Label>
-            <input type="text" value={group} onChange={e => setGroup(e.target.value)} placeholder="เช่น ค่าแรง, ยาง" style={inputStyle} />
+            <GroupMultiSelect options={groupOptions} selected={groups} onChange={setGroups} />
           </div>
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16, gap: 12, flexWrap: "wrap" }}>
@@ -1099,6 +1462,8 @@ function LookupTab({ prefill, onViewTransactions }: {
           </div>
         </div>
       </form>
+
+      <ContractUpload onUploaded={() => { if (searched) search() }} />
 
       {error && (
         <div style={{ fontFamily: FONT_BODY, fontSize: 14, color: PV.error, background: `${PV.error}10`, border: `1px solid ${PV.error}40`, borderRadius: 8, padding: 16 }}>
@@ -1144,14 +1509,14 @@ function LookupTab({ prefill, onViewTransactions }: {
           )}
 
           <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-            {Array.from(groups.entries()).map(([code, productRows]) => (
+            {Array.from(productGroups.entries()).map(([code, productRows]) => (
               <ProductCard
                 key={code}
                 code={code}
                 rows={productRows}
                 month={month}
                 selectedSupplier={selectedSupplier}
-                autoChart={groups.size <= 8}
+                autoChart={productGroups.size <= 8}
                 onSelectSupplier={setSelectedSupplier}
                 onViewTransactions={onViewTransactions}
               />
@@ -1193,10 +1558,12 @@ function StatTile({ label, value, tone, sub, hint }: {
 }
 
 function OverpricedTab({ prefill }: { prefill?: { product?: string; seq: number } }) {
-  const [month, setMonth]       = useState(nowYM())
+  const [start, setStart]       = useState(nowYM())
+  const [end, setEnd]           = useState(nowYM())
   const [product, setProduct]   = useState("")
   const [supplier, setSupplier] = useState("")
-  const [group, setGroup]       = useState("")
+  const [groups, setGroups]     = useState<string[]>([])
+  const [groupOptions, setGroupOptions] = useState<string[]>([])
 
   const [summary, setSummary]   = useState<OverpricedSummary | null>(null)
   const [rows, setRows]         = useState<OverpricedRow[]>([])
@@ -1205,13 +1572,43 @@ function OverpricedTab({ prefill }: { prefill?: { product?: string; seq: number 
   const [error, setError]       = useState("")
   const [searched, setSearched] = useState(false)
 
+  // Seed the range from available data: last up-to-12 months ending at the latest snapshot month
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res  = await fetch(`/api/price-benchmark/months`, { cache: "no-store" })
+        const json = await res.json()
+        if (!cancelled && json.success && json.max) {
+          const lo = json.min && json.min > shiftMonth(json.max, -11) ? json.min : shiftMonth(json.max, -11)
+          setEnd(json.max)
+          setStart(lo)
+        }
+      } catch { /* keep nowYM defaults */ }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  // group options for the multi-select (fuel excluded server-side)
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res  = await fetch(`/api/price-benchmark/groups?month=${end}`, { cache: "no-store" })
+        const json = await res.json()
+        if (!cancelled && json.success) setGroupOptions(json.groups ?? [])
+      } catch { /* non-critical */ }
+    })()
+    return () => { cancelled = true }
+  }, [end])
+
   const load = useCallback(async (overrides?: { product?: string }) => {
     const p = overrides?.product ?? product
     setLoading(true); setError(""); setSearched(true)
-    const params = new URLSearchParams({ month })
+    const params = new URLSearchParams({ start, end })
     if (p.trim())        params.set("product_code", p.trim())
     if (supplier.trim()) params.set("supplier", supplier.trim())
-    if (group.trim())    params.set("group", group.trim())
+    if (groups.length)   params.set("groups", groups.join(","))
     try {
       const res  = await fetch(`/api/price-benchmark/overpriced?${params}`, { cache: "no-store" })
       const json = await res.json()
@@ -1226,7 +1623,7 @@ function OverpricedTab({ prefill }: { prefill?: { product?: string; seq: number 
       setLoading(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [month, product, supplier, group])
+  }, [start, end, product, supplier, groups])
 
   // Drill-down from lookup: prefill product code and run immediately
   useEffect(() => {
@@ -1243,14 +1640,23 @@ function OverpricedTab({ prefill }: { prefill?: { product?: string; seq: number 
         onSubmit={e => { e.preventDefault(); load() }}
         style={{ background: PV.surface, border: `1px solid ${PV.border}`, borderRadius: 8, padding: 24, boxShadow: "0 1px 2px rgba(0,0,0,0.06)" }}
       >
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4" style={{ gap: 16 }}>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5" style={{ gap: 16 }}>
           <div>
-            <Label>เดือนที่ตรวจ</Label>
-            <input type="month" value={month} onChange={e => setMonth(e.target.value)} style={inputStyle} />
+            <Label>เดือนเริ่มต้น</Label>
+            <input type="month" value={start} max={end} onChange={e => setStart(e.target.value)} style={inputStyle} />
           </div>
           <div>
-            <Label>รหัสสินค้า</Label>
-            <input type="text" value={product} onChange={e => setProduct(e.target.value)} placeholder="ว่าง = ทั้งหมด" style={inputStyle} />
+            <Label>เดือนสิ้นสุด</Label>
+            <input type="month" value={end} min={start} onChange={e => setEnd(e.target.value)} style={inputStyle} />
+          </div>
+          <div>
+            <Label>รหัส / ชื่อสินค้า</Label>
+            <ProductCombobox
+              month={end}
+              value={product}
+              onChange={setProduct}
+              onPick={(code) => load({ product: code })}
+            />
           </div>
           <div>
             <Label>ซัพพลายเออร์</Label>
@@ -1258,10 +1664,13 @@ function OverpricedTab({ prefill }: { prefill?: { product?: string; seq: number 
           </div>
           <div>
             <Label>กลุ่มสินค้า</Label>
-            <input type="text" value={group} onChange={e => setGroup(e.target.value)} placeholder="ว่าง = ทั้งหมด" style={inputStyle} />
+            <GroupMultiSelect options={groupOptions} selected={groups} onChange={setGroups} />
           </div>
         </div>
-        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16, gap: 12, flexWrap: "wrap" }}>
+          <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: PV.gray }}>
+            ตรวจช่วง {fmtYM(start)} – {fmtYM(end)} · เลือกได้สูงสุด 12 เดือน (ช่วงกว้างใช้เวลานานขึ้น)
+          </span>
           <PrimaryButton type="submit" disabled={loading}>
             {loading ? "กำลังตรวจสอบ..." : "ตรวจสอบรายการซื้อ"}
           </PrimaryButton>
@@ -1287,7 +1696,7 @@ function OverpricedTab({ prefill }: { prefill?: { product?: string; seq: number 
         <div style={{ background: PV.surface, border: `1px solid ${PV.border}`, borderRadius: 8, padding: 64, textAlign: "center" }}>
           <p style={{ fontFamily: FONT_HEAD, fontSize: 16, fontWeight: 600, color: PV.ink }}>ตรวจจับรายการซื้อที่แพงกว่าราคากลาง</p>
           <p style={{ fontFamily: FONT_BODY, fontSize: 14, color: PV.gray, marginTop: 4 }}>
-            เลือกเดือน แล้วระบบจะเทียบทุกรายการรับเข้ากับราคากลางของเดือนนั้น — แพงกว่าเมื่อไหร่ flag ทันที
+            เลือกช่วงเดือน แล้วระบบจะเทียบทุกรายการรับเข้ากับราคากลางของเดือนนั้น ๆ — แพงกว่าเมื่อไหร่ flag ทันที
           </p>
         </div>
       )}
