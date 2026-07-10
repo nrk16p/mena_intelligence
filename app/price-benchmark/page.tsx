@@ -1867,7 +1867,7 @@ function OverviewTab({ onDrillProduct, onDrillSupplier }: {
   onDrillSupplier: (name: string) => void
 }) {
   const [month, setMonth]     = useState(nowYM())
-  const [group, setGroup]     = useState("")
+  const [groups, setGroups]   = useState<string[]>([])
   const [groupOptions, setGroupOptions] = useState<string[]>([])
   const [stats, setStats]     = useState<MonthStats | null>(null)
   const [trend, setTrend]     = useState<TrendPoint[]>([])
@@ -1890,7 +1890,7 @@ function OverviewTab({ onDrillProduct, onDrillSupplier }: {
         if (!j.success) throw new Error(j.error || "API error")
       }
       const params = new URLSearchParams({ month })
-      if (group) params.set("group", group)
+      if (groups.length) params.set("groups", groups.join(","))
       if (force) params.set("force", "1")
       const res  = await fetch(`/api/price-benchmark/dashboard?${params}`, { cache: "no-store" })
       const json = await res.json()
@@ -1898,7 +1898,7 @@ function OverviewTab({ onDrillProduct, onDrillSupplier }: {
       setStats(json.current)
       setTrend(json.trend)
       if (Array.isArray(json.group_options)) setGroupOptions(json.group_options)
-      loadedKey.current = `${month}|${group}`
+      loadedKey.current = `${month}|${groups.join(",")}`
     } catch (e: any) {
       setError(e.message || "โหลดข้อมูลไม่สำเร็จ")
     } finally {
@@ -1906,12 +1906,12 @@ function OverviewTab({ onDrillProduct, onDrillSupplier }: {
       setLoading(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [month, group])
+  }, [month, groups])
 
   useEffect(() => {
-    if (loadedKey.current !== `${month}|${group}`) load()
+    if (loadedKey.current !== `${month}|${groups.join(",")}`) load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [month, group])
+  }, [month, groups])
 
   const s = stats?.summary
   const flaggedPct = s && s.receipts_checked > 0 ? (s.flagged_count / s.receipts_checked) * 100 : 0
@@ -1924,18 +1924,9 @@ function OverviewTab({ onDrillProduct, onDrillSupplier }: {
           <Label>เดือน</Label>
           <input type="month" value={month} onChange={e => setMonth(e.target.value)} style={{ ...inputStyle, width: 180 }} />
         </div>
-        <div>
+        <div style={{ width: 240 }}>
           <Label>กลุ่มสินค้า</Label>
-          <select
-            value={group}
-            onChange={e => setGroup(e.target.value)}
-            style={{ ...inputStyle, width: 240 }}
-          >
-            <option value="">ทุกกลุ่มสินค้า</option>
-            {groupOptions.map(g => (
-              <option key={g} value={g}>{g}</option>
-            ))}
-          </select>
+          <GroupMultiSelect options={groupOptions} selected={groups} onChange={setGroups} />
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
           {stats && (
@@ -1980,7 +1971,7 @@ function OverviewTab({ onDrillProduct, onDrillSupplier }: {
               label="รายการซื้อแพงกว่าราคากลาง"
               value={`${s.flagged_count.toLocaleString()} รายการ`}
               tone="error"
-              sub={`จากรายการรับเข้าที่ตรวจทั้งหมด ${s.receipts_checked.toLocaleString()} รายการ ในเดือน ${fmtYM(month)}${group ? ` เฉพาะกลุ่ม ${group}` : ""}`}
+              sub={`จากรายการรับเข้าที่ตรวจทั้งหมด ${s.receipts_checked.toLocaleString()} รายการ ในเดือน ${fmtYM(month)}${groups.length ? ` เฉพาะ ${groups.length} กลุ่ม` : ""}`}
               hint="รายการรับเข้า (รับ > 0) ที่ราคาต่อหน่วยสูงกว่าราคากลางของสินค้า×ซัพพลายเออร์คู่นั้น แม้แต่บาทเดียวก็นับ"
             />
             <StatTile
