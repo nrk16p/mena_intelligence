@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useCallback, useEffect, useRef, useState } from "react"
+import dynamic from "next/dynamic"
 import * as XLSX from "xlsx"
 import {
   ResponsiveContainer, ComposedChart, Area, Bar, Cell, Line, ReferenceLine, Scatter,
@@ -367,6 +368,12 @@ function TimelineTooltip({ active, payload }: {
   )
 }
 
+// Plotly is heavy — load the 3D view lazily, only when the user opens it
+const PriceScatter3D = dynamic(() => import("@/components/PriceScatter3D"), {
+  ssr: false,
+  loading: () => <Skeleton h={460} />,
+})
+
 function PriceTimelineChart({ code, month, supplier, benchmark, auto }: {
   code: string
   month: string
@@ -378,6 +385,7 @@ function PriceTimelineChart({ code, month, supplier, benchmark, auto }: {
   const [suppliers, setSuppliers] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [wanted, setWanted]   = useState(auto)
+  const [is3d, setIs3d]       = useState(false)
 
   useEffect(() => { setWanted(auto) }, [auto])
 
@@ -420,6 +428,8 @@ function PriceTimelineChart({ code, month, supplier, benchmark, auto }: {
   suppliers.slice(0, SUPPLIER_COLORS.length).forEach((s, i) => colorMap.set(s, supplierColor(i)))
   const colorOf = (s: string) => colorMap.get(s) ?? PV.gray
   const hasTail = suppliers.length > SUPPLIER_COLORS.length
+  const colorRecord: Record<string, string> = {}
+  suppliers.forEach((s, i) => { colorRecord[s] = i < SUPPLIER_COLORS.length ? supplierColor(i) : PV.gray })
   // one scatter series per supplier (non-outlier dots) so points are visually separable
   const bySupplier = new Map<string, { month: string; price: number; count: number; qty: number; outlier: boolean }[]>()
   for (const m of data) {
@@ -438,8 +448,28 @@ function PriceTimelineChart({ code, month, supplier, benchmark, auto }: {
         <span style={{ fontFamily: FONT_HEAD, fontSize: 14, fontWeight: 600, color: PV.ink }}>
           แนวโน้มราคา 12 เดือน{supplier ? ` — ${supplier}` : " — ทุกซัพพลายเออร์"}
         </span>
-        <span style={{ fontFamily: FONT_BODY, fontSize: 11, color: PV.gray }}>
-          แถบเทา = ช่วง min–max · เส้นน้ำเงิน = ราคาที่พบบ่อยสุดรายเดือน · เส้นประเขียว = ราคากลาง · จุดแยกสีตามซัพพลายเออร์ · กากบาทแดง = outlier
+        {/* 2D / 3D toggle */}
+        <div style={{ display: "inline-flex", border: `1px solid ${PV.border}`, borderRadius: 8, overflow: "hidden" }}>
+          {([["2D", false], ["3D", true]] as const).map(([lab, v]) => (
+            <button
+              key={lab}
+              type="button"
+              onClick={() => setIs3d(v)}
+              style={{
+                fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                padding: "5px 14px", border: "none",
+                background: is3d === v ? PV.blue : PV.surface,
+                color: is3d === v ? "#fff" : PV.gray,
+              }}
+            >
+              {lab}
+            </button>
+          ))}
+        </div>
+        <span style={{ fontFamily: FONT_BODY, fontSize: 11, color: PV.gray, flexBasis: "100%" }}>
+          {is3d
+            ? "3 แกน: เดือน × ซัพพลายเออร์ × ราคา · ขนาดจุด = จำนวนครั้ง · ลากเพื่อหมุน · ล้อเมาส์ซูม · กากบาท = outlier"
+            : "แถบเทา = ช่วง min–max · เส้นน้ำเงิน = ราคาที่พบบ่อยสุดรายเดือน · เส้นประเขียว = ราคากลาง · จุดแยกสีตามซัพพลายเออร์ · กากบาทแดง = outlier"}
         </span>
       </div>
       {/* supplier colour legend */}
@@ -459,6 +489,9 @@ function PriceTimelineChart({ code, month, supplier, benchmark, auto }: {
           )}
         </div>
       )}
+      {is3d ? (
+        <PriceScatter3D data={data} suppliers={suppliers} colorMap={colorRecord} />
+      ) : (
       <ResponsiveContainer width="100%" height={220}>
         <ComposedChart data={chartData} margin={{ top: 8, right: 16, bottom: 0, left: 8 }}>
           <CartesianGrid vertical={false} stroke="#F3F4F6" />
@@ -497,6 +530,7 @@ function PriceTimelineChart({ code, month, supplier, benchmark, auto }: {
           />
         </ComposedChart>
       </ResponsiveContainer>
+      )}
     </div>
   )
 }
