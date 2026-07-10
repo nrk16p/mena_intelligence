@@ -1195,7 +1195,8 @@ function ProductCombobox({ month, value, onChange, onPick }: {
       />
       {open && (value.trim() !== "" || hits.length > 0) && (
         <div style={{
-          position: "absolute", zIndex: 20, top: "calc(100% + 4px)", left: 0, right: 0,
+          position: "absolute", zIndex: 20, top: "calc(100% + 4px)", left: 0,
+          minWidth: "100%", width: "max-content", maxWidth: "min(560px, 92vw)",
           background: PV.surface, border: `1px solid ${PV.border}`, borderRadius: 8,
           boxShadow: "0 10px 20px rgba(0,0,0,0.10), 0 20px 48px rgba(0,0,0,0.12)", maxHeight: 320, overflow: "auto",
         }}>
@@ -1209,15 +1210,15 @@ function ProductCombobox({ month, value, onChange, onPick }: {
               type="button"
               onClick={() => { onChange(h.code); setOpen(false); onPick?.(h.code) }}
               style={{
-                all: "unset", boxSizing: "border-box", display: "flex", alignItems: "center", gap: 10,
+                all: "unset", boxSizing: "border-box", display: "flex", alignItems: "flex-start", gap: 10,
                 width: "100%", padding: "8px 12px", cursor: "pointer",
               }}
               onMouseEnter={e => { e.currentTarget.style.background = PV.bg }}
               onMouseLeave={e => { e.currentTarget.style.background = "transparent" }}
             >
               <span style={{ fontFamily: FONT_MONO, fontSize: 12, fontWeight: 600, color: PV.blue, flexShrink: 0, minWidth: 84 }}>{h.code}</span>
-              <span style={{ flex: 1, minWidth: 0, fontFamily: FONT_BODY, fontSize: 13, color: PV.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.name || "—"}</span>
-              {h.group && <span style={{ fontFamily: FONT_BODY, fontSize: 11, color: PV.gray, flexShrink: 0 }}>{h.group}</span>}
+              <span style={{ flex: 1, minWidth: 0, fontFamily: FONT_BODY, fontSize: 13, color: PV.ink, whiteSpace: "normal", wordBreak: "break-word", lineHeight: 1.35 }}>{h.name || "—"}</span>
+              {h.group && <span style={{ fontFamily: FONT_BODY, fontSize: 11, color: PV.gray, flexShrink: 0, whiteSpace: "nowrap" }}>{h.group}</span>}
             </button>
           ))}
         </div>
