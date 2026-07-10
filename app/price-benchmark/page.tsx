@@ -336,24 +336,35 @@ function fmtYMShort(ym: string) {
   return `${TH_MONTHS[Number(m)] ?? m}${String(Number(y) + 543).slice(-2)}`
 }
 
-function TimelineTooltip({ active, payload }: {
+function TimelineTooltip({ active, payload, pointMap }: {
   active?: boolean
   payload?: { payload: Record<string, unknown>; dataKey?: unknown; name?: string }[]
+  pointMap?: Map<string, { supplier: string; count: number }[]>
 }) {
   if (!active || !payload?.length) return null
   const p = payload[0].payload as Partial<TimelineMonth> & { price?: number; count?: number; outlier?: boolean; supplier?: string }
   const box: React.CSSProperties = {
     background: PV.ink, color: "#fff", borderRadius: 8, padding: "6px 12px",
-    fontFamily: FONT_BODY, fontSize: 12, maxWidth: 240,
+    fontFamily: FONT_BODY, fontSize: 12, maxWidth: 280,
     boxShadow: "0 10px 20px rgba(0,0,0,0.10), 0 20px 48px rgba(0,0,0,0.12)",
   }
-  // dot hover
+  // dot hover — list every supplier sitting at this exact เดือน×ราคา point
   if (p.price !== undefined) {
+    const list = pointMap?.get(`${p.month}|${p.price}`)
+      ?? (p.supplier ? [{ supplier: p.supplier, count: Number(p.count) || 0 }] : [])
+    const totalCount = list.reduce((s, x) => s + x.count, 0)
     return (
       <div style={box}>
         <div style={{ fontWeight: 700 }}>{fmtYM(String(p.month))} — ฿{fmt(p.price)}</div>
-        {p.supplier && <div style={{ opacity: 0.9 }}>{p.supplier}</div>}
-        <div style={{ opacity: 0.85 }}>{Number(p.count).toLocaleString()} ครั้ง{p.outlier ? " · outlier" : ""}</div>
+        <div style={{ opacity: 0.85, marginBottom: list.length ? 4 : 0 }}>
+          {totalCount.toLocaleString()} ครั้ง · {list.length} ซัพพลายเออร์{p.outlier ? " · outlier" : ""}
+        </div>
+        {list.map((x, i) => (
+          <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 12, lineHeight: 1.5 }}>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 210 }}>{x.supplier}</span>
+            <span style={{ opacity: 0.8, flexShrink: 0 }}>{x.count.toLocaleString()}</span>
+          </div>
+        ))}
       </div>
     )
   }
@@ -441,6 +452,15 @@ function PriceTimelineChart({ code, month, supplier, benchmark, auto }: {
     }
   }
   const outlierDots = data.flatMap((m) => m.points.filter(p => p.outlier).map(p => ({ month: m.month, ...p })))
+  // every supplier sitting at each เดือน×ราคา coordinate → richer dot tooltip
+  const pointMap = new Map<string, { supplier: string; count: number }[]>()
+  for (const m of data) for (const p of m.points) {
+    const key = `${m.month}|${p.price}`
+    const arr = pointMap.get(key) ?? []
+    arr.push({ supplier: p.supplier, count: p.count })
+    pointMap.set(key, arr)
+  }
+  for (const arr of pointMap.values()) arr.sort((a, b) => b.count - a.count)
 
   return (
     <div style={{ border: `1px solid ${PV.border}`, borderRadius: 8, padding: "12px 8px 4px", background: PV.surface }}>
@@ -469,7 +489,7 @@ function PriceTimelineChart({ code, month, supplier, benchmark, auto }: {
         <span style={{ fontFamily: FONT_BODY, fontSize: 11, color: PV.gray, flexBasis: "100%" }}>
           {is3d
             ? "3 แกน: เดือน × ซัพพลายเออร์ × ราคา · ขนาดจุด = จำนวนครั้ง · ลากเพื่อหมุน · ล้อเมาส์ซูม · กากบาท = outlier"
-            : "แถบเทา = ช่วง min–max · เส้นน้ำเงิน = ราคาที่พบบ่อยสุดรายเดือน · เส้นประเขียว = ราคากลาง · จุดแยกสีตามซัพพลายเออร์ · กากบาทแดง = outlier"}
+            : "แถบเทา = ช่วง min–max · เส้นน้ำเงิน = ราคาที่พบบ่อยสุดรายเดือน · เส้นประเขียว = ราคากลาง · จุดแยกสีตามซัพพลายเออร์ · กากบาทแดง = outlier · hover จุดเพื่อดูซัพทุกเจ้าที่ราคานั้น"}
         </span>
       </div>
       {/* supplier colour legend */}
@@ -509,7 +529,7 @@ function PriceTimelineChart({ code, month, supplier, benchmark, auto }: {
             domain={["auto", "auto"]}
           />
           <ZAxis type="number" dataKey="count" range={[30, 220]} />
-          <Tooltip content={<TimelineTooltip />} />
+          <Tooltip content={<TimelineTooltip pointMap={pointMap} />} />
           <Area
             dataKey="band" name="ช่วง min–max" type="monotone" connectNulls
             stroke="none" fill="#9CA3AF" fillOpacity={0.18} activeDot={false}
