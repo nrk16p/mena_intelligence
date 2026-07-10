@@ -342,14 +342,22 @@ function TimelineTooltip({ active, payload, pointMap }: {
   pointMap?: Map<string, { supplier: string; count: number }[]>
 }) {
   if (!active || !payload?.length) return null
-  const p = payload[0].payload as Partial<TimelineMonth> & { price?: number; count?: number; outlier?: boolean; supplier?: string }
   const box: React.CSSProperties = {
     background: PV.ink, color: "#fff", borderRadius: 8, padding: "6px 12px",
     fontFamily: FONT_BODY, fontSize: 12, maxWidth: 280,
     boxShadow: "0 10px 20px rgba(0,0,0,0.10), 0 20px 48px rgba(0,0,0,0.12)",
   }
+  // A scatter dot carries `supplier`; the band/line entries do not. Prefer the
+  // dot even when the band/mode line is also active at this x, so every point
+  // always shows supplier + count + price.
+  const dot = payload.find(e => {
+    const pl = e.payload as { price?: number; supplier?: string }
+    return pl?.price !== undefined && pl?.supplier !== undefined
+  })?.payload as (Partial<TimelineMonth> & { price?: number; count?: number; outlier?: boolean; supplier?: string }) | undefined
+
   // dot hover — list every supplier sitting at this exact เดือน×ราคา point
-  if (p.price !== undefined) {
+  if (dot) {
+    const p = dot
     const list = pointMap?.get(`${p.month}|${p.price}`)
       ?? (p.supplier ? [{ supplier: p.supplier, count: Number(p.count) || 0 }] : [])
     const totalCount = list.reduce((s, x) => s + x.count, 0)
@@ -368,7 +376,8 @@ function TimelineTooltip({ active, payload, pointMap }: {
       </div>
     )
   }
-  // band / mode hover
+  // band / mode hover (no dot under the cursor)
+  const p = payload[0].payload as Partial<TimelineMonth>
   if (p.mode === null || p.mode === undefined) return null
   return (
     <div style={box}>
