@@ -394,11 +394,12 @@ const PriceScatter3D = dynamic(() => import("@/components/PriceScatter3D"), {
   loading: () => <Skeleton h={460} />,
 })
 
-function PriceTimelineChart({ code, month, supplier, benchmark, auto }: {
+function PriceTimelineChart({ code, month, supplier, benchmark, contracts = [], auto }: {
   code: string
   month: string
   supplier: string | null
   benchmark: number
+  contracts?: { supplier: string; price: number }[]
   auto: boolean
 }) {
   const [data, setData]       = useState<TimelineMonth[] | null>(null)
@@ -498,7 +499,7 @@ function PriceTimelineChart({ code, month, supplier, benchmark, auto }: {
         <span style={{ fontFamily: FONT_BODY, fontSize: 11, color: PV.gray, flexBasis: "100%" }}>
           {is3d
             ? "3 แกน: เดือน × ซัพพลายเออร์ × ราคา · ขนาดจุด = จำนวนครั้ง · ลากเพื่อหมุน · ล้อเมาส์ซูม · กากบาท = outlier"
-            : "แถบเทา = ช่วง min–max · เส้นน้ำเงิน = ราคาที่พบบ่อยสุดรายเดือน · เส้นประเขียว = ราคากลาง · จุดแยกสีตามซัพพลายเออร์ · กากบาทแดง = outlier · hover จุดเพื่อดูซัพทุกเจ้าที่ราคานั้น"}
+            : "แถบเทา = ช่วง min–max · เส้นน้ำเงิน = ราคาที่พบบ่อยสุดรายเดือน · เส้นประเขียว = ราคากลาง · เส้นประสีซัพ = ราคาสัญญาของซัพเจ้านั้น · จุดแยกสีตามซัพพลายเออร์ · กากบาทแดง = outlier · hover จุดเพื่อดูซัพทุกเจ้าที่ราคานั้น"}
         </span>
       </div>
       {/* supplier colour legend */}
@@ -557,6 +558,20 @@ function PriceTimelineChart({ code, month, supplier, benchmark, auto }: {
             stroke={PV.green} strokeWidth={1.5} strokeDasharray="6 4"
             label={{ value: `ราคากลาง ${fmt(benchmark)}`, position: "insideTopRight", fill: PV.green, fontSize: 11, fontFamily: FONT_BODY }}
           />
+          {/* ราคาสัญญาต่อซัพ — เส้นแนวนอน สีเดียวกับจุด scatter ของซัพเจ้านั้น */}
+          {contracts
+            .filter(c => !supplier || c.supplier === supplier)
+            .map(c => (
+              <ReferenceLine
+                key={`ct-${c.supplier}`}
+                y={c.price}
+                ifOverflow="extendDomain"
+                stroke={colorRecord[c.supplier] ?? PV.gray}
+                strokeWidth={1.5}
+                strokeDasharray="2 3"
+                label={{ value: `สัญญา ${fmt(c.price)}`, position: "insideBottomRight", fill: colorRecord[c.supplier] ?? PV.gray, fontSize: 10, fontFamily: FONT_BODY }}
+              />
+            ))}
         </ComposedChart>
       </ResponsiveContainer>
       )}
@@ -944,6 +959,9 @@ function ProductCard({ code, rows, month, selectedSupplier, autoChart, onSelectS
 }) {
   const overall = aggregateProduct(rows)
   const ranked  = [...rows].sort((a, b) => b.total_cost - a.total_cost)
+  const contracts = rows
+    .filter(r => r.contract_price != null)
+    .map(r => ({ supplier: r.ซัพพลายเออร์, price: r.contract_price as number }))
   return (
     <div
       style={{
@@ -973,6 +991,7 @@ function ProductCard({ code, rows, month, selectedSupplier, autoChart, onSelectS
           month={month}
           supplier={selectedSupplier}
           benchmark={overall.benchmark_price}
+          contracts={contracts}
           auto={autoChart}
         />
         {rows.length > 1 && <SupplierSection row={overall} rank={0} isOverall dimmed={false} />}
