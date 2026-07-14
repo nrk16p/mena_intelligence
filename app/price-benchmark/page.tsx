@@ -499,7 +499,7 @@ function PriceTimelineChart({ code, month, supplier, benchmark, contracts = [], 
         <span style={{ fontFamily: FONT_BODY, fontSize: 11, color: PV.gray, flexBasis: "100%" }}>
           {is3d
             ? "3 แกน: เดือน × ซัพพลายเออร์ × ราคา · ขนาดจุด = จำนวนครั้ง · ลากเพื่อหมุน · ล้อเมาส์ซูม · กากบาท = outlier"
-            : "แถบเทา = ช่วง min–max · เส้นน้ำเงิน = ราคาที่พบบ่อยสุดรายเดือน · เส้นประเขียว = ราคากลาง · เส้นทึบสีซัพ = ราคาสัญญาของซัพเจ้านั้น · จุดแยกสีตามซัพพลายเออร์ · กากบาทแดง = outlier · hover จุดเพื่อดูซัพทุกเจ้าที่ราคานั้น"}
+            : "แถบเทา = ช่วง min–max · เส้นน้ำเงิน = ราคาที่พบบ่อยสุดรายเดือน · เส้นประเขียว = ราคากลาง · เส้นประสีซัพ = ราคาสัญญาของซัพเจ้านั้น · จุดแยกสีตามซัพพลายเออร์ · กากบาทแดง = outlier · hover จุดเพื่อดูซัพทุกเจ้าที่ราคานั้น"}
         </span>
       </div>
       {/* supplier colour legend */}
@@ -568,7 +568,8 @@ function PriceTimelineChart({ code, month, supplier, benchmark, contracts = [], 
                 ifOverflow="extendDomain"
                 stroke={colorRecord[c.supplier] ?? PV.gray}
                 strokeWidth={1.5}
-                label={{ value: `สัญญา ${fmt(c.price)}`, position: "insideBottomRight", fill: colorRecord[c.supplier] ?? PV.gray, fontSize: 10, fontFamily: FONT_BODY }}
+                strokeDasharray="2 3"
+                label={{ value: `สัญญา ${fmt(c.price)} · ${c.supplier}`, position: "insideBottomRight", fill: colorRecord[c.supplier] ?? PV.gray, fontSize: 10, fontFamily: FONT_BODY }}
               />
             ))}
         </ComposedChart>
