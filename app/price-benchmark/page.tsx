@@ -78,12 +78,12 @@ type OverpricedRow = {
   รับ: number
   ราคาทุน: number
   ยอดเงิน: number
-  benchmark_price: number
-  benchmark_count: number
-  benchmark_records: number
+  benchmark_price: number | null
+  benchmark_count: number | null
+  benchmark_records: number | null
   iqr_upper: number | null
-  status: "ok" | "warning" | "critical"
-  diff: number
+  status: "ok" | "warning" | "critical" | "no_benchmark"
+  diff: number | null
   diff_pct: number | null
   excess_total: number
 }
@@ -1796,7 +1796,7 @@ function OverpricedTab({ prefill }: { prefill?: { product?: string; seq: number 
 
           {truncated && (
             <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: PV.warn, background: `${PV.warn}10`, border: `1px solid ${PV.warn}40`, borderRadius: 8, padding: "10px 16px" }}>
-              แสดง 500 แถวแรก (เรียงรายการแพงกว่าราคากลางขึ้นก่อน) — กรองเงื่อนไขเพิ่มเพื่อดูรายการที่เหลือ
+              ข้อมูลเยอะเกิน — แสดงบางส่วน (เรียงรายการแพงกว่าราคากลางขึ้นก่อน) กรองเงื่อนไข/แคบช่วงเดือนเพื่อดูให้ครบ
             </div>
           )}
 
@@ -1806,25 +1806,27 @@ function OverpricedTab({ prefill }: { prefill?: { product?: string; seq: number 
               <input type="checkbox" checked={onlyOver} onChange={e => setOnlyOver(e.target.checked)} style={{ width: 16, height: 16, accentColor: PV.error }} />
               แสดงเฉพาะที่แพงกว่าราคากลาง
             </label>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 14, fontFamily: FONT_BODY, fontSize: 12, color: PV.gray }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 14, fontFamily: FONT_BODY, fontSize: 12, color: PV.gray, flexWrap: "wrap" }}>
               <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: PV.error, marginRight: 5, verticalAlign: "middle" }} />แพงกว่าราคากลาง</span>
               <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: PV.green, marginRight: 5, verticalAlign: "middle" }} />ไม่เกินราคากลาง</span>
+              <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: PV.gray, marginRight: 5, verticalAlign: "middle" }} />ไม่มีราคากลาง</span>
             </span>
           </div>
 
           {(() => {
-            const displayRows = onlyOver ? rows.filter(r => r.status !== "ok") : rows
+            const displayRows = onlyOver ? rows.filter(r => r.status === "warning" || r.status === "critical") : rows
             if (displayRows.length === 0) {
               return (
                 <div style={{ background: PV.surface, border: `1px solid ${PV.border}`, borderRadius: 8, padding: 48, textAlign: "center", fontFamily: FONT_BODY, fontSize: 14, color: PV.green }}>
-                  {rows.length === 0 ? "ไม่มีรายการที่มีราคากลางให้เทียบในเงื่อนไขนี้" : "✓ ไม่พบรายการซื้อที่แพงกว่าราคากลางในเงื่อนไขนี้"}
+                  {rows.length === 0 ? "ไม่มีรายการในเงื่อนไขนี้" : "✓ ไม่พบรายการซื้อที่แพงกว่าราคากลางในเงื่อนไขนี้"}
                 </div>
               )
             }
+            const withinCount = summary.receipts_checked - summary.flagged_count - summary.no_benchmark_count
             return (
             <div style={{ background: PV.surface, border: `1px solid ${PV.border}`, borderRadius: 8, overflow: "hidden", boxShadow: "0 1px 2px rgba(0,0,0,0.06)" }}>
               <div style={{ padding: "8px 16px", borderBottom: `1px solid ${PV.border}`, fontFamily: FONT_BODY, fontSize: 12, color: PV.gray }}>
-                แสดง {displayRows.length.toLocaleString()} แถว · แพงกว่าราคากลาง {summary.flagged_count.toLocaleString()} · ไม่เกิน {(summary.receipts_checked - summary.flagged_count - summary.no_benchmark_count).toLocaleString()}
+                แสดง {displayRows.length.toLocaleString()} แถว · แพงกว่าราคากลาง {summary.flagged_count.toLocaleString()} · ไม่เกิน {withinCount.toLocaleString()} · ไม่มีราคากลาง {summary.no_benchmark_count.toLocaleString()}
               </div>
               {/* Scrolls both axes so the sticky header stays pinned while browsing rows */}
               <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "70vh" }}>
@@ -1845,10 +1847,11 @@ function OverpricedTab({ prefill }: { prefill?: { product?: string; seq: number 
                   </thead>
                   <tbody>
                     {displayRows.map((r, i) => {
-                      const over = r.status !== "ok"
-                      const bar  = r.status === "critical" ? PV.error : r.status === "warning" ? PV.warn : PV.green
+                      const over    = r.status === "warning" || r.status === "critical"
+                      const noBench = r.status === "no_benchmark"
+                      const bar  = r.status === "critical" ? PV.error : r.status === "warning" ? PV.warn : noBench ? "#D1D5DB" : PV.green
                       return (
-                      <tr key={i} style={{ borderBottom: "1px solid #F3F4F6", background: over ? `${PV.error}06` : undefined }}>
+                      <tr key={i} style={{ borderBottom: "1px solid #F3F4F6", background: over ? `${PV.error}06` : undefined, opacity: noBench ? 0.72 : 1 }}>
                         <td style={{ padding: 0, width: 4, background: bar }} />
                         <td style={{ padding: "8px 12px", fontFamily: FONT_MONO, fontSize: 12, color: PV.gray }}>{i + 1}</td>
                         <td style={{ padding: "8px 12px", fontSize: 13, color: PV.ink, whiteSpace: "nowrap" }}>{fmtDate(r.วันที่)}</td>
@@ -1862,9 +1865,8 @@ function OverpricedTab({ prefill }: { prefill?: { product?: string; seq: number 
                         </td>
                         <td style={{ padding: "8px 12px", fontSize: 12, color: PV.gray, whiteSpace: "nowrap" }}>{r.คลังสินค้า}</td>
                         <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: FONT_MONO, fontSize: 13, fontWeight: 600, color: over ? PV.error : PV.ink }}>{fmt(r.ราคาทุน)}</td>
-                        <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: FONT_MONO, fontSize: 13, color: PV.green }}>
-                          {fmt(r.benchmark_price)}
-                          <span style={{ fontSize: 10, color: PV.gray }}> ({r.benchmark_count}/{r.benchmark_records})</span>
+                        <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: FONT_MONO, fontSize: 13, color: noBench ? PV.gray : PV.green }}>
+                          {noBench ? "—" : <>{fmt(r.benchmark_price)}<span style={{ fontSize: 10, color: PV.gray }}> ({r.benchmark_count}/{r.benchmark_records})</span></>}
                         </td>
                         <td style={{ padding: "8px 12px", textAlign: "right", whiteSpace: "nowrap" }}>
                           {over ? (
@@ -1872,6 +1874,8 @@ function OverpricedTab({ prefill }: { prefill?: { product?: string; seq: number 
                               +{fmt(r.diff)}{r.diff_pct !== null ? ` (${r.diff_pct.toFixed(1)}%)` : ""}
                               {r.status === "critical" ? " · หลุด IQR" : ""}
                             </Chip>
+                          ) : noBench ? (
+                            <Chip tone="neutral">ไม่มีราคากลาง</Chip>
                           ) : (
                             <Chip tone="success">
                               {r.diff === 0 ? "= ราคากลาง" : `${fmt(r.diff)}${r.diff_pct !== null ? ` (${r.diff_pct.toFixed(1)}%)` : ""}`}
@@ -1887,7 +1891,7 @@ function OverpricedTab({ prefill }: { prefill?: { product?: string; seq: number 
               </div>
               {summary.no_benchmark_count > 0 && (
                 <div style={{ padding: "8px 16px", background: PV.bg, borderTop: `1px solid ${PV.border}`, fontFamily: FONT_BODY, fontSize: 12, color: PV.gray }}>
-                  หมายเหตุ: {summary.no_benchmark_count.toLocaleString()} รายการไม่มีราคากลางให้เทียบ (ไม่เคยซื้อคู่สินค้า×ซัพพลายเออร์นี้ใน 12 เดือน) — ไม่รวมในตาราง
+                  หมายเหตุ: แถวสีเทา = ไม่มีราคากลางให้เทียบ (ไม่เคยซื้อคู่สินค้า×ซัพพลายเออร์นี้ใน 12 เดือน) — เทียบแพง/ถูกไม่ได้
                 </div>
               )}
             </div>

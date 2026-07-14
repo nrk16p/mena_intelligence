@@ -5,7 +5,7 @@ import { ensureSnapshot, escapeRegex, groupFilter, isValidMonth, receiptMatch, S
 
 export const maxDuration = 300
 
-const MAX_ROWS   = 500
+const MAX_ROWS   = 2000
 const MAX_MONTHS = 12
 
 /** List the YYYY-MM months from start..end inclusive (empty if invalid/reversed). */
@@ -91,7 +91,22 @@ async function scanMonth(
     if (price === null || price === undefined || !Number.isFinite(price)) continue
     checked++
     const b = bench.get(`${r.รหัสสินค้า}||${r.ซัพพลายเออร์}`)
-    if (!b) { noBenchmark++; continue }
+    if (!b) {
+      noBenchmark++
+      rows.push({
+        ...r,
+        year_month: month,
+        benchmark_price: null,
+        benchmark_count: null,
+        benchmark_records: null,
+        iqr_upper: null,
+        status: "no_benchmark",
+        diff: null,
+        diff_pct: null,
+        excess_total: 0,
+      })
+      continue
+    }
     const over = price > b.price
     const critical = over && b.iqr_upper !== null && price > b.iqr_upper
     const qty = Number.isFinite(r.รับ) ? r.รับ : 0
@@ -174,8 +189,8 @@ export async function GET(req: Request) {
       r.flaggedSuppliers.forEach(s => allSuppliers.add(s))
     }
 
-    // Over-benchmark rows first (by excess desc), then the rest (by ราคาทุน desc)
-    const rank = (x: FlaggedRow) => (x.status === "ok" ? 1 : 0)
+    // Over-benchmark first (by excess desc), then within-benchmark, then no-benchmark
+    const rank = (x: FlaggedRow) => (x.status === "no_benchmark" ? 2 : x.status === "ok" ? 1 : 0)
     all.sort((a, b) =>
       rank(a) - rank(b)
       || b.excess_total - a.excess_total
