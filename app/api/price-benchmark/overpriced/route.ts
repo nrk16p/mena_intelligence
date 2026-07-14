@@ -75,10 +75,12 @@ async function scanMonth(
     },
   ]).toArray()
 
-  // 3) Join + flag
-  const flagged: FlaggedRow[] = []
+  // 3) Join + classify — keep EVERY receipt that has a benchmark to compare
+  //    against (over or not), tagged with a status so the UI can colour it.
+  const rows: FlaggedRow[] = []
   let checked = 0
   let noBenchmark = 0
+  let overCount = 0
   let excessSum = 0
   let criticalCount = 0
   const flaggedProducts = new Set<string>()
@@ -90,30 +92,32 @@ async function scanMonth(
     checked++
     const b = bench.get(`${r.รหัสสินค้า}||${r.ซัพพลายเออร์}`)
     if (!b) { noBenchmark++; continue }
-    if (price > b.price) {
-      const qty = Number.isFinite(r.รับ) ? r.รับ : 0
-      const excess = (price - b.price) * qty
-      const critical = b.iqr_upper !== null && price > b.iqr_upper
+    const over = price > b.price
+    const critical = over && b.iqr_upper !== null && price > b.iqr_upper
+    const qty = Number.isFinite(r.รับ) ? r.รับ : 0
+    const excess = over ? (price - b.price) * qty : 0
+    if (over) {
+      overCount++
       excessSum += excess
       if (critical) criticalCount++
       flaggedProducts.add(r.รหัสสินค้า)
       flaggedSuppliers.add(r.ซัพพลายเออร์)
-      flagged.push({
-        ...r,
-        year_month: month,
-        benchmark_price: b.price,
-        benchmark_count: b.count,
-        benchmark_records: b.records,
-        iqr_upper: b.iqr_upper,
-        severity: critical ? "critical" : "warning",
-        diff: price - b.price,
-        diff_pct: b.price > 0 ? ((price - b.price) / b.price) * 100 : null,
-        excess_total: excess,
-      })
     }
+    rows.push({
+      ...r,
+      year_month: month,
+      benchmark_price: b.price,
+      benchmark_count: b.count,
+      benchmark_records: b.records,
+      iqr_upper: b.iqr_upper,
+      status: critical ? "critical" : over ? "warning" : "ok",
+      diff: price - b.price,
+      diff_pct: b.price > 0 ? ((price - b.price) / b.price) * 100 : null,
+      excess_total: excess,
+    })
   }
 
-  return { flagged, checked, noBenchmark, excessSum, criticalCount, flaggedProducts, flaggedSuppliers }
+  return { rows, checked, noBenchmark, overCount, excessSum, criticalCount, flaggedProducts, flaggedSuppliers }
 }
 
 /**
@@ -160,8 +164,9 @@ export async function GET(req: Request) {
     // Sequential: each month may lazily build a heavy snapshot
     for (const m of months) {
       const r = await scanMonth(db, m, productCode, supplier, groups)
-      all.push(...r.flagged)
+      all.push(...r.rows)
       summary.receipts_checked   += r.checked
+      summary.flagged_count      += r.overCount
       summary.excess_total       += r.excessSum
       summary.critical_count     += r.criticalCount
       summary.no_benchmark_count += r.noBenchmark
@@ -169,8 +174,13 @@ export async function GET(req: Request) {
       r.flaggedSuppliers.forEach(s => allSuppliers.add(s))
     }
 
-    all.sort((a, b) => b.excess_total - a.excess_total)
-    summary.flagged_count     = all.length
+    // Over-benchmark rows first (by excess desc), then the rest (by ราคาทุน desc)
+    const rank = (x: FlaggedRow) => (x.status === "ok" ? 1 : 0)
+    all.sort((a, b) =>
+      rank(a) - rank(b)
+      || b.excess_total - a.excess_total
+      || (Number(b.ราคาทุน) || 0) - (Number(a.ราคาทุน) || 0)
+    )
     summary.flagged_products  = allProducts.size
     summary.flagged_suppliers = allSuppliers.size
 
@@ -179,6 +189,7 @@ export async function GET(req: Request) {
       start, end,
       months,
       summary,
+      total_rows: all.length,
       truncated: all.length > MAX_ROWS,
       data: all.slice(0, MAX_ROWS),
     })

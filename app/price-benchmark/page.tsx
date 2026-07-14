@@ -82,7 +82,7 @@ type OverpricedRow = {
   benchmark_count: number
   benchmark_records: number
   iqr_upper: number | null
-  severity: "warning" | "critical"
+  status: "ok" | "warning" | "critical"
   diff: number
   diff_pct: number | null
   excess_total: number
@@ -1654,6 +1654,7 @@ function OverpricedTab({ prefill }: { prefill?: { product?: string; seq: number 
   const [loading, setLoading]   = useState(false)
   const [error, setError]       = useState("")
   const [searched, setSearched] = useState(false)
+  const [onlyOver, setOnlyOver] = useState(false)  // show all rows, or only over-benchmark
 
   // Seed the range from available data: last up-to-12 months ending at the latest snapshot month
   useEffect(() => {
@@ -1795,25 +1796,45 @@ function OverpricedTab({ prefill }: { prefill?: { product?: string; seq: number 
 
           {truncated && (
             <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: PV.warn, background: `${PV.warn}10`, border: `1px solid ${PV.warn}40`, borderRadius: 8, padding: "10px 16px" }}>
-              แสดง 500 รายการแรก (เรียงตามมูลค่าส่วนเกิน) — กรองเงื่อนไขเพิ่มเพื่อดูรายการที่เหลือ
+              แสดง 500 แถวแรก (เรียงรายการแพงกว่าราคากลางขึ้นก่อน) — กรองเงื่อนไขเพิ่มเพื่อดูรายการที่เหลือ
             </div>
           )}
 
-          {rows.length === 0 ? (
-            <div style={{ background: PV.surface, border: `1px solid ${PV.border}`, borderRadius: 8, padding: 48, textAlign: "center", fontFamily: FONT_BODY, fontSize: 14, color: PV.green }}>
-              ✓ ไม่พบรายการซื้อที่แพงกว่าราคากลางในเงื่อนไขนี้
-            </div>
-          ) : (
+          {/* toggle: all rows vs only over-benchmark */}
+          <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer", fontFamily: FONT_BODY, fontSize: 13, color: PV.ink }}>
+              <input type="checkbox" checked={onlyOver} onChange={e => setOnlyOver(e.target.checked)} style={{ width: 16, height: 16, accentColor: PV.error }} />
+              แสดงเฉพาะที่แพงกว่าราคากลาง
+            </label>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 14, fontFamily: FONT_BODY, fontSize: 12, color: PV.gray }}>
+              <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: PV.error, marginRight: 5, verticalAlign: "middle" }} />แพงกว่าราคากลาง</span>
+              <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: PV.green, marginRight: 5, verticalAlign: "middle" }} />ไม่เกินราคากลาง</span>
+            </span>
+          </div>
+
+          {(() => {
+            const displayRows = onlyOver ? rows.filter(r => r.status !== "ok") : rows
+            if (displayRows.length === 0) {
+              return (
+                <div style={{ background: PV.surface, border: `1px solid ${PV.border}`, borderRadius: 8, padding: 48, textAlign: "center", fontFamily: FONT_BODY, fontSize: 14, color: PV.green }}>
+                  {rows.length === 0 ? "ไม่มีรายการที่มีราคากลางให้เทียบในเงื่อนไขนี้" : "✓ ไม่พบรายการซื้อที่แพงกว่าราคากลางในเงื่อนไขนี้"}
+                </div>
+              )
+            }
+            return (
             <div style={{ background: PV.surface, border: `1px solid ${PV.border}`, borderRadius: 8, overflow: "hidden", boxShadow: "0 1px 2px rgba(0,0,0,0.06)" }}>
-              {/* Scrolls both axes so the sticky header stays pinned while browsing 500 rows */}
+              <div style={{ padding: "8px 16px", borderBottom: `1px solid ${PV.border}`, fontFamily: FONT_BODY, fontSize: 12, color: PV.gray }}>
+                แสดง {displayRows.length.toLocaleString()} แถว · แพงกว่าราคากลาง {summary.flagged_count.toLocaleString()} · ไม่เกิน {(summary.receipts_checked - summary.flagged_count - summary.no_benchmark_count).toLocaleString()}
+              </div>
+              {/* Scrolls both axes so the sticky header stays pinned while browsing rows */}
               <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "70vh" }}>
                 <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, fontFamily: FONT_BODY, minWidth: 1080 }}>
                   <thead>
                     <tr>
-                      {["#", "วันที่", "PO", "สินค้า", "ซัพพลายเออร์", "คลัง", "ราคาซื้อ", "ราคากลาง", "ส่วนต่าง", "จำนวน", "ส่วนเกินรวม (฿)"].map((h, i) => (
-                        <th key={h} style={{
+                      {["", "#", "วันที่", "PO", "สินค้า", "ซัพพลายเออร์", "คลัง", "ราคาซื้อ", "ราคากลาง", "ส่วนต่าง", "จำนวน", "ส่วนเกินรวม (฿)"].map((h, i) => (
+                        <th key={i} style={{
                           fontFamily: FONT_BODY, fontSize: 12, fontWeight: 500, color: PV.gray, padding: "10px 12px",
-                          textAlign: i >= 6 ? "right" : "left", whiteSpace: "nowrap",
+                          textAlign: i >= 7 ? "right" : "left", whiteSpace: "nowrap",
                           position: "sticky", top: 0, zIndex: 2, background: PV.bg,
                           boxShadow: `inset 0 -1px 0 ${PV.border}`,
                         }}>
@@ -1823,8 +1844,12 @@ function OverpricedTab({ prefill }: { prefill?: { product?: string; seq: number 
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((r, i) => (
-                      <tr key={i} style={{ borderBottom: "1px solid #F3F4F6" }}>
+                    {displayRows.map((r, i) => {
+                      const over = r.status !== "ok"
+                      const bar  = r.status === "critical" ? PV.error : r.status === "warning" ? PV.warn : PV.green
+                      return (
+                      <tr key={i} style={{ borderBottom: "1px solid #F3F4F6", background: over ? `${PV.error}06` : undefined }}>
+                        <td style={{ padding: 0, width: 4, background: bar }} />
                         <td style={{ padding: "8px 12px", fontFamily: FONT_MONO, fontSize: 12, color: PV.gray }}>{i + 1}</td>
                         <td style={{ padding: "8px 12px", fontSize: 13, color: PV.ink, whiteSpace: "nowrap" }}>{fmtDate(r.วันที่)}</td>
                         <td style={{ padding: "8px 12px", fontFamily: FONT_MONO, fontSize: 12, color: PV.gray, whiteSpace: "nowrap" }}>{r.PO || r.PR || "—"}</td>
@@ -1836,31 +1861,38 @@ function OverpricedTab({ prefill }: { prefill?: { product?: string; seq: number 
                           {r.ซัพพลายเออร์}
                         </td>
                         <td style={{ padding: "8px 12px", fontSize: 12, color: PV.gray, whiteSpace: "nowrap" }}>{r.คลังสินค้า}</td>
-                        <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: FONT_MONO, fontSize: 13, fontWeight: 600, color: PV.error }}>{fmt(r.ราคาทุน)}</td>
+                        <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: FONT_MONO, fontSize: 13, fontWeight: 600, color: over ? PV.error : PV.ink }}>{fmt(r.ราคาทุน)}</td>
                         <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: FONT_MONO, fontSize: 13, color: PV.green }}>
                           {fmt(r.benchmark_price)}
                           <span style={{ fontSize: 10, color: PV.gray }}> ({r.benchmark_count}/{r.benchmark_records})</span>
                         </td>
                         <td style={{ padding: "8px 12px", textAlign: "right", whiteSpace: "nowrap" }}>
-                          <Chip tone={r.severity === "critical" ? "error" : "warning"}>
-                            +{fmt(r.diff)}{r.diff_pct !== null ? ` (${r.diff_pct.toFixed(1)}%)` : ""}
-                            {r.severity === "critical" ? " · หลุด IQR" : ""}
-                          </Chip>
+                          {over ? (
+                            <Chip tone={r.status === "critical" ? "error" : "warning"}>
+                              +{fmt(r.diff)}{r.diff_pct !== null ? ` (${r.diff_pct.toFixed(1)}%)` : ""}
+                              {r.status === "critical" ? " · หลุด IQR" : ""}
+                            </Chip>
+                          ) : (
+                            <Chip tone="success">
+                              {r.diff === 0 ? "= ราคากลาง" : `${fmt(r.diff)}${r.diff_pct !== null ? ` (${r.diff_pct.toFixed(1)}%)` : ""}`}
+                            </Chip>
+                          )}
                         </td>
                         <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: FONT_MONO, fontSize: 13, color: PV.ink }}>{fmt0(r.รับ)}</td>
-                        <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: FONT_MONO, fontSize: 13, fontWeight: 600, color: PV.error }}>{fmt0(r.excess_total)}</td>
+                        <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: FONT_MONO, fontSize: 13, fontWeight: 600, color: over ? PV.error : PV.gray }}>{over ? fmt0(r.excess_total) : "—"}</td>
                       </tr>
-                    ))}
+                    )})}
                   </tbody>
                 </table>
               </div>
               {summary.no_benchmark_count > 0 && (
                 <div style={{ padding: "8px 16px", background: PV.bg, borderTop: `1px solid ${PV.border}`, fontFamily: FONT_BODY, fontSize: 12, color: PV.gray }}>
-                  หมายเหตุ: {summary.no_benchmark_count.toLocaleString()} รายการไม่มีราคากลางให้เทียบ (ไม่เคยซื้อคู่สินค้า×ซัพพลายเออร์นี้ใน 12 เดือน)
+                  หมายเหตุ: {summary.no_benchmark_count.toLocaleString()} รายการไม่มีราคากลางให้เทียบ (ไม่เคยซื้อคู่สินค้า×ซัพพลายเออร์นี้ใน 12 เดือน) — ไม่รวมในตาราง
                 </div>
               )}
             </div>
-          )}
+            )
+          })()}
         </>
       )}
     </div>
