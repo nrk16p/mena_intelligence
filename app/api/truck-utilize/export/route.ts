@@ -1,5 +1,6 @@
 import pool from "@/lib/mysql";
 import { NextResponse } from "next/server";
+import { FLEET_MAP } from "@/lib/fleets";
 
 export const maxDuration = 120;
 
@@ -7,10 +8,6 @@ const GROUP_STATUS_MAP: Record<string, string[]> = {
   working: ["A","AX","Aท","Aอ","Aอส","A75","A50","A25"],
   repair:  ["B","BA","BAQ","BY","PM"],
   idle:    ["อ","วซ","วA","วร","วล","วก","วป","วภ","X","วส","วพ","วข","วฝ"],
-};
-
-const FLEET_MAP: Record<string, string> = {
-  "1":"ML","2":"MS","3":"TDM","4":"BTG","5":"TFG","6":"SCCC","7":"DHL","8":"KN",
 };
 
 const STATUS_LABEL: Record<string, string> = {

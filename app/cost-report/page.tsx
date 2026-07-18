@@ -13,6 +13,14 @@ import {
   XAxis,
   YAxis,
 } from "recharts"
+import {
+  FLEET_MAP, FLEET_ORDER, FLEET_COLORS,
+  BUCKET_OFFICE, BUCKET_PARTNER, BUCKET_NEW, BUCKET_UNKNOWN,
+  fleetKey, fleetLabel, allocateOffice,
+} from "@/lib/fleets"
+// normPlate lives in lib/plate-partner (dependency-free). Never import
+// lib/plate-partner-server here — it pulls in Mongo and breaks the client build.
+import { normPlate } from "@/lib/plate-partner"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -59,8 +67,13 @@ type BDRow = {
   breakdown_count: number
 }
 
-const FLEET_ML = "1"
-const FLEET_MS = "2"
+// Selectable fleet pills. BUCKET_OFFICE is normally empty — office cost is split
+// across the real fleets during tagging (see allocateOfficeRows) — but it is
+// listed anyway as a safety net: if a month yields no allocation denominator at
+// all, the row stays in BUCKET_OFFICE and must remain selectable, or "All" would
+// filter out cost that "Clear" includes. "All" and "Clear" must always total the
+// same, so every bucket a row can hold needs a pill here.
+const FLEET_PILLS = [...FLEET_ORDER, BUCKET_PARTNER, BUCKET_NEW, BUCKET_UNKNOWN, BUCKET_OFFICE]
 
 // ── Cost Group mapping (same as /cost, incl. the เเย็น double-sara-e variant) ──
 
@@ -111,6 +124,14 @@ const MONTH_LABEL: Record<string, string> = {
   "01": "Jan", "02": "Feb", "03": "Mar", "04": "Apr", "05": "May", "06": "Jun",
   "07": "Jul", "08": "Aug", "09": "Sep", "10": "Oct", "11": "Nov", "12": "Dec",
 }
+
+// Thai month abbreviations — used for the Excel export's month columns, where
+// the audience is Thai-reading and the sheet is read without the page around it.
+const MONTH_TH: Record<string, string> = {
+  "01": "ม.ค.", "02": "ก.พ.", "03": "มี.ค.", "04": "เม.ย.", "05": "พ.ค.", "06": "มิ.ย.",
+  "07": "ก.ค.", "08": "ส.ค.", "09": "ก.ย.", "10": "ต.ค.", "11": "พ.ย.", "12": "ธ.ค.",
+}
+const monthTh = (my: string) => MONTH_TH[my.split("-")[1]] ?? my
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -170,21 +191,72 @@ export default function CostReportPage() {
   const [startMonth, setStartMonth] = useState(`${cy}-01`)
   const [endMonth, setEndMonth]     = useState(`${cy}-${cm}`)
 
+  // sumCurr drives the warehouse + partner-flag chip lists only (see below); the
+  // headline figures come from the fleet-tagged detail rows. There is no prior-
+  // year summary state on purpose — nothing reads it, so the aggregation is not
+  // run.
   const [sumCurr, setSumCurr]       = useState<SummaryRow[]>([])
-  const [sumPrev, setSumPrev]       = useState<SummaryRow[]>([])
   const [detCurr, setDetCurr]       = useState<PlateDetailRow[]>([])
   const [detPrev, setDetPrev]       = useState<PlateDetailRow[]>([])
-  const [counts, setCounts]         = useState<CountsResult | null>(null)
-  const [countsPrev, setCountsPrev] = useState<CountsResult | null>(null)
   const [bdCurr, setBdCurr]         = useState<BDRow[]>([])
   const [bdPrev, setBdPrev]         = useState<BDRow[]>([])
+
+  // plate+month → fleet_group_id bridge (MySQL), plus the per-plate partner_flag
+  // used to bucket plates the bridge has no row for.
+  const [fleetMapCurr, setFleetMapCurr] = useState<Record<string, string>>({})
+  const [fleetMapPrev, setFleetMapPrev] = useState<Record<string, string>>({})
+  // flags are keyed plate|MM-YY and are range-specific: the current-range
+  // response must not bucket prior-year rows (a truck can change flag).
+  const [flagMapCurr, setFlagMapCurr]   = useState<Record<string, string>>({})
+  const [flagMapPrev, setFlagMapPrev]   = useState<Record<string, string>>({})
+  const [selectedFleets, setSelectedFleets] = useState<Set<string>>(new Set())
+  // "failed" = the plate-map call errored (retrying may help); "empty" = it
+  // succeeded but MySQL has no operations rows for the range (retrying will not).
+  const [fleetBridgeStatus, setFleetBridgeStatus] = useState<"ok" | "failed" | "empty">("ok")
 
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState<string | null>(null)
   const [hasData, setHasData] = useState(false)
 
+  // ── Staged load progress ────────────────────────────────────────────────────
+  // A bare "Loading…" over a 2–4s load reads as a hang. The four MySQL scans
+  // behind it are ~700–930ms each and cannot be indexed away (cardinality 18 on
+  // a 390k-row table), so the honest fix is to show what is happening.
+  //
+  // The seven requests stay in ONE Promise.all — splitting them into sequential
+  // stages to show progress would make the page slower, which defeats the
+  // point. Each stage instead hangs a .then() off its own fetches and flips
+  // when they really resolve.
+  //
+  // Because they run in parallel the stages can finish out of order — the fleet
+  // bridge often beats the cost scans. So each stage renders its OWN state
+  // independently rather than as a strict sequence: a finished later stage
+  // shows ✓ while an earlier one still spins, and nothing ever jumps backwards.
+  type LoadStage = "cost" | "fleet" | "compute"
+  const [stagesDone, setStagesDone] = useState<Record<LoadStage, boolean>>({
+    cost: false, fleet: false, compute: false,
+  })
+  const [loadStartedAt, setLoadStartedAt] = useState<number | null>(null)
+  const [elapsed, setElapsed] = useState(0)
+  const markStage = (s: LoadStage) => setStagesDone((p) => (p[s] ? p : { ...p, [s]: true }))
+
+  useEffect(() => {
+    if (!loading || loadStartedAt === null) return
+    setElapsed((Date.now() - loadStartedAt) / 1000)
+    const id = setInterval(() => setElapsed((Date.now() - loadStartedAt) / 1000), 100)
+    return () => clearInterval(id)
+  }, [loading, loadStartedAt])
+
+  const LOAD_STAGES: { key: LoadStage; label: string }[] = [
+    { key: "cost",    label: "ดึงข้อมูลต้นทุน" },
+    { key: "fleet",   label: "เชื่อมข้อมูลฟลีต" },
+    { key: "compute", label: "คำนวณและจัดกลุ่ม" },
+  ]
+
   const [selectedWh, setSelectedWh]     = useState<Set<string>>(new Set())
   const [selectedFlag, setSelectedFlag] = useState<Set<string>>(new Set())
+  // Cost group is the only LINE-level filter on this page — see cgFilter below.
+  const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set())
 
   const year = Number(startMonth.split("-")[0])
   const prevYear = year - 1
@@ -207,27 +279,49 @@ export default function CostReportPage() {
   const fetchAll = async () => {
     setLoading(true)
     setError(null)
+    setStagesDone({ cost: false, fleet: false, compute: false })
+    setLoadStartedAt(Date.now())
+    setElapsed(0)
     try {
       const gp = encodeURIComponent("จุดประสงค์ในการเบิก")
       const pS = shiftYear(startMonth, -1), pE = shiftYear(endMonth, -1)
-      const [s1, s2, d1, d2, c1, c2, b1, b2] = await Promise.all([
-        fetch(`/api/cost/summary?group_by=${gp}&start=${startMonth}&end=${endMonth}`, { cache: "no-store" }),
-        fetch(`/api/cost/summary?group_by=${gp}&start=${pS}&end=${pE}`, { cache: "no-store" }),
-        fetch(`/api/cost/detail?${countsParams(startMonth, endMonth)}`, { cache: "no-store" }),
-        fetch(`/api/cost/detail?${countsParams(pS, pE)}`, { cache: "no-store" }),
-        fetch(`/api/cost/counts?${countsParams(startMonth, endMonth)}`, { cache: "no-store" }),
-        fetch(`/api/cost/counts?${countsParams(pS, pE)}`, { cache: "no-store" }),
-        fetch(`/api/truck-utilize/breakdown?${bdParams(toBdKey(startMonth), toBdKey(endMonth))}`, { cache: "no-store" }),
-        fetch(`/api/truck-utilize/breakdown?${bdParams(toBdKey(pS), toBdKey(pE))}`, { cache: "no-store" }),
+      // Fleet mapping does not depend on the warehouse / partner_flag chips, so
+      // it is fetched here only — never in the chip-change effect below.
+      const pSum  = fetch(`/api/cost/summary?group_by=${gp}&start=${startMonth}&end=${endMonth}`, { cache: "no-store" })
+      const pDet1 = fetch(`/api/cost/detail?${countsParams(startMonth, endMonth)}`, { cache: "no-store" })
+      const pDet2 = fetch(`/api/cost/detail?${countsParams(pS, pE)}`, { cache: "no-store" })
+      const pBd1  = fetch(`/api/truck-utilize/breakdown?${bdParams(toBdKey(startMonth), toBdKey(endMonth))}`, { cache: "no-store" })
+      const pBd2  = fetch(`/api/truck-utilize/breakdown?${bdParams(toBdKey(pS), toBdKey(pE))}`, { cache: "no-store" })
+      const pFl1  = fetch(`/api/fleet/plate-map?start=${toBdKey(startMonth)}&end=${toBdKey(endMonth)}`, { cache: "no-store" })
+      const pFl2  = fetch(`/api/fleet/plate-map?start=${toBdKey(pS)}&end=${toBdKey(pE)}`, { cache: "no-store" })
+
+      // Stage ticks hang off the SAME promises the await below consumes — the
+      // requests are not re-issued and not serialised. A rejection is swallowed
+      // here on purpose; the await is what surfaces the error.
+      Promise.all([pSum, pDet1, pDet2]).then(() => markStage("cost")).catch(() => {})
+      Promise.all([pBd1, pBd2, pFl1, pFl2]).then(() => markStage("fleet")).catch(() => {})
+
+      const [s1, d1, d2, b1, b2, f1, f2] = await Promise.all([
+        pSum, pDet1, pDet2, pBd1, pBd2, pFl1, pFl2,
       ])
-      const [j1, j2, j3, j4, j5, j6, j7, j8] = await Promise.all([s1.json(), s2.json(), d1.json(), d2.json(), c1.json(), c2.json(), b1.json(), b2.json()])
+      const [j1, j2, j3, j4, j5, j6, j7] = await Promise.all([s1.json(), d1.json(), d2.json(), b1.json(), b2.json(), f1.json(), f2.json()])
       if (!j1.success) throw new Error(j1.error || "summary failed")
-      setSumCurr(j1.data); setSumPrev(j2.success ? j2.data : [])
-      setDetCurr(j3.success ? j3.data : []); setDetPrev(j4.success ? j4.data : [])
-      setCounts(j5.success ? j5.data : null); setCountsPrev(j6.success ? j6.data : null)
-      setBdCurr(j7.success ? j7.data : []); setBdPrev(j8.success ? j8.data : [])
+      setSumCurr(j1.data)
+      setDetCurr(j2.success ? j2.data : []); setDetPrev(j3.success ? j3.data : [])
+      setBdCurr(j4.success ? j4.data : []); setBdPrev(j5.success ? j5.data : [])
+      setFleetMapCurr(j6.success ? j6.data : {}); setFleetMapPrev(j7.success ? j7.data : {})
+      // count comes straight from the route; it is the only way to tell a failed
+      // bridge apart from a range that genuinely has no MySQL operations rows.
+      const bridgeCount = j6.count ?? Object.keys(j6.data ?? {}).length
+      setFleetBridgeStatus(
+        !f1.ok || !j6.success ? "failed" : bridgeCount === 0 ? "empty" : "ok",
+      )
+      setFlagMapCurr(j6.success ? (j6.flags ?? {}) : {})
+      setFlagMapPrev(j7.success ? (j7.flags ?? {}) : {})
       setHasData(true)
+      markStage("compute")
     } catch (e: any) {
+      setFleetBridgeStatus("failed")
       setError(e.message || "Load failed")
     } finally {
       setLoading(false)
@@ -236,27 +330,23 @@ export default function CostReportPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchAll() }, [])
 
-  // counts + detail are aggregated server-side → refetch when chip filters change
+  // detail + breakdown are aggregated server-side → refetch when chip filters change
   useEffect(() => {
     if (!hasData) return
     const pS = shiftYear(startMonth, -1), pE = shiftYear(endMonth, -1)
     ;(async () => {
       try {
-        const [c1, c2, d1, d2, b1, b2] = await Promise.all([
-          fetch(`/api/cost/counts?${countsParams(startMonth, endMonth)}`, { cache: "no-store" }),
-          fetch(`/api/cost/counts?${countsParams(pS, pE)}`, { cache: "no-store" }),
+        const [d1, d2, b1, b2] = await Promise.all([
           fetch(`/api/cost/detail?${countsParams(startMonth, endMonth)}`, { cache: "no-store" }),
           fetch(`/api/cost/detail?${countsParams(pS, pE)}`, { cache: "no-store" }),
           fetch(`/api/truck-utilize/breakdown?${bdParams(toBdKey(startMonth), toBdKey(endMonth))}`, { cache: "no-store" }),
           fetch(`/api/truck-utilize/breakdown?${bdParams(toBdKey(pS), toBdKey(pE))}`, { cache: "no-store" }),
         ])
-        const [j1, j2, j3, j4, j5, j6] = await Promise.all([c1.json(), c2.json(), d1.json(), d2.json(), b1.json(), b2.json()])
-        if (j1.success) setCounts(j1.data)
-        if (j2.success) setCountsPrev(j2.data)
-        if (j3.success) setDetCurr(j3.data)
-        if (j4.success) setDetPrev(j4.data)
-        if (j5.success) setBdCurr(j5.data)
-        if (j6.success) setBdPrev(j6.data)
+        const [j1, j2, j3, j4] = await Promise.all([d1.json(), d2.json(), b1.json(), b2.json()])
+        if (j1.success) setDetCurr(j1.data)
+        if (j2.success) setDetPrev(j2.data)
+        if (j3.success) setBdCurr(j3.data)
+        if (j4.success) setBdPrev(j4.data)
       } catch { /* keep previous data on transient failure */ }
     })()
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -272,49 +362,246 @@ export default function CostReportPage() {
     [sumCurr]
   )
 
-  const filterSum = (rows: SummaryRow[]) => rows.filter((r) => {
-    if (selectedWh.size > 0 && !selectedWh.has(r.warehouse || "ไม่ระบุ")) return false
-    if (selectedFlag.size > 0 && !selectedFlag.has(r.partner_flag || "ไม่ระบุ")) return false
-    return true
-  })
   // detail rows are filtered server-side (warehouse/partner_flag passed on fetch),
   // so detail-driven slides (workshop split, top items) follow the chips too
 
+  // ── Fleet tagging ───────────────────────────────────────────────────────────
+  // Every detail row gets a fleet id from the plate+month bridge. Rows the
+  // bridge has no entry for (no MySQL operations record that month) fall back
+  // to a bucket derived from partner_flag — nothing is ever dropped.
+  // isAllocated marks a synthetic row produced by splitting an office row across
+  // fleets. It carries cost but NOT a vehicle, so countsFrom must keep it out of
+  // the distinct wd / plate / product sets.
+  type TaggedPlateRow = PlateDetailRow & { fleet: string; isAllocated?: boolean }
+
+  const tagFleet = (
+    rows: PlateDetailRow[],
+    fleetMap: Record<string, string>,
+    flags: Record<string, string>,
+  ): TaggedPlateRow[] => {
+    // flags are keyed plate|MM-YY. A plate can be missing in one month (it drew
+    // no parts that month) while present in another — without a per-plate
+    // fallback those rows would newly drop to ไม่ระบุ and shift the split.
+    const anyFlagForPlate: Record<string, string> = {}
+    for (const [k, v] of Object.entries(flags)) {
+      const plate = k.slice(0, k.lastIndexOf("|"))
+      if (plate && anyFlagForPlate[plate] === undefined) anyFlagForPlate[plate] = v
+    }
+
+    return rows.map((r) => {
+      // cost month_year is "YYYY-MM"; the bridge is keyed "MM-YY" — passing the
+      // raw value here silently misses 100% of plates.
+      const f = fleetMap[fleetKey(r.plate, toBdKey(r.month_year))]
+      // Only ids the UI can actually render are accepted. An unrecognised id
+      // (e.g. a 9th fleet added to performance_vehicle_daily) has no pill and no
+      // pivot row, so totalCurr would count it while the pivot รวม would not.
+      // Fall through to the partner_flag bucket instead.
+      if (f && FLEET_ORDER.includes(f)) return { ...r, fleet: f }
+      const np = normPlate(r.plate)
+      const flag = flags[fleetKey(r.plate, toBdKey(r.month_year))] ?? anyFlagForPlate[np] ?? ""
+      const bucket =
+        flag === "รถสำนักงาน" ? BUCKET_OFFICE
+        : flag.startsWith("รถร่วม") ? BUCKET_PARTNER
+        : flag === "รถมีนา" ? BUCKET_NEW
+        : BUCKET_UNKNOWN
+      return { ...r, fleet: bucket }
+    })
+  }
+
+  // ── Office cost allocation ──────────────────────────────────────────────────
+  // รถสำนักงาน is central overhead with no vehicle of its own. Left as its own
+  // bucket it has no pill, so ANY non-empty fleet filter silently drops it and
+  // the filtered total falls short of the unfiltered one. Instead each office
+  // row is expanded here, once, into one fractional row per fleet — upstream of
+  // every consumer, so the KPI row, the pivot and the charts cannot disagree.
+  //
+  // Allocation is PER MONTH: truck counts move month to month and an annual
+  // split would misattribute cost to fleets that grew or shrank mid-range.
+  const allocateOfficeRows = (rows: TaggedPlateRow[], bd: BDRow[]): TaggedPlateRow[] => {
+    // "MM-YY" → { fleet id → truck_count }, real fleets only
+    const trucksByMonth: Record<string, Record<string, number>> = {}
+    for (const b of bd) {
+      const fleet = String(b.fleet_group_id)
+      if (!FLEET_ORDER.includes(fleet)) continue
+      const n = Number(b.truck_count) || 0
+      if (n <= 0) continue
+      const bucket = (trucksByMonth[b.month_year] ??= {})
+      bucket[fleet] = (bucket[fleet] ?? 0) + n
+    }
+
+    // Fallback denominator: "MM-YY" → { fleet id → non-office cost }. Truck
+    // counts come from MySQL and can be missing for a month the cost side does
+    // have (a year-boundary range used to empty them entirely). Splitting by
+    // each fleet's share of that month's own cost keeps office overhead
+    // distributed instead of stranding it in an unattributed bucket.
+    const costByMonth: Record<string, Record<string, number>> = {}
+    for (const r of rows) {
+      if (!FLEET_ORDER.includes(r.fleet)) continue
+      const v = Number(r.plate_total) || 0
+      if (v <= 0) continue
+      const bucket = (costByMonth[toBdKey(r.month_year)] ??= {})
+      bucket[r.fleet] = (bucket[r.fleet] ?? 0) + v
+    }
+
+    const out: TaggedPlateRow[] = []
+    for (const r of rows) {
+      if (r.fleet !== BUCKET_OFFICE) { out.push(r); continue }
+      const mk = toBdKey(r.month_year)
+      // share of 1 = fraction of the month's trucks belonging to each fleet
+      let shares = allocateOffice(1, trucksByMonth[mk] ?? {})
+      // No truck data this month — fall back to the month's cost split.
+      if (Object.keys(shares).length === 0) {
+        shares = allocateOffice(1, costByMonth[mk] ?? {})
+      }
+      // Neither denominator available (no trucks AND no fleet cost this month) —
+      // keep the row in BUCKET_OFFICE rather than drop it. Cost must never
+      // vanish, even if it stays unattributed; the office pill and pivot row
+      // exist precisely so it stays visible when this happens.
+      if (Object.keys(shares).length === 0) { out.push(r); continue }
+      for (const [fleet, share] of Object.entries(shares)) {
+        out.push({
+          ...r,
+          fleet,
+          isAllocated: true,
+          plate_total: r.plate_total * share,
+          // records is scaled alongside cost: the row is duplicated once per
+          // fleet, so carrying the full count on each copy would multiply
+          // record_count by the number of fleets.
+          lines: (r.lines ?? []).map((ln) => ({
+            ...ln,
+            cost:    ln.cost * share,
+            records: (ln.records ?? 0) * share,
+            sum_actual_issue: ln.sum_actual_issue == null ? ln.sum_actual_issue : ln.sum_actual_issue * share,
+          })),
+        })
+      }
+    }
+    return out
+  }
+
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const fCurr = useMemo(() => filterSum(sumCurr), [sumCurr, selectedWh, selectedFlag])
+  const taggedCurr = useMemo(() => allocateOfficeRows(tagFleet(detCurr, fleetMapCurr, flagMapCurr), bdCurr), [detCurr, fleetMapCurr, flagMapCurr, bdCurr])
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const fPrev = useMemo(() => filterSum(sumPrev), [sumPrev, selectedWh, selectedFlag])
+  const taggedPrev = useMemo(() => allocateOfficeRows(tagFleet(detPrev, fleetMapPrev, flagMapPrev), bdPrev), [detPrev, fleetMapPrev, flagMapPrev, bdPrev])
+
+  // empty selection = no filter, matching the warehouse / partner-flag chips
+  const fleetFilter = (rows: TaggedPlateRow[]) =>
+    selectedFleets.size === 0 ? rows : rows.filter((r) => selectedFleets.has(r.fleet))
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const ffCurr = useMemo(() => fleetFilter(taggedCurr), [taggedCurr, selectedFleets])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const ffPrev = useMemo(() => fleetFilter(taggedPrev), [taggedPrev, selectedFleets])
+
+  // ── Cost-group filter (LINE level) ──────────────────────────────────────────
+  // The warehouse / partner-flag / fleet filters are row predicates: a plate-row
+  // has exactly one of each. Cost group is not — one truck-month's lines[] spans
+  // CM, PM, tyre… at once, so there is no row-level group to test. This filter
+  // therefore reaches inside the row, keeps the matching lines and rebuilds
+  // plate_total from the survivors; a row with nothing left drops out.
+  //
+  // Office-allocated rows need no special handling: their lines are already
+  // scaled by the allocation share, so a line-level filter scales with them.
+  //
+  // Applied AFTER fleetFilter so the two compose.
+  const cgFilter = (rows: TaggedPlateRow[]): TaggedPlateRow[] => {
+    if (selectedGroups.size === 0) return rows
+    const out: TaggedPlateRow[] = []
+    for (const r of rows) {
+      const lines = (r.lines ?? []).filter((ln) => selectedGroups.has(getCostGroup(ln.จุดประสงค์)))
+      if (lines.length === 0) continue
+      out.push({ ...r, lines, plate_total: lines.reduce((s, ln) => s + ln.cost, 0) })
+    }
+    return out
+  }
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const fdCurr = useMemo(() => cgFilter(ffCurr), [ffCurr, selectedGroups])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const fdPrev = useMemo(() => cgFilter(ffPrev), [ffPrev, selectedGroups])
+
+  // /api/cost/counts returns one unfiltered aggregate ({_id: null}) and cannot be
+  // fleet-filtered, so the KPI counts are recomputed from the fleet-filtered rows.
+  const countsFrom = (rows: TaggedPlateRow[]): CountsResult => {
+    const wd = new Set<string>(), plates = new Set<string>(), products = new Set<string>()
+    let total = 0, records = 0
+    rows.forEach((r) => {
+      // Synthetic office-allocation rows carry the office plate, not a vehicle
+      // of this fleet. They contribute cost and records but must stay out of the
+      // distinct sets, or plate_count jumps for every fleet.
+      const counts = !r.isAllocated
+      if (counts && r.wd) wd.add(String(r.wd))
+      if (counts && r.plate) plates.add(String(r.plate))
+      total += r.plate_total
+      r.lines?.forEach((ln) => {
+        if (counts && ln.รหัสสินค้า) products.add(String(ln.รหัสสินค้า))
+        records += ln.records ?? 0
+      })
+    })
+    return {
+      wd_count:      wd.size,
+      plate_count:   plates.size,
+      product_count: products.size,
+      total_cost:    total,
+      record_count:  records,
+    }
+  }
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const countsCurrLocal = useMemo(() => countsFrom(fdCurr), [fdCurr])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const countsPrevLocal = useMemo(() => countsFrom(fdPrev), [fdPrev])
 
   const months = useMemo(() => getMonthsInRange(startMonth, endMonth), [startMonth, endMonth])
 
   // ── Overview aggregates ─────────────────────────────────────────────────────
-  const totalCurr = useMemo(() => fCurr.reduce((s, r) => s + r.total_cost, 0), [fCurr])
-  const totalPrev = useMemo(() => fPrev.reduce((s, r) => s + r.total_cost, 0), [fPrev])
+  // Sourced from the fleet-tagged detail rows (not /api/cost/summary) so the
+  // fleet chips reach every headline number. Verified identical to the baht.
+  const totalCurr = useMemo(() => fdCurr.reduce((s, r) => s + r.plate_total, 0), [fdCurr])
+  const totalPrev = useMemo(() => fdPrev.reduce((s, r) => s + r.plate_total, 0), [fdPrev])
 
   type GroupAgg = {
     group: string; curr: number; prev: number
     byMonth: Record<string, number>; byMonthPrev: Record<string, number>
   }
-  const groupAggs = useMemo<GroupAgg[]>(() => {
+  const buildGroupAggs = (curr: TaggedPlateRow[], prev: TaggedPlateRow[]): GroupAgg[] => {
     const m = new Map<string, GroupAgg>()
     const ensure = (g: string) => {
       if (!m.has(g)) m.set(g, { group: g, curr: 0, prev: 0, byMonth: {}, byMonthPrev: {} })
       return m.get(g)!
     }
-    fCurr.forEach((r) => {
-      const e = ensure(getCostGroup(r.group_value))
-      e.curr += r.total_cost
-      e.byMonth[r.month_year] = (e.byMonth[r.month_year] || 0) + r.total_cost
+    // line.จุดประสงค์ is the same field /api/cost/summary grouped by (group_value)
+    curr.forEach((row) => {
+      row.lines?.forEach((ln) => {
+        const e = ensure(getCostGroup(ln.จุดประสงค์))
+        e.curr += ln.cost
+        e.byMonth[row.month_year] = (e.byMonth[row.month_year] || 0) + ln.cost
+      })
     })
-    fPrev.forEach((r) => {
-      const e = ensure(getCostGroup(r.group_value))
-      e.prev += r.total_cost
-      const aligned = shiftYear(r.month_year, 1)
-      e.byMonthPrev[aligned] = (e.byMonthPrev[aligned] || 0) + r.total_cost
+    prev.forEach((row) => {
+      const aligned = shiftYear(row.month_year, 1)
+      row.lines?.forEach((ln) => {
+        const e = ensure(getCostGroup(ln.จุดประสงค์))
+        e.prev += ln.cost
+        e.byMonthPrev[aligned] = (e.byMonthPrev[aligned] || 0) + ln.cost
+      })
     })
     return GROUP_ORDER.filter((g) => m.has(g)).map((g) => m.get(g)!)
       .sort((a, b) => b.curr - a.curr)
-  }, [fCurr, fPrev])
+  }
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const groupAggs = useMemo(() => buildGroupAggs(fdCurr, fdPrev), [fdCurr, fdPrev])
+
+  // Same aggregation over the fleet-filtered but cost-group-UNFILTERED rows.
+  // Bucketing is per-group, so every selected group's figures here are identical
+  // to groupAggs; the extra entries are exactly the unselected groups, which the
+  // slide deck still renders (muted) so the printed page count stays stable.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const groupAggsAll = useMemo(() => buildGroupAggs(ffCurr, ffPrev), [ffCurr, ffPrev])
+  // denominator for a muted slide's "สัดส่วนของทั้งหมด" — its own group is not in
+  // totalCurr under a filter, so measuring it against totalCurr would be nonsense
+  const totalAllGroups = useMemo(() => ffCurr.reduce((s, r) => s + r.plate_total, 0), [ffCurr])
 
   // Chart shows only the top 3 groups; the rest collapse into "อื่นๆ" so the
   // stack stays readable. The comparison table keeps all groups.
@@ -380,8 +667,15 @@ export default function CostReportPage() {
         if (side === "curr") e.qty += Number(l.sum_actual_issue) || 0
       }))
     }
-    walk(detCurr, "curr")
-    walk(detPrev, "prev")
+    // ffCurr/ffPrev, not the raw detail: this slide's header uses groupAggs,
+    // which is fleet-filtered. Walking the untagged rows here made the table
+    // contradict its own header under a fleet filter.
+    //
+    // The cost-group filter is deliberately NOT applied: this map is keyed by
+    // group, so dropping other groups' lines cannot change a group's own bucket.
+    // Skipping it keeps the muted slides of unselected groups populated.
+    walk(ffCurr, "curr")
+    walk(ffPrev, "prev")
 
     const out = new Map<string, { pgs: PgAgg[]; items: ItemAgg[] }>()
     items.forEach((im, g) => {
@@ -400,7 +694,7 @@ export default function CostReportPage() {
       })
     })
     return out
-  }, [detCurr, detPrev])
+  }, [ffCurr, ffPrev])
 
   // ── Auto takeaways (overview) ───────────────────────────────────────────────
   const takeaways = useMemo(() => {
@@ -454,8 +748,8 @@ export default function CostReportPage() {
       }
     }
     return [
-      { key: "ML", name: "ML · Mixer Large", ...calc(FLEET_ML) },
-      { key: "MS", name: "MS · Mixer Small", ...calc(FLEET_MS) },
+      { key: FLEET_MAP["1"], name: `${FLEET_MAP["1"]} · Mixer Large`, ...calc("1") },
+      { key: FLEET_MAP["2"], name: `${FLEET_MAP["2"]} · Mixer Small`, ...calc("2") },
     ]
   }, [bdCurr, bdPrev, months])
 
@@ -530,10 +824,12 @@ export default function CostReportPage() {
       })
       return { nai, nok, naiPlates: naiP.size, nokPlates: nokP.size, byMonth }
     }
-    return { curr: agg(detCurr, false), prev: agg(detPrev, true) }
-  }, [detCurr, detPrev])
+    // fleet-filtered, like every other slide — the workshop split must follow
+    // the pills or it reports the whole company under a single-fleet heading.
+    return { curr: agg(fdCurr, false), prev: agg(fdPrev, true) }
+  }, [fdCurr, fdPrev])
 
-  const hasWs = detCurr.length > 0
+  const hasWs = fdCurr.length > 0
   const wsNaiAvg = wsAgg.curr.naiPlates > 0 ? wsAgg.curr.nai / wsAgg.curr.naiPlates : 0
   const wsNokAvg = wsAgg.curr.nokPlates > 0 ? wsAgg.curr.nok / wsAgg.curr.nokPlates : 0
   const wsTotal  = wsAgg.curr.nai + wsAgg.curr.nok
@@ -587,6 +883,123 @@ export default function CostReportPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wsAgg, months, prevYear])
 
+  // ── Fleet × Month pivot ─────────────────────────────────────────────────────
+  // Aggregation only. Office (รถสำนักงาน) cost has ALREADY been split across the
+  // fleet rows by allocateOfficeRows, upstream of fdCurr/fdPrev, so BUCKET_OFFICE
+  // is normally empty here. Re-allocating at this level would double-count. A
+  // BUCKET_OFFICE row is still built (and dropped when zero) so that any cost
+  // allocateOfficeRows could not distribute still lands in the รวม.
+  type PivotRow = {
+    key: string; label: string; color: string; isFleet: boolean
+    curr: Record<string, number>; prev: Record<string, number>
+    currTotal: number; prevTotal: number
+    trucks: Record<string, number>; trucksPrev: Record<string, number>
+  }
+
+  const fleetPivot = useMemo(() => {
+    // fleet id → "MM-YY" → truck_count, from the MySQL breakdown rows
+    const truckIndex = (bd: BDRow[]) => {
+      const out: Record<string, Record<string, number>> = {}
+      for (const b of bd) {
+        const id = String(b.fleet_group_id)
+        ;(out[id] ??= {})[b.month_year] = (out[id][b.month_year] ?? 0) + (Number(b.truck_count) || 0)
+      }
+      return out
+    }
+    const tCurr = truckIndex(bdCurr), tPrev = truckIndex(bdPrev)
+
+    // fleet id → "YYYY-MM" → cost
+    const cost = (rows: TaggedPlateRow[]) => {
+      const m: Record<string, Record<string, number>> = {}
+      for (const r of rows) {
+        const bucket = (m[r.fleet] ??= {})
+        bucket[r.month_year] = (bucket[r.month_year] ?? 0) + r.plate_total
+      }
+      return m
+    }
+    const cCurr = cost(fdCurr), cPrev = cost(fdPrev)
+
+    const mk = (key: string, isFleet: boolean): PivotRow => {
+      const curr: Record<string, number> = {}, prev: Record<string, number> = {}
+      const trucks: Record<string, number> = {}, trucksPrev: Record<string, number> = {}
+      months.forEach((my) => {
+        curr[my] = cCurr[key]?.[my] ?? 0
+        prev[my] = cPrev[key]?.[shiftYear(my, -1)] ?? 0
+        // trucks are keyed by the current-range month so both year rows line up
+        // against the same column; the prev row uses the prior year's own count.
+        trucks[my]     = tCurr[key]?.[toBdKey(my)] ?? 0
+        trucksPrev[my] = tPrev[key]?.[toBdKey(shiftYear(my, -1))] ?? 0
+      })
+      return {
+        key, label: fleetLabel(key), color: FLEET_COLORS[key] ?? "#9ca3af", isFleet,
+        curr, prev,
+        currTotal: Object.values(curr).reduce((s, v) => s + v, 0),
+        prevTotal: Object.values(prev).reduce((s, v) => s + v, 0),
+        trucks, trucksPrev,
+      }
+    }
+
+    const rows = [
+      ...FLEET_ORDER.map((f) => mk(f, true)),
+      mk(BUCKET_PARTNER, false),
+      mk(BUCKET_NEW, false),
+      mk(BUCKET_UNKNOWN, false),
+      // Normally allocated away to zero and dropped by the filter below. It is
+      // listed so that office cost which could not be allocated (no truck count
+      // AND no fleet cost that month) still reaches the รวม row instead of
+      // silently undercounting the KPI total.
+      mk(BUCKET_OFFICE, false),
+    ].filter((r) => r.currTotal !== 0 || r.prevTotal !== 0)
+
+    const totals = {
+      curr: {} as Record<string, number>,
+      prev: {} as Record<string, number>,
+      trucks: {} as Record<string, number>,
+      trucksPrev: {} as Record<string, number>,
+      currTotal: 0,
+      prevTotal: 0,
+    }
+    months.forEach((my) => {
+      totals.curr[my]       = rows.reduce((s, r) => s + (r.curr[my] || 0), 0)
+      totals.prev[my]       = rows.reduce((s, r) => s + (r.prev[my] || 0), 0)
+      // only real fleets carry a truck count — the three fallback buckets have none
+      totals.trucks[my]     = rows.filter((r) => r.isFleet).reduce((s, r) => s + (r.trucks[my] || 0), 0)
+      totals.trucksPrev[my] = rows.filter((r) => r.isFleet).reduce((s, r) => s + (r.trucksPrev[my] || 0), 0)
+    })
+    totals.currTotal = rows.reduce((s, r) => s + r.currTotal, 0)
+    totals.prevTotal = rows.reduce((s, r) => s + r.prevTotal, 0)
+
+    return { rows, totals }
+  }, [fdCurr, fdPrev, bdCurr, bdPrev, months])
+
+  const [pivotMetric, setPivotMetric] = useState<"total" | "perTruck">("total")
+
+  // null renders as "—" (no truck count), never 0 and never NaN.
+  const pivotCell = (
+    cost: number,
+    trucks: number,
+    isFleet: boolean,
+  ): number | null => {
+    if (pivotMetric === "total") return cost
+    return isFleet && trucks > 0 ? cost / trucks : null
+  }
+
+  // Range total for the รวม column. In per-truck mode the month cells are
+  // ฿/คัน, so the total is cost ÷ total truck-months — the same unit averaged
+  // over the range, not a sum of per-truck figures (which would be meaningless).
+  const pivotRowTotal = (
+    cost: number,
+    trucksByMonth: Record<string, number>,
+    isFleet: boolean,
+  ): number | null => {
+    if (pivotMetric === "total") return cost
+    if (!isFleet) return null
+    const truckMonths = months.reduce((s, my) => s + (trucksByMonth[my] || 0), 0)
+    return truckMonths > 0 ? cost / truckMonths : null
+  }
+
+  const hasPivot = fleetPivot.rows.length > 0
+
   const periodLabel = `${MONTH_LABEL[startMonth.split("-")[1]]} – ${MONTH_LABEL[endMonth.split("-")[1]]} ${year}`
   const toggleSet = (set: Set<string>, setter: (s: Set<string>) => void, v: string) => {
     const next = new Set(set)
@@ -595,11 +1008,200 @@ export default function CostReportPage() {
     setter(next)
   }
 
+  const toggleFleet = (id: string) =>
+    setSelectedFleets((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+
+  // empty = no filter, matching the warehouse / partner-flag chips, so "Clear"
+  // returns the full unfiltered view rather than an empty one
+  const toggleAllFleets = () =>
+    setSelectedFleets((prev) => (prev.size === 0 ? new Set(FLEET_PILLS) : new Set()))
+
+  const toggleAllGroups = () =>
+    setSelectedGroups((prev) => (prev.size === 0 ? new Set(GROUP_ORDER) : new Set()))
+
   const fmtLabel = (v: any) => {
     const n = Number(v)
     if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
     if (n >= 1_000)     return `${(n / 1_000).toFixed(0)}K`
     return n > 0 ? String(Math.round(n)) : ""
+  }
+
+  // ── Export Excel ────────────────────────────────────────────────────────────
+  // Every sheet is built from the fleet-tagged, fleet-FILTERED arrays (fdCurr /
+  // fdPrev) and the memos the on-screen slides already use — fleetPivot,
+  // groupAggs, wsAgg, countsCurrLocal / countsPrevLocal. Re-deriving anything
+  // from the raw detCurr / detPrev would bypass the fleet pills and produce a
+  // file that silently disagrees with the screen it was exported from.
+  //
+  // Cell styling is deliberately absent: the community build of xlsx@0.18.5
+  // supports only "!cols" — no bold headers, number formats or merges.
+  const exportExcel = async () => {
+    // xlsx (~276 KB) and file-saver are pulled in on demand, not at page load —
+    // same pattern as the html-to-image import in savePng below.
+    const XLSX = await import("xlsx")
+    const { saveAs } = await import("file-saver")
+
+    const num = (n: number) => +(Number(n) || 0).toFixed(2)
+    const yBE = year + 543, pBE = prevYear + 543
+    const pctStr = (curr: number, prev: number) => {
+      const p = pctOf(curr, prev)
+      return p === null ? "" : num(p)
+    }
+
+    // ── Sheet 1: สรุป ─────────────────────────────────────────────────────────
+    // The filter block leads the sheet on purpose. A workbook gets forwarded and
+    // re-read out of context far more readily than the on-screen deck, so a file
+    // narrowed to one fleet has to say so on its face.
+    const K_ITEM = "รายการ", K_CURR = `ปี ${yBE}`, K_PREV = `ปี ${pBE}`, K_YOY = "YoY %"
+    const listOr = (s: Set<string>, label: (v: string) => string) =>
+      s.size === 0 ? "ทั้งหมด" : [...s].map(label).join(", ")
+
+    const summaryRows: Record<string, string | number>[] = [
+      { [K_ITEM]: "ช่วงเดือน",       [K_CURR]: `${startMonth} ถึง ${endMonth}`, [K_PREV]: "", [K_YOY]: "" },
+      { [K_ITEM]: "ฟลีตที่เลือก",    [K_CURR]: listOr(selectedFleets, fleetLabel), [K_PREV]: "", [K_YOY]: "" },
+      { [K_ITEM]: "คลังสินค้าที่เลือก", [K_CURR]: listOr(selectedWh, (v) => v), [K_PREV]: "", [K_YOY]: "" },
+      { [K_ITEM]: "Partner Flag ที่เลือก", [K_CURR]: listOr(selectedFlag, (v) => v), [K_PREV]: "", [K_YOY]: "" },
+      { [K_ITEM]: "กลุ่มต้นทุนที่เลือก", [K_CURR]: listOr(selectedGroups, (g) => GROUP_THAI[g] ?? g), [K_PREV]: "", [K_YOY]: "" },
+      { [K_ITEM]: "", [K_CURR]: "", [K_PREV]: "", [K_YOY]: "" },
+      { [K_ITEM]: "ค่าใช้จ่ายรวม (฿)", [K_CURR]: num(totalCurr), [K_PREV]: num(totalPrev), [K_YOY]: pctStr(totalCurr, totalPrev) },
+      { [K_ITEM]: "จำนวนคัน",         [K_CURR]: countsCurrLocal.plate_count, [K_PREV]: countsPrevLocal.plate_count, [K_YOY]: pctStr(countsCurrLocal.plate_count, countsPrevLocal.plate_count) },
+      { [K_ITEM]: "จำนวนใบเบิก (WD)", [K_CURR]: countsCurrLocal.wd_count, [K_PREV]: countsPrevLocal.wd_count, [K_YOY]: pctStr(countsCurrLocal.wd_count, countsPrevLocal.wd_count) },
+      { [K_ITEM]: "จำนวนรหัสสินค้า",  [K_CURR]: countsCurrLocal.product_count, [K_PREV]: countsPrevLocal.product_count, [K_YOY]: pctStr(countsCurrLocal.product_count, countsPrevLocal.product_count) },
+      { [K_ITEM]: "จำนวนรายการเบิก",  [K_CURR]: num(countsCurrLocal.record_count), [K_PREV]: num(countsPrevLocal.record_count), [K_YOY]: pctStr(countsCurrLocal.record_count, countsPrevLocal.record_count) },
+      {
+        [K_ITEM]: "ค่าเฉลี่ยต่อคัน (฿)",
+        [K_CURR]: countsCurrLocal.plate_count > 0 ? num(totalCurr / countsCurrLocal.plate_count) : "",
+        [K_PREV]: countsPrevLocal.plate_count > 0 ? num(totalPrev / countsPrevLocal.plate_count) : "",
+        [K_YOY]: countsCurrLocal.plate_count > 0 && countsPrevLocal.plate_count > 0
+          ? pctStr(totalCurr / countsCurrLocal.plate_count, totalPrev / countsPrevLocal.plate_count) : "",
+      },
+      { [K_ITEM]: "ค่าซ่อมอู่ใน (฿)",  [K_CURR]: num(wsAgg.curr.nai), [K_PREV]: num(wsAgg.prev.nai), [K_YOY]: pctStr(wsAgg.curr.nai, wsAgg.prev.nai) },
+      { [K_ITEM]: "ค่าซ่อมอู่นอก (฿)", [K_CURR]: num(wsAgg.curr.nok), [K_PREV]: num(wsAgg.prev.nok), [K_YOY]: pctStr(wsAgg.curr.nok, wsAgg.prev.nok) },
+    ]
+    const wsSummary = XLSX.utils.json_to_sheet(summaryRows)
+    wsSummary["!cols"] = [{ wch: 26 }, { wch: 30 }, { wch: 18 }, { wch: 12 }]
+
+    // ── Sheet 2: ตามฟลีต — fleet × month, one row per fleet per year ──────────
+    const K_FLEET = "ฟลีต", K_YEAR = "ปี", K_TOTAL = "รวม"
+    const pivotRow = (label: string, be: number, byMonth: Record<string, number>, total: number) => {
+      const o: Record<string, string | number> = { [K_FLEET]: label, [K_YEAR]: be }
+      // prev-year cells are already aligned onto the current-range month keys by
+      // fleetPivot, so both year rows line up under the same column.
+      months.forEach((my) => { o[monthTh(my)] = num(byMonth[my] || 0) })
+      o[K_TOTAL] = num(total)
+      return o
+    }
+    const fleetRows = fleetPivot.rows.flatMap((r) => [
+      pivotRow(r.label, yBE, r.curr, r.currTotal),
+      pivotRow(r.label, pBE, r.prev, r.prevTotal),
+    ])
+    fleetRows.push(pivotRow("รวมทั้งหมด", yBE, fleetPivot.totals.curr, fleetPivot.totals.currTotal))
+    fleetRows.push(pivotRow("รวมทั้งหมด", pBE, fleetPivot.totals.prev, fleetPivot.totals.prevTotal))
+    const wsFleet = XLSX.utils.json_to_sheet(fleetRows)
+    wsFleet["!cols"] = [{ wch: 16 }, { wch: 8 }, ...months.map(() => ({ wch: 14 })), { wch: 16 }]
+
+    // ── Sheet 3: กลุ่มต้นทุน — cost group × month, both years ─────────────────
+    const K_GROUP = "กลุ่มต้นทุน"
+    const groupRow = (label: string, be: number, byMonth: Record<string, number>, total: number) => {
+      const o: Record<string, string | number> = { [K_GROUP]: label, [K_YEAR]: be }
+      months.forEach((my) => { o[monthTh(my)] = num(byMonth[my] || 0) })
+      o[K_TOTAL] = num(total)
+      return o
+    }
+    const groupRows = groupAggs.flatMap((g) => [
+      groupRow(GROUP_THAI[g.group] ?? g.group, yBE, g.byMonth, g.curr),
+      groupRow(GROUP_THAI[g.group] ?? g.group, pBE, g.byMonthPrev, g.prev),
+    ])
+    const groupTotCurr: Record<string, number> = {}, groupTotPrev: Record<string, number> = {}
+    months.forEach((my) => {
+      groupTotCurr[my] = groupAggs.reduce((s, g) => s + (g.byMonth[my] || 0), 0)
+      groupTotPrev[my] = groupAggs.reduce((s, g) => s + (g.byMonthPrev[my] || 0), 0)
+    })
+    groupRows.push(groupRow("รวมทั้งหมด", yBE, groupTotCurr, groupAggs.reduce((s, g) => s + g.curr, 0)))
+    groupRows.push(groupRow("รวมทั้งหมด", pBE, groupTotPrev, groupAggs.reduce((s, g) => s + g.prev, 0)))
+    const wsGroup = XLSX.utils.json_to_sheet(groupRows)
+    wsGroup["!cols"] = [{ wch: 22 }, { wch: 8 }, ...months.map(() => ({ wch: 14 })), { wch: 16 }]
+
+    // ── Sheet 4: อู่ใน-อู่นอก — in-house vs outside workshop, per month ───────
+    const wsRows = months.map((my) => {
+      const c = wsAgg.curr.byMonth[my] ?? { nai: 0, nok: 0, naiPlates: 0, nokPlates: 0 }
+      const p = wsAgg.prev.byMonth[my] ?? { nai: 0, nok: 0, naiPlates: 0, nokPlates: 0 }
+      const tot = c.nai + c.nok, totP = p.nai + p.nok
+      return {
+        "เดือน": monthTh(my),
+        [`อู่ใน ${yBE} (฿)`]:  num(c.nai),
+        [`อู่นอก ${yBE} (฿)`]: num(c.nok),
+        [`รวม ${yBE} (฿)`]:    num(tot),
+        [`สัดส่วนอู่นอก ${yBE} (%)`]: tot > 0 ? num((c.nok / tot) * 100) : "",
+        "คันอู่ใน":  c.naiPlates,
+        "คันอู่นอก": c.nokPlates,
+        [`อู่ใน ${pBE} (฿)`]:  num(p.nai),
+        [`อู่นอก ${pBE} (฿)`]: num(p.nok),
+        [`สัดส่วนอู่นอก ${pBE} (%)`]: totP > 0 ? num((p.nok / totP) * 100) : "",
+      }
+    })
+    const totNai = wsAgg.curr.nai, totNok = wsAgg.curr.nok, totAll = totNai + totNok
+    const totNaiP = wsAgg.prev.nai, totNokP = wsAgg.prev.nok, totAllP = totNaiP + totNokP
+    wsRows.push({
+      "เดือน": "รวม",
+      [`อู่ใน ${yBE} (฿)`]:  num(totNai),
+      [`อู่นอก ${yBE} (฿)`]: num(totNok),
+      [`รวม ${yBE} (฿)`]:    num(totAll),
+      [`สัดส่วนอู่นอก ${yBE} (%)`]: totAll > 0 ? num((totNok / totAll) * 100) : "",
+      "คันอู่ใน":  wsAgg.curr.naiPlates,
+      "คันอู่นอก": wsAgg.curr.nokPlates,
+      [`อู่ใน ${pBE} (฿)`]:  num(totNaiP),
+      [`อู่นอก ${pBE} (฿)`]: num(totNokP),
+      [`สัดส่วนอู่นอก ${pBE} (%)`]: totAllP > 0 ? num((totNokP / totAllP) * 100) : "",
+    })
+    const wsWorkshop = XLSX.utils.json_to_sheet(wsRows)
+    wsWorkshop["!cols"] = [{ wch: 10 }, ...Array.from({ length: 9 }, () => ({ wch: 16 }))]
+
+    // ── Sheet 5: รายคัน — plate × month, months as columns ────────────────────
+    // isAllocated rows are excluded: they are synthetic office-allocation slices
+    // carrying an office plate, not a vehicle. Including them would put phantom
+    // trucks in the sheet and make its plate count disagree with the KPI.
+    type PlateAgg = { fleet: string; fleetCost: Record<string, number>; byMonth: Record<string, number>; total: number }
+    const plateMap = new Map<string, PlateAgg>()
+    fdCurr.forEach((r) => {
+      if (r.isAllocated || !r.plate) return
+      let e = plateMap.get(r.plate)
+      if (!e) { e = { fleet: r.fleet, fleetCost: {}, byMonth: {}, total: 0 }; plateMap.set(r.plate, e) }
+      e.byMonth[r.month_year] = (e.byMonth[r.month_year] || 0) + r.plate_total
+      e.total += r.plate_total
+      // a plate can change fleet mid-range; label it with the fleet that carries
+      // most of its cost rather than whichever month happened to be seen first
+      e.fleetCost[r.fleet] = (e.fleetCost[r.fleet] || 0) + r.plate_total
+    })
+    const plateRows = [...plateMap.entries()]
+      .map(([plate, e]) => {
+        const dominant = Object.entries(e.fleetCost).sort((a, b) => b[1] - a[1])[0]?.[0] ?? e.fleet
+        const o: Record<string, string | number> = { "ทะเบียน": plate, [K_FLEET]: fleetLabel(dominant) }
+        months.forEach((my) => { o[monthTh(my)] = num(e.byMonth[my] || 0) })
+        o[K_TOTAL] = num(e.total)
+        return o
+      })
+      .sort((a, b) => Number(b[K_TOTAL]) - Number(a[K_TOTAL]))
+    const wsPlate = XLSX.utils.json_to_sheet(plateRows)
+    wsPlate["!cols"] = [{ wch: 16 }, { wch: 12 }, ...months.map(() => ({ wch: 14 })), { wch: 16 }]
+
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, wsSummary,  "สรุป")
+    XLSX.utils.book_append_sheet(wb, wsFleet,    "ตามฟลีต")
+    XLSX.utils.book_append_sheet(wb, wsGroup,    "กลุ่มต้นทุน")
+    XLSX.utils.book_append_sheet(wb, wsWorkshop, "อู่ใน-อู่นอก")
+    XLSX.utils.book_append_sheet(wb, wsPlate,    "รายคัน")
+
+    const buf = XLSX.write(wb, { bookType: "xlsx", type: "array" })
+    const blob = new Blob([buf], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    })
+    saveAs(blob, `mm-report_${startMonth}_${endMonth}.xlsx`)
   }
 
   // ── Save slide as PNG (full slide, 2x resolution) ───────────────────────────
@@ -654,12 +1256,30 @@ export default function CostReportPage() {
     </button>
   )
 
-  // active-filter tags shown on every slide (visible in PDF export too)
-  const hasFilters = selectedWh.size > 0 || selectedFlag.size > 0
+  // /api/fleet/plate-map failing is not fatal — fetchAll only throws on the
+  // summary call — so the page still renders correct-looking totals while every
+  // row silently falls back to ไม่ระบุ and the whole fleet feature is dead. Say
+  // so instead of failing quietly.
+  const fleetBridgeDown = taggedCurr.length > 0 && Object.keys(fleetMapCurr).length === 0
+
+  // active-filter tags shown on every slide (visible in PDF export too).
+  // selectedFleets counts as a filter: without it an exported deck narrowed to
+  // one fleet is labelled identically to the full-company deck.
+  const hasFilters =
+    selectedWh.size > 0 || selectedFlag.size > 0 || selectedFleets.size > 0 || selectedGroups.size > 0
   const FilterTags = ({ note }: { note?: string }) => {
     if (!hasFilters) return null
     return (
       <div className="flex max-w-[260px] flex-wrap justify-end gap-1">
+        {/* a full selection shows the same data as an empty one, so it is not a
+            filter — rendering 12 chips for it just crowds the box. */}
+        {selectedFleets.size < FLEET_PILLS.length && [...selectedFleets].map((g) => (
+          <span key={g} className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">{fleetLabel(g)}</span>
+        ))}
+        {/* likewise: all six groups selected is the same view as none */}
+        {selectedGroups.size < GROUP_ORDER.length && [...selectedGroups].map((g) => (
+          <span key={g} className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-700">{GROUP_THAI[g] ?? g}</span>
+        ))}
         {[...selectedWh].map((w) => (
           <span key={w} className="rounded-full border border-gray-200 bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600">{w}</span>
         ))}
@@ -701,6 +1321,10 @@ export default function CostReportPage() {
             className="rounded-xl border bg-white px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">
             🖨 Export PDF
           </button>
+          <button onClick={exportExcel} disabled={!hasData}
+            className="rounded-xl border bg-white px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">
+            📊 Export Excel
+          </button>
         </div>
 
         {/* Row 2: warehouse chips */}
@@ -740,10 +1364,103 @@ export default function CostReportPage() {
             )}
           </div>
         )}
+
+        {/* Row 4: fleet pills — client-side filter only, never triggers a refetch */}
+        <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-gray-100 pt-2.5">
+          <span className="w-24 shrink-0 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Fleet</span>
+          <button onClick={toggleAllFleets}
+            className="rounded-full border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-500 transition hover:bg-gray-50">
+            {selectedFleets.size === 0 ? "All" : "Clear"}
+          </button>
+          {FLEET_PILLS.map((g) => {
+            const on = selectedFleets.has(g)
+            const color = FLEET_COLORS[g]
+            return (
+              <button key={g} onClick={() => toggleFleet(g)}
+                className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-medium transition ${
+                  on
+                    ? color ? "border-transparent text-white" : "border-gray-700 bg-gray-600 text-white"
+                    : "bg-white text-gray-500 hover:bg-gray-50"
+                }`}
+                style={on && color ? { backgroundColor: color, borderColor: color } : {}}>
+                {/* disambiguated from the Partner Flag "ไม่ระบุ" chip a row above.
+                    The label is overridden here only — BUCKET_LABELS is shared. */}
+                {g === BUCKET_UNKNOWN ? "ไม่ระบุฟลีท" : fleetLabel(g)}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Row 5: cost-group chips — client-side, line-level filter (see cgFilter) */}
+        <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-gray-100 pt-2.5">
+          <span className="w-24 shrink-0 text-[10px] font-semibold uppercase tracking-wider text-gray-400">กลุ่มต้นทุน</span>
+          <button onClick={toggleAllGroups}
+            className="rounded-full border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-500 transition hover:bg-gray-50">
+            {selectedGroups.size === 0 ? "All" : "Clear"}
+          </button>
+          {GROUP_ORDER.map((g) => {
+            const on = selectedGroups.has(g)
+            const color = GROUP_COLOR[g]
+            return (
+              <button key={g} onClick={() => toggleSet(selectedGroups, setSelectedGroups, g)}
+                className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-medium transition ${
+                  on ? "border-transparent text-white" : "bg-white text-gray-500 hover:bg-gray-50"
+                }`}
+                style={on ? { backgroundColor: color, borderColor: color } : {}}>
+                {CHART_SHORT[g] ?? g}
+              </button>
+            )
+          })}
+        </div>
       </div>
 
       {error && (
         <div className="print:hidden mx-auto mb-4 max-w-[1400px] rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>
+      )}
+
+      {fleetBridgeDown && (
+        <div className="mx-auto mb-4 max-w-[1400px] rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+          {fleetBridgeStatus === "empty" ? (
+            <>
+              ไม่พบข้อมูลจับคู่ทะเบียน–ฟลีท (plate-map) ในช่วงเดือนที่เลือก — ยอดรวมยังถูกต้อง
+              แต่ทุกคันจะถูกจัดอยู่ในกลุ่ม “ไม่ระบุฟลีท” และการกรองตามฟลีทจะใช้งานไม่ได้ กรุณาเลือกช่วงเดือนอื่น
+            </>
+          ) : (
+            <>
+              ไม่สามารถโหลดข้อมูลจับคู่ทะเบียน–ฟลีท (plate-map) ได้ — ยอดรวมยังถูกต้อง
+              แต่ทุกคันจะถูกจัดอยู่ในกลุ่ม “ไม่ระบุฟลีท” และการกรองตามฟลีทจะใช้งานไม่ได้ กรุณากด Generate ใหม่อีกครั้ง
+            </>
+          )}
+        </div>
+      )}
+
+      {loading && (
+        <div className="print:hidden mx-auto mb-5 max-w-[420px] rounded-2xl border bg-white p-5 shadow-sm">
+          <div className="flex items-baseline justify-between gap-3">
+            <p className="text-sm font-semibold text-gray-700">⏳ กำลังโหลดข้อมูล…</p>
+            <p className="text-sm tabular-nums text-gray-400">{elapsed.toFixed(1)}ว</p>
+          </div>
+          <ul className="mt-3 space-y-1.5">
+            {LOAD_STAGES.map((s) => {
+              const done = stagesDone[s.key]
+              // "คำนวณ" genuinely cannot start until both fetch stages land, so
+              // it is the one stage with a real not-yet-started state. The two
+              // fetch stages are always in flight together while loading.
+              const active = !done && (s.key !== "compute" || (stagesDone.cost && stagesDone.fleet))
+              return (
+                <li key={s.key} className={`flex items-center gap-2 text-[13px] ${
+                  done ? "text-gray-700" : active ? "text-gray-500" : "text-gray-300"
+                }`}>
+                  <span className={done ? "text-emerald-500" : active ? "animate-pulse text-gray-400" : "text-gray-300"}>
+                    {done ? "✓" : active ? "●" : "○"}
+                  </span>
+                  {s.label}
+                </li>
+              )
+            })}
+          </ul>
+          <p className="mt-3 border-t pt-2.5 text-[11px] text-gray-400">ช่วงเวลากว้างอาจใช้ 3–5 วินาที</p>
+        </div>
       )}
 
       {hasData && (
@@ -787,10 +1504,10 @@ export default function CostReportPage() {
               </div>
               <div className="rounded-2xl border px-5 py-4">
                 <p className="text-xs text-gray-400">Fleet ({year})</p>
-                <p className="mt-1 text-3xl font-bold text-gray-900">{counts?.plate_count ?? "—"}</p>
+                <p className="mt-1 text-3xl font-bold text-gray-900">{countsCurrLocal.plate_count}</p>
                 <p className="mt-0.5 text-xs text-gray-400">
-                  คัน{counts && counts.plate_count > 0 ? ` · เฉลี่ย ฿${fmtNum(totalCurr / counts.plate_count)}/คัน` : ""}
-                  {countsPrev && countsPrev.plate_count > 0 ? ` (${prevYear}: ฿${fmtNum(totalPrev / countsPrev.plate_count)})` : ""}
+                  คัน{countsCurrLocal.plate_count > 0 ? ` · เฉลี่ย ฿${fmtNum(totalCurr / countsCurrLocal.plate_count)}/คัน` : ""}
+                  {countsPrevLocal.plate_count > 0 ? ` (${prevYear}: ฿${fmtNum(totalPrev / countsPrevLocal.plate_count)})` : ""}
                 </p>
                 <p className="mt-1.5 border-t pt-1.5 text-[9px] leading-snug text-gray-400">
                   นับเฉพาะรถที่มีค่าซ่อม/เบิกอะไหล่ในช่วงที่เลือก · เฉลี่ย/คัน = ค่าใช้จ่ายรวม ÷ จำนวนคัน
@@ -1184,21 +1901,186 @@ export default function CostReportPage() {
             </section>
           )}
 
+          {/* ══ SLIDE: ต้นทุนรายฟลีท × เดือน ═══════════════════════════════════ */}
+          {hasPivot && (
+            <section ref={setSlideRef("fleetPivot")} className="slide rounded-2xl bg-white p-8 shadow-sm print:rounded-none print:shadow-none">
+              <div className="mb-4 flex items-start justify-between border-b pb-4">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-widest text-indigo-600">Fleet × Month</p>
+                  <h2 className="mt-1 text-2xl font-bold text-gray-900">ต้นทุนรายฟลีท แยกตามเดือน</h2>
+                  <p className="mt-0.5 text-sm text-gray-400">
+                    {periodLabel} เทียบกับ {prevYear} · ค่าใช้จ่ายรถสำนักงานถูกเฉลี่ยเข้าแต่ละฟลีทตามจำนวนรถแล้ว
+                  </p>
+                </div>
+                <div className="flex flex-col items-end gap-1.5">
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs text-gray-300">Slide {2 + (hasBd ? 1 : 0) + (hasWs ? 1 : 0)} — Fleet × Month</p>
+                    <PngButton slideKey="fleetPivot" name={`mm-report-${2 + (hasBd ? 1 : 0) + (hasWs ? 1 : 0)}-fleet-pivot-${year}`} />
+                  </div>
+                  <FilterTags />
+                </div>
+              </div>
+
+              {/* metric toggle */}
+              <div className="mb-3 flex items-center gap-1.5">
+                {([["total", "ต้นทุนรวม"], ["perTruck", "ต้นทุนต่อคัน"]] as const).map(([m, label]) => (
+                  <button key={m} onClick={() => setPivotMetric(m)}
+                    className={`rounded-full border px-3 py-1 text-[11px] font-semibold transition ${
+                      pivotMetric === m
+                        ? "border-indigo-500 bg-indigo-500 text-white"
+                        : "border-gray-200 bg-white text-gray-500 hover:bg-gray-50"
+                    }`}>
+                    {label}
+                  </button>
+                ))}
+                <span className="ml-2 text-[11px] text-gray-400">
+                  {pivotMetric === "perTruck" ? "หารด้วยจำนวนรถของฟลีทในเดือนนั้น · กลุ่มที่ไม่มีจำนวนรถแสดง —" : "บาท"}
+                </span>
+              </div>
+
+              {/* a 12-month range is wider than the slide — scroll the table, not the page */}
+              <div className="overflow-x-auto rounded-xl border">
+                <table className="w-full border-separate border-spacing-0 text-xs">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="sticky left-0 min-w-[150px] border-b border-r bg-gray-50 px-3 py-2 text-left font-semibold uppercase tracking-wide text-gray-500">Fleet</th>
+                      <th className="border-b border-r px-2 py-2 text-center font-semibold uppercase tracking-wide text-gray-500">ปี</th>
+                      {months.map((my) => (
+                        <th key={my} className="min-w-[62px] border-b px-2 py-2 text-right font-semibold text-gray-400">
+                          {MONTH_LABEL[my.split("-")[1]] ?? my}
+                        </th>
+                      ))}
+                      <th className="min-w-[72px] border-b border-l px-2 py-2 text-right font-semibold uppercase tracking-wide text-gray-500">รวม</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {fleetPivot.rows.map((r, idx) => {
+                      const prevRow = fleetPivot.rows[idx - 1]
+                      // divider where the fleet rows end and the fallback buckets begin
+                      const startsBuckets = !r.isFleet && (!prevRow || prevRow.isFleet)
+                      const muted = r.isFleet ? "" : "text-gray-400"
+                      const cell = (v: number | null, extra: string) =>
+                        v === null
+                          ? <span className="text-gray-300">—</span>
+                          // v !== 0, not v > 0: a credit/adjustment makes a month
+                          // negative, and hiding it as "—" while it still counts
+                          // in the รวม makes the row visibly not add up.
+                          : <span className={extra}>{v !== 0 ? fmtNum(v) : "—"}</span>
+                      return (
+                        <React.Fragment key={r.key}>
+                          <tr className={startsBuckets ? "border-t-4 border-t-gray-300" : undefined}>
+                            <td rowSpan={2}
+                              className={`sticky left-0 border-b-2 border-r bg-white px-3 align-middle ${startsBuckets ? "border-t-4 border-t-gray-300" : ""}`}>
+                              <div className="flex items-center gap-2">
+                                {r.isFleet && (
+                                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: r.color }} />
+                                )}
+                                <span className={`text-[12px] ${r.isFleet ? "font-bold text-gray-800" : "font-medium text-gray-400"}`}>
+                                  {r.label}
+                                </span>
+                              </div>
+                            </td>
+                            <td className={`border-r px-2 py-1.5 text-center ${startsBuckets ? "border-t-4 border-t-gray-300" : ""}`}>
+                              <span className="inline-block rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-600">{year + 543}</span>
+                            </td>
+                            {months.map((my) => (
+                              <td key={my} className={`px-2 py-1.5 text-right tabular-nums ${startsBuckets ? "border-t-4 border-t-gray-300" : ""} ${muted || "text-gray-800"}`}>
+                                {cell(pivotCell(r.curr[my] || 0, r.trucks[my] || 0, r.isFleet), "font-semibold")}
+                              </td>
+                            ))}
+                            <td className={`border-l px-2 py-1.5 text-right tabular-nums ${startsBuckets ? "border-t-4 border-t-gray-300" : ""} ${muted || "text-gray-900"}`}>
+                              {cell(pivotRowTotal(r.currTotal, r.trucks, r.isFleet), "font-bold")}
+                            </td>
+                          </tr>
+                          <tr className="border-b-2">
+                            <td className="border-b-2 border-r px-2 py-1.5 text-center">
+                              <span className="inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">{prevYear + 543}</span>
+                            </td>
+                            {months.map((my) => (
+                              <td key={my} className="border-b-2 px-2 py-1.5 text-right tabular-nums text-gray-400">
+                                {cell(pivotCell(r.prev[my] || 0, r.trucksPrev[my] || 0, r.isFleet), "")}
+                              </td>
+                            ))}
+                            <td className="border-b-2 border-l px-2 py-1.5 text-right tabular-nums text-gray-500">
+                              {cell(pivotRowTotal(r.prevTotal, r.trucksPrev, r.isFleet), "font-semibold")}
+                            </td>
+                          </tr>
+                        </React.Fragment>
+                      )
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-gray-50">
+                      <td rowSpan={2} className="sticky left-0 border-r border-t-2 bg-gray-50 px-3 align-middle text-[12px] font-bold text-gray-900">รวม</td>
+                      <td className="border-r border-t-2 px-2 py-1.5 text-center">
+                        <span className="inline-block rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-600">{year + 543}</span>
+                      </td>
+                      {months.map((my) => (
+                        <td key={my} className="border-t-2 px-2 py-1.5 text-right font-bold tabular-nums text-gray-900">
+                          {(() => {
+                            const v = pivotCell(fleetPivot.totals.curr[my] || 0, fleetPivot.totals.trucks[my] || 0, true)
+                            return v === null || v <= 0 ? <span className="text-gray-300">—</span> : fmtNum(v)
+                          })()}
+                        </td>
+                      ))}
+                      <td className="border-l border-t-2 px-2 py-1.5 text-right font-bold tabular-nums text-gray-900">
+                        {(() => {
+                          const v = pivotRowTotal(fleetPivot.totals.currTotal, fleetPivot.totals.trucks, true)
+                          return v === null || v <= 0 ? <span className="text-gray-300">—</span> : fmtNum(v)
+                        })()}
+                      </td>
+                    </tr>
+                    <tr className="bg-gray-50">
+                      <td className="border-r px-2 py-1.5 text-center">
+                        <span className="inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">{prevYear + 543}</span>
+                      </td>
+                      {months.map((my) => (
+                        <td key={my} className="px-2 py-1.5 text-right font-semibold tabular-nums text-gray-500">
+                          {(() => {
+                            const v = pivotCell(fleetPivot.totals.prev[my] || 0, fleetPivot.totals.trucksPrev[my] || 0, true)
+                            return v === null || v <= 0 ? <span className="text-gray-300">—</span> : fmtNum(v)
+                          })()}
+                        </td>
+                      ))}
+                      <td className="border-l px-2 py-1.5 text-right font-semibold tabular-nums text-gray-500">
+                        {(() => {
+                          const v = pivotRowTotal(fleetPivot.totals.prevTotal, fleetPivot.totals.trucksPrev, true)
+                          return v === null || v <= 0 ? <span className="text-gray-300">—</span> : fmtNum(v)
+                        })()}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </section>
+          )}
+
           {/* ══ SLIDES 3+: one per cost group ═════════════════════════════════ */}
-          {groupAggs.map((g, idx) => {
+          {/* groupAggsAll, not groupAggs: an unselected group keeps its slide so
+              the printed page count does not move with the filter. It renders
+              muted with a badge rather than as a chart of zeros, which would
+              read as a data fault. */}
+          {groupAggsAll.map((g, idx) => {
+            const picked = selectedGroups.size === 0 || selectedGroups.has(g.group)
             const det = detailByGroup.get(g.group)
             const monthly = months.map((my) => ({
               month: MONTH_LABEL[my.split("-")[1]] ?? my,
               curr:  g.byMonth[my] || 0,
               prev:  g.byMonthPrev[my] || 0,
             }))
-            const share = totalCurr > 0 ? (g.curr / totalCurr) * 100 : 0
+            // a muted group is not part of totalCurr, so it is measured against
+            // the cost-group-unfiltered total instead
+            const denom = picked ? totalCurr : totalAllGroups
+            const share = denom > 0 ? (g.curr / denom) * 100 : 0
             // biggest item mover (needs meaningful prev base)
             const mover = det?.items
               .filter((it) => it.prev > 20_000 || it.curr > 20_000)
               .sort((a, b) => Math.abs(b.curr - b.prev) - Math.abs(a.curr - a.prev))[0]
             return (
-              <section key={g.group} ref={setSlideRef(`cg-${g.group}`)} className="slide rounded-2xl bg-white p-8 shadow-sm print:rounded-none print:shadow-none">
+              <section key={g.group} ref={setSlideRef(`cg-${g.group}`)}
+                className={`slide rounded-2xl bg-white p-8 shadow-sm print:rounded-none print:shadow-none ${
+                  picked ? "" : "opacity-45 saturate-50"
+                }`}>
                 <div className="mb-4 flex items-start justify-between border-b pb-4">
                   <div>
                     <p className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: GROUP_COLOR[g.group] }}>
@@ -1208,15 +2090,20 @@ export default function CostReportPage() {
                       <span className="inline-block h-3.5 w-3.5 rounded-full" style={{ background: GROUP_COLOR[g.group] }} />
                       {g.group}
                       <span className="text-base font-medium text-gray-400">{GROUP_THAI[g.group]}</span>
+                      {!picked && (
+                        <span className="rounded-full border border-gray-300 bg-gray-100 px-2.5 py-1 text-[11px] font-semibold text-gray-500">
+                          ไม่ได้เลือกในตัวกรอง
+                        </span>
+                      )}
                     </h2>
                     <p className="mt-0.5 text-sm text-gray-400">{periodLabel} เทียบกับ {prevYear}</p>
                   </div>
                   <div className="flex flex-col items-end gap-1.5">
                     <div className="flex items-center gap-2">
-                      <p className="text-xs text-gray-300">Slide {idx + 2 + (hasBd ? 1 : 0) + (hasWs ? 1 : 0)}</p>
+                      <p className="text-xs text-gray-300">Slide {idx + 2 + (hasBd ? 1 : 0) + (hasWs ? 1 : 0) + (hasPivot ? 1 : 0)}</p>
                       <PngButton
                         slideKey={`cg-${g.group}`}
-                        name={`mm-report-${idx + 2 + (hasBd ? 1 : 0) + (hasWs ? 1 : 0)}-${g.group.split(" - ")[0].replace(/\s+/g, "").toLowerCase()}-${year}`}
+                        name={`mm-report-${idx + 2 + (hasBd ? 1 : 0) + (hasWs ? 1 : 0) + (hasPivot ? 1 : 0)}-${g.group.split(" - ")[0].replace(/\s+/g, "").toLowerCase()}-${year}`}
                       />
                     </div>
                     <FilterTags />
@@ -1354,9 +2241,6 @@ export default function CostReportPage() {
         </div>
       )}
 
-      {loading && !hasData && (
-        <div className="py-16 text-center text-sm text-gray-400">กำลังโหลดข้อมูล…</div>
-      )}
 
       {/* print styles (same pattern as /fleet-report) */}
       <style>{`

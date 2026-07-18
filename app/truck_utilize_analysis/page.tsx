@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, Fragment } from "react";
 import { useSetAiContext } from "@/lib/ai-context";
 import { AiInsightsPanel } from "@/components/ai-insights-panel";
+import { FLEET_MAP, FLEET_ORDER, FLEET_COLORS } from "@/lib/fleets";
 import {
   ComposedChart, Bar, Line, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine,
@@ -36,15 +37,6 @@ const GROUP_STYLE: Record<string,string> = {
 const GROUP_LABEL: Record<string,string> = { working:"ทำงาน", repair:"ซ่อม", idle:"ว่าง", unknown:"ไม่ระบุ" };
 
 // ── Fleet helpers ─────────────────────────────────────────────────────────
-const FLEET_MAP: Record<string,string> = {
-  "1":"ML","2":"MS","3":"TDM","4":"BTG","5":"TFG","6":"SCCC","7":"DHL","8":"KN",
-};
-const FLEET_ORDER = ["1","2","3","4","5","6","7","8"];
-
-const FLEET_COLORS: Record<string,string> = {
-  "1":"#3b82f6","2":"#6366f1","3":"#10b981","4":"#f97316",
-  "5":"#ec4899","6":"#8b5cf6","7":"#ef4444","8":"#eab308",
-};
 const TOTAL_COLOR = "#374151";
 const MONTHS      = ["01","02","03","04","05","06","07","08","09","10","11","12"] as const;
 const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"] as const;
