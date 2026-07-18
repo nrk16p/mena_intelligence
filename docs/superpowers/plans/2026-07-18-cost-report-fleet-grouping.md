@@ -13,15 +13,57 @@
 - **No MongoDB pipeline changes.** `app/api/cost/*/route.ts` aggregation stages must remain byte-identical. Verify with `git diff --stat app/api/cost/` before each commit.
 - Month format for the fleet bridge is `"MM-YY"` (e.g. `"07-26"`), produced by the existing `toBdKey()` in `app/cost-report/page.tsx`. Cost data uses `"YYYY-MM"`. Never mix them.
 - Plate normalization is `normPlate` from `lib/plate-partner.ts:9` (`String(s).replace(/\s+/g,"").trim()`), applied on **both** sides of every join.
-- Unmapped plates go to the `"ไม่ระบุ"` bucket and are always rendered. Never filter them out silently.
+- Plates with no MySQL fleet are bucketed by `partner_flag`, never dropped:
+  `รถสำนักงาน` → `BUCKET_OFFICE` (allocated across fleets pro-rata by truck
+  count, no row of its own); `รถร่วม*` → `BUCKET_PARTNER` (own row);
+  everything else → `BUCKET_UNKNOWN` (own row, marked as a data-quality
+  signal). `BUCKET_PARTNER` and `BUCKET_UNKNOWN` are excluded from every
+  per-truck denominator.
+- The pivot's `รวม` row must equal the unfiltered KPI total. This is the
+  single check that proves allocation neither double-counts nor drops cost.
 - Fleet filtering is client-side only. Toggling a fleet pill must issue zero network requests.
 - Existing UI copy stays Thai, matching surrounding text.
 
 ---
 
-### Task 0: Confirm the plate join (spike — no production code)
+### Task 0: Confirm the plate join — ✅ RAN 2026-07-18, results below
 
-`lib/plate-partner.ts:4-6` already records a 2026-07 plate-spelling check in the reverse direction, so this is confirmation, not discovery. Bounded queries only — no unbounded scans.
+**Outcome: 85.9% raw match, below the 90% gate — but the shortfall is
+explained and does not invalidate the bridge.** Measured against production
+for `07-26` / `2026-07`:
+
+| | plates | share of cost |
+|---|---|---|
+| Exact plate+month match | 432 | **83.7%** |
+| Rescued by nearest-month fallback | **0** | 0% |
+| No MySQL ops record in any month | 71 | **16.3%** |
+
+Ruled out by direct measurement: encoding differences (`สบ.` is byte-identical
+on both sides, `e0b8aa e0b89a 2e`), a missing-prefix convention (bare numbers
+like `70-3706` do not exist in MySQL), and month misalignment (a fallback to
+the plate's nearest known month rescues zero plates).
+
+The 71 unmatched plates are trucks absent from `performance_vehicle_daily`
+entirely. `partner_flag` — already carried on the cost data — classifies them:
+
+| partner_flag | plates | cost | treatment |
+|---|---|---|---|
+| `รถมีนา` | 45 | 10.1% | `BUCKET_UNKNOWN` — own row, flagged ⚠ |
+| `รถสำนักงาน` | 3 | 3.0% | `BUCKET_OFFICE` — allocated across fleets |
+| `รถร่วมมีนา` | 9 | 2.3% | `BUCKET_PARTNER` — own row |
+| none | 13 | 0.9% | `BUCKET_UNKNOWN` |
+| `รถร่วมภายนอกบริษัท` | 1 | 0.0% | `BUCKET_PARTNER` |
+
+The `รถมีนา` group is MENA's own trucks drawing parts with no operations
+record — an ops-data gap, surfaced in the pivot rather than hidden.
+
+Note `ext_WD_data.ipynb` does **not** implement ปันลง allocation despite the
+`office_plates` list in cell 2; it only tags those rows `รถสำนักงาน`. The
+allocation in Task 7 is new behaviour, so `/cost-report` will deliberately
+differ from `pivot_year_warehouse.xlsx` by the office share.
+
+The original spike steps are retained below for reference; **do not re-run
+them.**
 
 **Files:**
 - Create: `scripts/check-plate-join.mjs` (throwaway, deleted in Step 4)
@@ -405,14 +447,41 @@ Do **not** add these fetches to the chip-change effect at `:240-263`. Fleet mapp
 
 Add after the existing `filterSum` memos (around `:285`):
 
+Measured against production for 2026-07: 83.7% of cost maps to a fleet by
+exact plate+month. The remaining 16.3% has no MySQL operations record at all
+(a fallback to the plate's nearest other month rescues **zero** plates — this
+was tested). That residue is classified by `partner_flag`, which is already
+present on the cost data:
+
+| partner_flag | Share | Bucket |
+|---|---|---|
+| `รถสำนักงาน` | 3.0% | `BUCKET_OFFICE` — allocated across fleets (Task 7) |
+| `รถร่วมมีนา`, `รถร่วมภายนอกบริษัท` | 2.3% | `BUCKET_PARTNER` — own row |
+| `รถมีนา` / none | 11.0% | `BUCKET_UNKNOWN` — own row |
+
 ```ts
 type TaggedPlateRow = PlateDetailRow & { fleet: string }
 
-const tagFleet = (rows: PlateDetailRow[], map: Record<string, string>): TaggedPlateRow[] =>
-  rows.map((r) => ({ ...r, fleet: map[fleetKey(r.plate, toBdKey(r.month_year))] ?? UNKNOWN_FLEET }))
+const tagFleet = (
+  rows: PlateDetailRow[],
+  fleetMap: Record<string, string>,
+  flagMap: Record<string, string>,
+): TaggedPlateRow[] =>
+  rows.map((r) => {
+    const f = fleetMap[fleetKey(r.plate, toBdKey(r.month_year))]
+    if (f) return { ...r, fleet: f }
+    const flag = flagMap[normPlate(r.plate)] ?? ""
+    const bucket =
+      flag === "รถสำนักงาน" ? BUCKET_OFFICE
+      : flag.startsWith("รถร่วม") ? BUCKET_PARTNER
+      : BUCKET_UNKNOWN
+    return { ...r, fleet: bucket }
+  })
 
-const taggedCurr = useMemo(() => tagFleet(detCurr, fleetMapCurr), [detCurr, fleetMapCurr])
-const taggedPrev = useMemo(() => tagFleet(detPrev, fleetMapPrev), [detPrev, fleetMapPrev])
+const taggedCurr = useMemo(
+  () => tagFleet(detCurr, fleetMapCurr, flagMap), [detCurr, fleetMapCurr, flagMap])
+const taggedPrev = useMemo(
+  () => tagFleet(detPrev, fleetMapPrev, flagMap), [detPrev, fleetMapPrev, flagMap])
 
 // empty selection = no filter, matching the warehouse / partner-flag chips
 const fleetFilter = (rows: TaggedPlateRow[]) =>
@@ -703,84 +772,232 @@ git commit -m "feat: add fleet filter pills to cost-report"
 
 ---
 
-### Task 7: "ต้นทุนตามฟลีต" slide
+### Task 7: Fleet × Month pivot table
+
+Replaces the flat "cost per fleet" table originally planned here. Rows are
+fleets with year-over-year sub-rows; columns are months. Mirrors the pivot in
+`app/truck_utilize_analysis/page.tsx:617-690`, which uses a `rowSpan={2}` fleet
+cell over two year rows.
 
 **Files:**
 - Modify: `app/cost-report/page.tsx` (new memo + new slide block)
 
 **Interfaces:**
-- Consumes: `fdCurr`, `fdPrev`, `bdCurr`, `FLEET_ORDER`, `FLEET_COLORS`, `fleetLabel`
-- Produces: `fleetAgg: { fleet, label, color, curr, prev, trucks, perTruck, byMonth }[]`
+- Consumes: `fdCurr`, `fdPrev`, `bdCurr`, `months`, `FLEET_ORDER`,
+  `FLEET_COLORS`, `BUCKET_OFFICE`, `BUCKET_PARTNER`, `BUCKET_UNKNOWN`,
+  `fleetLabel`
+- Produces: `fleetPivot: { rows: PivotRow[]; totals: PivotTotals }` where
+  `PivotRow = { key, label, color, isFleet, curr: Record<string,number>,
+  prev: Record<string,number>, currTotal, prevTotal, trucks: Record<string,number> }`
 
-- [ ] **Step 1: Build the aggregate**
+- [ ] **Step 1: Write the failing test for the allocation helper**
 
-`truck_count` varies by month, so the per-truck denominator uses the maximum monthly truck count in range — the fleet's fielded size — rather than a sum across months, which would inflate the denominator by the number of months.
+The allocation is pure arithmetic, so it is unit-tested. Add to
+`lib/fleets.test.ts`:
 
 ```ts
-const fleetAgg = useMemo(() => {
-  const curr = new Map<string, number>(), prev = new Map<string, number>()
-  const byMonth = new Map<string, Record<string, number>>()
+import { allocateOffice } from "./fleets"
 
-  fdCurr.forEach((r) => {
-    curr.set(r.fleet, (curr.get(r.fleet) || 0) + r.plate_total)
-    const mm = byMonth.get(r.fleet) ?? {}
-    mm[r.month_year] = (mm[r.month_year] || 0) + r.plate_total
-    byMonth.set(r.fleet, mm)
+describe("allocateOffice", () => {
+  it("splits office cost across fleets pro-rata by truck count", () => {
+    const out = allocateOffice(1000, { "1": 60, "2": 40 })
+    expect(out["1"]).toBeCloseTo(600)
+    expect(out["2"]).toBeCloseTo(400)
   })
-  fdPrev.forEach((r) => prev.set(r.fleet, (prev.get(r.fleet) || 0) + r.plate_total))
 
-  const trucks = new Map<string, number>()
+  it("returns an empty allocation when there are no trucks", () => {
+    expect(allocateOffice(1000, {})).toEqual({})
+  })
+
+  it("returns an empty allocation when office cost is zero", () => {
+    expect(allocateOffice(0, { "1": 60 })).toEqual({ "1": 0 })
+  })
+
+  it("does not lose baht to rounding across fleets", () => {
+    const out = allocateOffice(100, { "1": 1, "2": 1, "3": 1 })
+    const sum = Object.values(out).reduce((s, v) => s + v, 0)
+    expect(sum).toBeCloseTo(100)
+  })
+})
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `npm test`
+Expected: FAIL — `allocateOffice` is not exported from `./fleets`
+
+- [ ] **Step 3: Implement `allocateOffice` in `lib/fleets.ts`**
+
+```ts
+/**
+ * Spread central (รถสำนักงาน) cost across fleets pro-rata by truck count.
+ * Returns {} when there is nothing to allocate against, so callers never
+ * divide by zero. Values are exact fractions — do not round here, or the
+ * allocated total stops matching the input.
+ */
+export function allocateOffice(
+  officeCost: number,
+  trucksByFleet: Record<string, number>,
+): Record<string, number> {
+  const total = Object.values(trucksByFleet).reduce((s, n) => s + n, 0)
+  if (total <= 0) return {}
+  const out: Record<string, number> = {}
+  for (const [fleet, n] of Object.entries(trucksByFleet)) {
+    out[fleet] = (officeCost * n) / total
+  }
+  return out
+}
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `npm test`
+Expected: PASS — 11 tests total (7 from Task 1, 4 new).
+
+- [ ] **Step 5: Build the pivot memo**
+
+Allocation is computed **per month**, not once over the whole range — truck
+counts shift month to month, and an annual allocation would misattribute cost
+to fleets that grew or shrank mid-range.
+
+```tsx
+type PivotRow = {
+  key: string; label: string; color: string; isFleet: boolean
+  curr: Record<string, number>; prev: Record<string, number>
+  currTotal: number; prevTotal: number
+  trucks: Record<string, number>
+}
+
+const fleetPivot = useMemo(() => {
+  // trucks[fleet][month] from the MySQL breakdown rows
+  const trucks: Record<string, Record<string, number>> = {}
   bdCurr.forEach((b) => {
     const id = String(b.fleet_group_id)
-    trucks.set(id, Math.max(trucks.get(id) || 0, Number(b.truck_count) || 0))
+    ;(trucks[id] ??= {})[toMy(b.month_year)] = Number(b.truck_count) || 0
   })
 
-  return [...FLEET_ORDER, UNKNOWN_FLEET]
-    .map((f) => {
-      const c = curr.get(f) || 0
-      const t = trucks.get(f) || 0
-      return {
-        fleet: f,
-        label: fleetLabel(f),
-        color: FLEET_COLORS[f] ?? "#9ca3af",
-        curr: c,
-        prev: prev.get(f) || 0,
-        trucks: t,
-        perTruck: t > 0 ? c / t : null,
-        byMonth: byMonth.get(f) ?? {},
-      }
+  const cost = (rows: TaggedPlateRow[]) => {
+    const m: Record<string, Record<string, number>> = {}
+    rows.forEach((r) => { (m[r.fleet] ??= {})[r.month_year] = (m[r.fleet]?.[r.month_year] || 0) + r.plate_total })
+    return m
+  }
+  const cCurr = cost(fdCurr), cPrev = cost(fdPrev)
+
+  // allocate office cost per month across fleets present that month
+  const allocate = (c: Record<string, Record<string, number>>) => {
+    const alloc: Record<string, Record<string, number>> = {}
+    months.forEach((my) => {
+      const office = c[BUCKET_OFFICE]?.[my] || 0
+      if (!office) return
+      const tby: Record<string, number> = {}
+      FLEET_ORDER.forEach((f) => { const n = trucks[f]?.[my] || 0; if (n) tby[f] = n })
+      const split = allocateOffice(office, tby)
+      for (const [f, v] of Object.entries(split)) (alloc[f] ??= {})[my] = v
     })
-    .filter((r) => r.curr > 0 || r.prev > 0)
-    .sort((a, b) => b.curr - a.curr)
-}, [fdCurr, fdPrev, bdCurr])
+    return alloc
+  }
+  const aCurr = allocate(cCurr), aPrev = allocate(cPrev)
+
+  const mk = (key: string, isFleet: boolean): PivotRow => {
+    const curr: Record<string, number> = {}, prev: Record<string, number> = {}
+    months.forEach((my) => {
+      curr[my] = (cCurr[key]?.[my] || 0) + (isFleet ? (aCurr[key]?.[my] || 0) : 0)
+      const pmy = shiftYear(my, -1)
+      prev[my] = (cPrev[key]?.[pmy] || 0) + (isFleet ? (aPrev[key]?.[pmy] || 0) : 0)
+    })
+    return {
+      key, label: fleetLabel(key), color: FLEET_COLORS[key] ?? "#9ca3af", isFleet,
+      curr, prev,
+      currTotal: Object.values(curr).reduce((s, v) => s + v, 0),
+      prevTotal: Object.values(prev).reduce((s, v) => s + v, 0),
+      trucks: trucks[key] ?? {},
+    }
+  }
+
+  const rows = [
+    ...FLEET_ORDER.map((f) => mk(f, true)),
+    mk(BUCKET_PARTNER, false),
+    mk(BUCKET_UNKNOWN, false),
+  ].filter((r) => r.currTotal > 0 || r.prevTotal > 0)
+
+  const totals = { curr: {} as Record<string, number>, prev: {} as Record<string, number>, trucks: {} as Record<string, number> }
+  months.forEach((my) => {
+    totals.curr[my] = rows.reduce((s, r) => s + (r.curr[my] || 0), 0)
+    totals.prev[my] = rows.reduce((s, r) => s + (r.prev[my] || 0), 0)
+    totals.trucks[my] = rows.filter((r) => r.isFleet).reduce((s, r) => s + (r.trucks[my] || 0), 0)
+  })
+  return { rows, totals }
+}, [fdCurr, fdPrev, bdCurr, months])
 ```
 
-- [ ] **Step 2: Render the slide**
+`BUCKET_OFFICE` deliberately gets no row of its own — its cost lives inside the
+fleet rows after allocation. `BUCKET_PARTNER` and `BUCKET_UNKNOWN` get rows and
+are **excluded from the per-truck denominator**, since neither has a truck
+count. `make_pivot_excel.py:115-116` makes the opposite choice and counts
+pseudo-plates in its `nunique()` denominator, which understates its per-truck
+figures — do not copy that behaviour.
 
-Add a new slide block following the structure of the existing "อู่ใน vs อู่นอก" slide (`:1019`) so the print and PNG export paths pick it up automatically. Match that slide's wrapper element, class names and heading markup exactly — copy its outer JSX and replace the body.
+- [ ] **Step 6: Add the metric toggle state**
 
-Table columns: ฟลีต / ต้นทุนปีนี้ / ต้นทุนปีก่อน / เปลี่ยนแปลง % / จำนวนรถ / ต้นทุนต่อคัน. Render `perTruck === null` as `—`, never `0`. Use a `<Recharts>` bar chart coloured per fleet via `entry.color`, mirroring the chart usage already in the file.
+```ts
+const [pivotMetric, setPivotMetric] = useState<"total" | "perTruck">("total")
 
-- [ ] **Step 3: Verify**
+const cellValue = (r: PivotRow, my: string, yr: "curr" | "prev") => {
+  const v = r[yr][my] || 0
+  if (pivotMetric === "total") return v
+  const n = r.trucks[my] || 0
+  return r.isFleet && n > 0 ? v / n : null   // null renders as "—"
+}
+```
 
-Run `npm run dev`, open `/cost-report`.
+- [ ] **Step 7: Render the pivot slide**
+
+Copy the outer slide wrapper from the existing "อู่ใน vs อู่นอก" slide at
+`app/cost-report/page.tsx:1019` — same wrapper element, same class names, same
+heading markup — so print and PNG export pick it up automatically. Replace only
+the body.
+
+Table structure, mirroring `app/truck_utilize_analysis/page.tsx:617-690`:
+
+- Header: a metric toggle (`ต้นทุนรวม` / `ต้นทุนต่อคัน`), then one column per
+  month using `MONTH_LABEL`, then a `รวม` column.
+- One two-row block per pivot row: `rowSpan={2}` cell holding a `color` dot and
+  `label`, then a Buddhist-era year cell (`year + 543` / `prevYear + 543`), then
+  the month cells.
+- `ไม่ระบุ` row carries a `⚠` marker and a tooltip reading
+  `ไม่พบข้อมูลใน ระบบ ops` — it is a data-quality signal, not a fleet.
+- A bold `รวม` row at the bottom, both years.
+- `null` cells render `—`, never `0`.
+- Wrap the table in `overflow-x-auto` so a 12-month range scrolls rather than
+  breaking the slide layout.
+
+- [ ] **Step 8: Verify**
+
+Run: `npm run dev`, open `/cost-report`.
 
 Expected:
-- The new slide lists fleets sorted by cost descending, `ไม่ระบุ` included when it has cost.
-- The sum of the fleet column equals the KPI total — this is acceptance criterion 4.
-- ต้นทุนต่อคัน shows `—` for `ไม่ระบุ` (no truck count).
-- Fleet pills filter this slide too.
-- Print preview (Cmd+P) includes the new slide; the per-slide PNG export produces it.
+- One two-row block per fleet, in `FLEET_ORDER`, with `รถร่วม` and `ไม่ระบุ`
+  as separate rows beneath.
+- No `สำนักงาน` row — its cost is inside the fleet rows.
+- **The `รวม` row equals the KPI total** (acceptance criterion 4). Confirm with
+  the debug readout still present from Task 3.
+- Switching to `ต้นทุนต่อคัน` shows `—` for `รถร่วม` and `ไม่ระบุ`, numbers for
+  fleets.
+- Fleet pills filter the pivot.
+- Print preview and per-slide PNG export both include it.
 
-- [ ] **Step 4: Commit**
+Reconciliation check for the allocation specifically: switch the metric to
+`ต้นทุนรวม`, note the `รวม` row total, then temporarily select only the
+`ไม่ระบุ` and `รถร่วม` pills. The remaining fleet-row sum plus those two must
+equal the unfiltered total — if it does not, office cost is being double
+counted or dropped.
+
+- [ ] **Step 9: Commit**
 
 ```bash
-git add app/cost-report/page.tsx
-git commit -m "feat: add fleet cost breakdown slide to cost-report"
+git add app/cost-report/page.tsx lib/fleets.ts lib/fleets.test.ts
+git commit -m "feat: add fleet x month cost pivot with office allocation"
 ```
-
----
-
 ### Task 8: Remove debug scaffolding and dead fetches
 
 **Files:**
