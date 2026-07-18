@@ -183,8 +183,11 @@ export default function CostReportPage() {
   const [startMonth, setStartMonth] = useState(`${cy}-01`)
   const [endMonth, setEndMonth]     = useState(`${cy}-${cm}`)
 
+  // sumCurr drives the warehouse + partner-flag chip lists only (see below); the
+  // headline figures come from the fleet-tagged detail rows. There is no prior-
+  // year summary state on purpose — nothing reads it, so the aggregation is not
+  // run.
   const [sumCurr, setSumCurr]       = useState<SummaryRow[]>([])
-  const [sumPrev, setSumPrev]       = useState<SummaryRow[]>([])
   const [detCurr, setDetCurr]       = useState<PlateDetailRow[]>([])
   const [detPrev, setDetPrev]       = useState<PlateDetailRow[]>([])
   const [bdCurr, setBdCurr]         = useState<BDRow[]>([])
@@ -233,9 +236,8 @@ export default function CostReportPage() {
       const pS = shiftYear(startMonth, -1), pE = shiftYear(endMonth, -1)
       // Fleet mapping does not depend on the warehouse / partner_flag chips, so
       // it is fetched here only — never in the chip-change effect below.
-      const [s1, s2, d1, d2, b1, b2, f1, f2] = await Promise.all([
+      const [s1, d1, d2, b1, b2, f1, f2] = await Promise.all([
         fetch(`/api/cost/summary?group_by=${gp}&start=${startMonth}&end=${endMonth}`, { cache: "no-store" }),
-        fetch(`/api/cost/summary?group_by=${gp}&start=${pS}&end=${pE}`, { cache: "no-store" }),
         fetch(`/api/cost/detail?${countsParams(startMonth, endMonth)}`, { cache: "no-store" }),
         fetch(`/api/cost/detail?${countsParams(pS, pE)}`, { cache: "no-store" }),
         fetch(`/api/truck-utilize/breakdown?${bdParams(toBdKey(startMonth), toBdKey(endMonth))}`, { cache: "no-store" }),
@@ -243,14 +245,14 @@ export default function CostReportPage() {
         fetch(`/api/fleet/plate-map?start=${toBdKey(startMonth)}&end=${toBdKey(endMonth)}`, { cache: "no-store" }),
         fetch(`/api/fleet/plate-map?start=${toBdKey(pS)}&end=${toBdKey(pE)}`, { cache: "no-store" }),
       ])
-      const [j1, j2, j3, j4, j5, j6, j7, j8] = await Promise.all([s1.json(), s2.json(), d1.json(), d2.json(), b1.json(), b2.json(), f1.json(), f2.json()])
+      const [j1, j2, j3, j4, j5, j6, j7] = await Promise.all([s1.json(), d1.json(), d2.json(), b1.json(), b2.json(), f1.json(), f2.json()])
       if (!j1.success) throw new Error(j1.error || "summary failed")
-      setSumCurr(j1.data); setSumPrev(j2.success ? j2.data : [])
-      setDetCurr(j3.success ? j3.data : []); setDetPrev(j4.success ? j4.data : [])
-      setBdCurr(j5.success ? j5.data : []); setBdPrev(j6.success ? j6.data : [])
-      setFleetMapCurr(j7.success ? j7.data : {}); setFleetMapPrev(j8.success ? j8.data : {})
-      setFlagMapCurr(j7.success ? (j7.flags ?? {}) : {})
-      setFlagMapPrev(j8.success ? (j8.flags ?? {}) : {})
+      setSumCurr(j1.data)
+      setDetCurr(j2.success ? j2.data : []); setDetPrev(j3.success ? j3.data : [])
+      setBdCurr(j4.success ? j4.data : []); setBdPrev(j5.success ? j5.data : [])
+      setFleetMapCurr(j6.success ? j6.data : {}); setFleetMapPrev(j7.success ? j7.data : {})
+      setFlagMapCurr(j6.success ? (j6.flags ?? {}) : {})
+      setFlagMapPrev(j7.success ? (j7.flags ?? {}) : {})
       setHasData(true)
     } catch (e: any) {
       setError(e.message || "Load failed")
@@ -963,12 +965,23 @@ export default function CostReportPage() {
     </button>
   )
 
-  // active-filter tags shown on every slide (visible in PDF export too)
-  const hasFilters = selectedWh.size > 0 || selectedFlag.size > 0
+  // /api/fleet/plate-map failing is not fatal — fetchAll only throws on the
+  // summary call — so the page still renders correct-looking totals while every
+  // row silently falls back to ไม่ระบุ and the whole fleet feature is dead. Say
+  // so instead of failing quietly.
+  const fleetBridgeDown = taggedCurr.length > 0 && Object.keys(fleetMapCurr).length === 0
+
+  // active-filter tags shown on every slide (visible in PDF export too).
+  // selectedFleets counts as a filter: without it an exported deck narrowed to
+  // one fleet is labelled identically to the full-company deck.
+  const hasFilters = selectedWh.size > 0 || selectedFlag.size > 0 || selectedFleets.size > 0
   const FilterTags = ({ note }: { note?: string }) => {
     if (!hasFilters) return null
     return (
       <div className="flex max-w-[260px] flex-wrap justify-end gap-1">
+        {[...selectedFleets].map((g) => (
+          <span key={g} className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">{fleetLabel(g)}</span>
+        ))}
         {[...selectedWh].map((w) => (
           <span key={w} className="rounded-full border border-gray-200 bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600">{w}</span>
         ))}
@@ -1077,6 +1090,13 @@ export default function CostReportPage() {
 
       {error && (
         <div className="print:hidden mx-auto mb-4 max-w-[1400px] rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>
+      )}
+
+      {fleetBridgeDown && (
+        <div className="mx-auto mb-4 max-w-[1400px] rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+          ไม่สามารถโหลดข้อมูลจับคู่ทะเบียน–ฟลีท (plate-map) ได้ — ยอดรวมยังถูกต้อง
+          แต่ทุกคันจะถูกจัดอยู่ในกลุ่ม “ไม่ระบุ” และการกรองตามฟลีทจะใช้งานไม่ได้ กรุณากด Generate ใหม่อีกครั้ง
+        </div>
       )}
 
       {hasData && (
