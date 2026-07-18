@@ -16,7 +16,7 @@ import {
 import {
   FLEET_MAP, FLEET_ORDER, FLEET_COLORS, UNKNOWN_FLEET,
   BUCKET_OFFICE, BUCKET_PARTNER, BUCKET_NEW, BUCKET_UNKNOWN,
-  fleetKey, fleetLabel,
+  fleetKey, fleetLabel, allocateOffice,
 } from "@/lib/fleets"
 // normPlate lives in lib/plate-partner (dependency-free). Never import
 // lib/plate-partner-server here — it pulls in Mongo and breaks the client build.
@@ -68,8 +68,8 @@ type BDRow = {
 }
 
 // Selectable fleet pills. BUCKET_OFFICE is deliberately absent — office cost is
-// allocated across the fleet rows downstream, so it is not independently
-// selectable and its rows stay reachable only through the unfiltered view.
+// split across the real fleets during tagging (see allocateOfficeRows), so by
+// the time any view sees a row there is no office bucket left to select.
 const FLEET_PILLS = [...FLEET_ORDER, BUCKET_PARTNER, BUCKET_NEW, BUCKET_UNKNOWN]
 
 // ── Cost Group mapping (same as /cost, incl. the เเย็น double-sara-e variant) ──
@@ -316,7 +316,10 @@ export default function CostReportPage() {
   // Every detail row gets a fleet id from the plate+month bridge. Rows the
   // bridge has no entry for (no MySQL operations record that month) fall back
   // to a bucket derived from partner_flag — nothing is ever dropped.
-  type TaggedPlateRow = PlateDetailRow & { fleet: string }
+  // isAllocated marks a synthetic row produced by splitting an office row across
+  // fleets. It carries cost but NOT a vehicle, so countsFrom must keep it out of
+  // the distinct wd / plate / product sets.
+  type TaggedPlateRow = PlateDetailRow & { fleet: string; isAllocated?: boolean }
 
   const tagFleet = (
     rows: PlateDetailRow[],
@@ -348,10 +351,60 @@ export default function CostReportPage() {
     })
   }
 
+  // ── Office cost allocation ──────────────────────────────────────────────────
+  // รถสำนักงาน is central overhead with no vehicle of its own. Left as its own
+  // bucket it has no pill, so ANY non-empty fleet filter silently drops it and
+  // the filtered total falls short of the unfiltered one. Instead each office
+  // row is expanded here, once, into one fractional row per fleet — upstream of
+  // every consumer, so the KPI row, the pivot and the charts cannot disagree.
+  //
+  // Allocation is PER MONTH: truck counts move month to month and an annual
+  // split would misattribute cost to fleets that grew or shrank mid-range.
+  const allocateOfficeRows = (rows: TaggedPlateRow[], bd: BDRow[]): TaggedPlateRow[] => {
+    // "MM-YY" → { fleet id → truck_count }, real fleets only
+    const trucksByMonth: Record<string, Record<string, number>> = {}
+    for (const b of bd) {
+      const fleet = String(b.fleet_group_id)
+      if (!FLEET_ORDER.includes(fleet)) continue
+      const n = Number(b.truck_count) || 0
+      if (n <= 0) continue
+      const bucket = (trucksByMonth[b.month_year] ??= {})
+      bucket[fleet] = (bucket[fleet] ?? 0) + n
+    }
+
+    const out: TaggedPlateRow[] = []
+    for (const r of rows) {
+      if (r.fleet !== BUCKET_OFFICE) { out.push(r); continue }
+      // share of 1 = fraction of the month's trucks belonging to each fleet
+      const shares = allocateOffice(1, trucksByMonth[toBdKey(r.month_year)] ?? {})
+      // No truck data for this month — keep the row in BUCKET_OFFICE rather than
+      // drop it. Cost must never vanish, even if it stays unattributed.
+      if (Object.keys(shares).length === 0) { out.push(r); continue }
+      for (const [fleet, share] of Object.entries(shares)) {
+        out.push({
+          ...r,
+          fleet,
+          isAllocated: true,
+          plate_total: r.plate_total * share,
+          // records is scaled alongside cost: the row is duplicated once per
+          // fleet, so carrying the full count on each copy would multiply
+          // record_count by the number of fleets.
+          lines: (r.lines ?? []).map((ln) => ({
+            ...ln,
+            cost:    ln.cost * share,
+            records: (ln.records ?? 0) * share,
+            sum_actual_issue: ln.sum_actual_issue == null ? ln.sum_actual_issue : ln.sum_actual_issue * share,
+          })),
+        })
+      }
+    }
+    return out
+  }
+
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const taggedCurr = useMemo(() => tagFleet(detCurr, fleetMapCurr, flagMapCurr), [detCurr, fleetMapCurr, flagMapCurr])
+  const taggedCurr = useMemo(() => allocateOfficeRows(tagFleet(detCurr, fleetMapCurr, flagMapCurr), bdCurr), [detCurr, fleetMapCurr, flagMapCurr, bdCurr])
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const taggedPrev = useMemo(() => tagFleet(detPrev, fleetMapPrev, flagMapPrev), [detPrev, fleetMapPrev, flagMapPrev])
+  const taggedPrev = useMemo(() => allocateOfficeRows(tagFleet(detPrev, fleetMapPrev, flagMapPrev), bdPrev), [detPrev, fleetMapPrev, flagMapPrev, bdPrev])
 
   // empty selection = no filter, matching the warehouse / partner-flag chips
   const fleetFilter = (rows: TaggedPlateRow[]) =>
@@ -368,11 +421,15 @@ export default function CostReportPage() {
     const wd = new Set<string>(), plates = new Set<string>(), products = new Set<string>()
     let total = 0, records = 0
     rows.forEach((r) => {
-      if (r.wd) wd.add(String(r.wd))
-      if (r.plate) plates.add(String(r.plate))
+      // Synthetic office-allocation rows carry the office plate, not a vehicle
+      // of this fleet. They contribute cost and records but must stay out of the
+      // distinct sets, or plate_count jumps for every fleet.
+      const counts = !r.isAllocated
+      if (counts && r.wd) wd.add(String(r.wd))
+      if (counts && r.plate) plates.add(String(r.plate))
       total += r.plate_total
       r.lines?.forEach((ln) => {
-        if (ln.รหัสสินค้า) products.add(String(ln.รหัสสินค้า))
+        if (counts && ln.รหัสสินค้า) products.add(String(ln.รหัสสินค้า))
         records += ln.records ?? 0
       })
     })

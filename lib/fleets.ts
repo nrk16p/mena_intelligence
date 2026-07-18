@@ -88,6 +88,36 @@ export function monthKeyToYm(monthMMYY: string): string {
   return `20${match[2]}-${match[1]}`
 }
 
+/**
+ * Splits a single month's office (รถสำนักงาน) cost across fleets pro-rata by
+ * truck count. Office cost is central overhead with no vehicle of its own, so
+ * showing it as its own row makes any fleet-filtered view undercount the total.
+ *
+ * Returns exact fractional shares — deliberately unrounded, so the returned
+ * values always sum back to `officeCost`. Rounding here would leak baht and
+ * break the "filtered total == unfiltered total" invariant the callers rely on.
+ *
+ * Returns {} when no fleet has trucks (the caller must then keep the row in
+ * BUCKET_OFFICE rather than drop it — cost must never vanish).
+ */
+export function allocateOffice(
+  officeCost: number,
+  trucksByFleet: Record<string, number>,
+): Record<string, number> {
+  let totalTrucks = 0
+  for (const n of Object.values(trucksByFleet)) {
+    if (Number.isFinite(n) && n > 0) totalTrucks += n
+  }
+  if (totalTrucks <= 0) return {}
+
+  const out: Record<string, number> = {}
+  for (const [fleet, n] of Object.entries(trucksByFleet)) {
+    if (!Number.isFinite(n) || n <= 0) continue
+    out[fleet] = (officeCost * n) / totalTrucks
+  }
+  return out
+}
+
 const MAX_MONTHS_SPAN = 120
 
 /**

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest"
 import {
   FLEET_MAP, FLEET_ORDER, FLEET_COLORS, UNKNOWN_FLEET,
   BUCKET_OFFICE, BUCKET_PARTNER, BUCKET_NEW, BUCKET_UNKNOWN,
-  fleetLabel, fleetKey, monthsBetween, ymToMonthKey, monthKeyToYm,
+  fleetLabel, fleetKey, monthsBetween, ymToMonthKey, monthKeyToYm, allocateOffice,
 } from "./fleets"
 
 describe("fleet constants", () => {
@@ -148,5 +148,26 @@ describe("ymToMonthKey / monthKeyToYm", () => {
 
   it("builds bridge-compatible keys from a YYYY-MM month", () => {
     expect(fleetKey("70-1234", ymToMonthKey("2026-03"))).toBe(fleetKey("70-1234", "03-26"))
+  })
+})
+
+describe("allocateOffice", () => {
+  it("splits cost proportionally to truck counts", () => {
+    expect(allocateOffice(1000, { "1": 60, "2": 40 })).toEqual({ "1": 600, "2": 400 })
+  })
+
+  it("returns {} when there are no trucks at all", () => {
+    expect(allocateOffice(1000, {})).toEqual({})
+    expect(allocateOffice(1000, { "1": 0, "2": 0 })).toEqual({})
+  })
+
+  it("handles zero cost without dividing by nothing", () => {
+    expect(allocateOffice(0, { "1": 60 })).toEqual({ "1": 0 })
+  })
+
+  it("loses no baht on a non-terminating split", () => {
+    const out = allocateOffice(100, { "1": 1, "2": 1, "3": 1 })
+    const sum = Object.values(out).reduce((s, v) => s + v, 0)
+    expect(sum).toBeCloseTo(100, 10)
   })
 })
