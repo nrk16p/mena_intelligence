@@ -220,6 +220,8 @@ export default function CostReportPage() {
 
   const [selectedWh, setSelectedWh]     = useState<Set<string>>(new Set())
   const [selectedFlag, setSelectedFlag] = useState<Set<string>>(new Set())
+  // Cost group is the only LINE-level filter on this page — see cgFilter below.
+  const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set())
 
   const year = Number(startMonth.split("-")[0])
   const prevYear = year - 1
@@ -440,9 +442,36 @@ export default function CostReportPage() {
     selectedFleets.size === 0 ? rows : rows.filter((r) => selectedFleets.has(r.fleet))
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const fdCurr = useMemo(() => fleetFilter(taggedCurr), [taggedCurr, selectedFleets])
+  const ffCurr = useMemo(() => fleetFilter(taggedCurr), [taggedCurr, selectedFleets])
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const fdPrev = useMemo(() => fleetFilter(taggedPrev), [taggedPrev, selectedFleets])
+  const ffPrev = useMemo(() => fleetFilter(taggedPrev), [taggedPrev, selectedFleets])
+
+  // ── Cost-group filter (LINE level) ──────────────────────────────────────────
+  // The warehouse / partner-flag / fleet filters are row predicates: a plate-row
+  // has exactly one of each. Cost group is not — one truck-month's lines[] spans
+  // CM, PM, tyre… at once, so there is no row-level group to test. This filter
+  // therefore reaches inside the row, keeps the matching lines and rebuilds
+  // plate_total from the survivors; a row with nothing left drops out.
+  //
+  // Office-allocated rows need no special handling: their lines are already
+  // scaled by the allocation share, so a line-level filter scales with them.
+  //
+  // Applied AFTER fleetFilter so the two compose.
+  const cgFilter = (rows: TaggedPlateRow[]): TaggedPlateRow[] => {
+    if (selectedGroups.size === 0) return rows
+    const out: TaggedPlateRow[] = []
+    for (const r of rows) {
+      const lines = (r.lines ?? []).filter((ln) => selectedGroups.has(getCostGroup(ln.จุดประสงค์)))
+      if (lines.length === 0) continue
+      out.push({ ...r, lines, plate_total: lines.reduce((s, ln) => s + ln.cost, 0) })
+    }
+    return out
+  }
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const fdCurr = useMemo(() => cgFilter(ffCurr), [ffCurr, selectedGroups])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const fdPrev = useMemo(() => cgFilter(ffPrev), [ffPrev, selectedGroups])
 
   // /api/cost/counts returns one unfiltered aggregate ({_id: null}) and cannot be
   // fleet-filtered, so the KPI counts are recomputed from the fleet-filtered rows.
@@ -488,21 +517,21 @@ export default function CostReportPage() {
     group: string; curr: number; prev: number
     byMonth: Record<string, number>; byMonthPrev: Record<string, number>
   }
-  const groupAggs = useMemo<GroupAgg[]>(() => {
+  const buildGroupAggs = (curr: TaggedPlateRow[], prev: TaggedPlateRow[]): GroupAgg[] => {
     const m = new Map<string, GroupAgg>()
     const ensure = (g: string) => {
       if (!m.has(g)) m.set(g, { group: g, curr: 0, prev: 0, byMonth: {}, byMonthPrev: {} })
       return m.get(g)!
     }
     // line.จุดประสงค์ is the same field /api/cost/summary grouped by (group_value)
-    fdCurr.forEach((row) => {
+    curr.forEach((row) => {
       row.lines?.forEach((ln) => {
         const e = ensure(getCostGroup(ln.จุดประสงค์))
         e.curr += ln.cost
         e.byMonth[row.month_year] = (e.byMonth[row.month_year] || 0) + ln.cost
       })
     })
-    fdPrev.forEach((row) => {
+    prev.forEach((row) => {
       const aligned = shiftYear(row.month_year, 1)
       row.lines?.forEach((ln) => {
         const e = ensure(getCostGroup(ln.จุดประสงค์))
@@ -512,7 +541,20 @@ export default function CostReportPage() {
     })
     return GROUP_ORDER.filter((g) => m.has(g)).map((g) => m.get(g)!)
       .sort((a, b) => b.curr - a.curr)
-  }, [fdCurr, fdPrev])
+  }
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const groupAggs = useMemo(() => buildGroupAggs(fdCurr, fdPrev), [fdCurr, fdPrev])
+
+  // Same aggregation over the fleet-filtered but cost-group-UNFILTERED rows.
+  // Bucketing is per-group, so every selected group's figures here are identical
+  // to groupAggs; the extra entries are exactly the unselected groups, which the
+  // slide deck still renders (muted) so the printed page count stays stable.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const groupAggsAll = useMemo(() => buildGroupAggs(ffCurr, ffPrev), [ffCurr, ffPrev])
+  // denominator for a muted slide's "สัดส่วนของทั้งหมด" — its own group is not in
+  // totalCurr under a filter, so measuring it against totalCurr would be nonsense
+  const totalAllGroups = useMemo(() => ffCurr.reduce((s, r) => s + r.plate_total, 0), [ffCurr])
 
   // Chart shows only the top 3 groups; the rest collapse into "อื่นๆ" so the
   // stack stays readable. The comparison table keeps all groups.
@@ -578,11 +620,15 @@ export default function CostReportPage() {
         if (side === "curr") e.qty += Number(l.sum_actual_issue) || 0
       }))
     }
-    // fdCurr/fdPrev, not the raw detail: this slide's header uses groupAggs,
+    // ffCurr/ffPrev, not the raw detail: this slide's header uses groupAggs,
     // which is fleet-filtered. Walking the untagged rows here made the table
     // contradict its own header under a fleet filter.
-    walk(fdCurr, "curr")
-    walk(fdPrev, "prev")
+    //
+    // The cost-group filter is deliberately NOT applied: this map is keyed by
+    // group, so dropping other groups' lines cannot change a group's own bucket.
+    // Skipping it keeps the muted slides of unselected groups populated.
+    walk(ffCurr, "curr")
+    walk(ffPrev, "prev")
 
     const out = new Map<string, { pgs: PgAgg[]; items: ItemAgg[] }>()
     items.forEach((im, g) => {
@@ -601,7 +647,7 @@ export default function CostReportPage() {
       })
     })
     return out
-  }, [fdCurr, fdPrev])
+  }, [ffCurr, ffPrev])
 
   // ── Auto takeaways (overview) ───────────────────────────────────────────────
   const takeaways = useMemo(() => {
@@ -928,6 +974,9 @@ export default function CostReportPage() {
   const toggleAllFleets = () =>
     setSelectedFleets((prev) => (prev.size === 0 ? new Set(FLEET_PILLS) : new Set()))
 
+  const toggleAllGroups = () =>
+    setSelectedGroups((prev) => (prev.size === 0 ? new Set(GROUP_ORDER) : new Set()))
+
   const fmtLabel = (v: any) => {
     const n = Number(v)
     if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
@@ -970,6 +1019,7 @@ export default function CostReportPage() {
       { [K_ITEM]: "ฟลีตที่เลือก",    [K_CURR]: listOr(selectedFleets, fleetLabel), [K_PREV]: "", [K_YOY]: "" },
       { [K_ITEM]: "คลังสินค้าที่เลือก", [K_CURR]: listOr(selectedWh, (v) => v), [K_PREV]: "", [K_YOY]: "" },
       { [K_ITEM]: "Partner Flag ที่เลือก", [K_CURR]: listOr(selectedFlag, (v) => v), [K_PREV]: "", [K_YOY]: "" },
+      { [K_ITEM]: "กลุ่มต้นทุนที่เลือก", [K_CURR]: listOr(selectedGroups, (g) => GROUP_THAI[g] ?? g), [K_PREV]: "", [K_YOY]: "" },
       { [K_ITEM]: "", [K_CURR]: "", [K_PREV]: "", [K_YOY]: "" },
       { [K_ITEM]: "ค่าใช้จ่ายรวม (฿)", [K_CURR]: num(totalCurr), [K_PREV]: num(totalPrev), [K_YOY]: pctStr(totalCurr, totalPrev) },
       { [K_ITEM]: "จำนวนคัน",         [K_CURR]: countsCurrLocal.plate_count, [K_PREV]: countsPrevLocal.plate_count, [K_YOY]: pctStr(countsCurrLocal.plate_count, countsPrevLocal.plate_count) },
@@ -1168,7 +1218,8 @@ export default function CostReportPage() {
   // active-filter tags shown on every slide (visible in PDF export too).
   // selectedFleets counts as a filter: without it an exported deck narrowed to
   // one fleet is labelled identically to the full-company deck.
-  const hasFilters = selectedWh.size > 0 || selectedFlag.size > 0 || selectedFleets.size > 0
+  const hasFilters =
+    selectedWh.size > 0 || selectedFlag.size > 0 || selectedFleets.size > 0 || selectedGroups.size > 0
   const FilterTags = ({ note }: { note?: string }) => {
     if (!hasFilters) return null
     return (
@@ -1177,6 +1228,10 @@ export default function CostReportPage() {
             filter — rendering 12 chips for it just crowds the box. */}
         {selectedFleets.size < FLEET_PILLS.length && [...selectedFleets].map((g) => (
           <span key={g} className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">{fleetLabel(g)}</span>
+        ))}
+        {/* likewise: all six groups selected is the same view as none */}
+        {selectedGroups.size < GROUP_ORDER.length && [...selectedGroups].map((g) => (
+          <span key={g} className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-700">{GROUP_THAI[g] ?? g}</span>
         ))}
         {[...selectedWh].map((w) => (
           <span key={w} className="rounded-full border border-gray-200 bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600">{w}</span>
@@ -1284,6 +1339,28 @@ export default function CostReportPage() {
                 {/* disambiguated from the Partner Flag "ไม่ระบุ" chip a row above.
                     The label is overridden here only — BUCKET_LABELS is shared. */}
                 {g === BUCKET_UNKNOWN ? "ไม่ระบุฟลีท" : fleetLabel(g)}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Row 5: cost-group chips — client-side, line-level filter (see cgFilter) */}
+        <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-gray-100 pt-2.5">
+          <span className="w-24 shrink-0 text-[10px] font-semibold uppercase tracking-wider text-gray-400">กลุ่มต้นทุน</span>
+          <button onClick={toggleAllGroups}
+            className="rounded-full border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-500 transition hover:bg-gray-50">
+            {selectedGroups.size === 0 ? "All" : "Clear"}
+          </button>
+          {GROUP_ORDER.map((g) => {
+            const on = selectedGroups.has(g)
+            const color = GROUP_COLOR[g]
+            return (
+              <button key={g} onClick={() => toggleSet(selectedGroups, setSelectedGroups, g)}
+                className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-medium transition ${
+                  on ? "border-transparent text-white" : "bg-white text-gray-500 hover:bg-gray-50"
+                }`}
+                style={on ? { backgroundColor: color, borderColor: color } : {}}>
+                {CHART_SHORT[g] ?? g}
               </button>
             )
           })}
@@ -1903,20 +1980,31 @@ export default function CostReportPage() {
           )}
 
           {/* ══ SLIDES 3+: one per cost group ═════════════════════════════════ */}
-          {groupAggs.map((g, idx) => {
+          {/* groupAggsAll, not groupAggs: an unselected group keeps its slide so
+              the printed page count does not move with the filter. It renders
+              muted with a badge rather than as a chart of zeros, which would
+              read as a data fault. */}
+          {groupAggsAll.map((g, idx) => {
+            const picked = selectedGroups.size === 0 || selectedGroups.has(g.group)
             const det = detailByGroup.get(g.group)
             const monthly = months.map((my) => ({
               month: MONTH_LABEL[my.split("-")[1]] ?? my,
               curr:  g.byMonth[my] || 0,
               prev:  g.byMonthPrev[my] || 0,
             }))
-            const share = totalCurr > 0 ? (g.curr / totalCurr) * 100 : 0
+            // a muted group is not part of totalCurr, so it is measured against
+            // the cost-group-unfiltered total instead
+            const denom = picked ? totalCurr : totalAllGroups
+            const share = denom > 0 ? (g.curr / denom) * 100 : 0
             // biggest item mover (needs meaningful prev base)
             const mover = det?.items
               .filter((it) => it.prev > 20_000 || it.curr > 20_000)
               .sort((a, b) => Math.abs(b.curr - b.prev) - Math.abs(a.curr - a.prev))[0]
             return (
-              <section key={g.group} ref={setSlideRef(`cg-${g.group}`)} className="slide rounded-2xl bg-white p-8 shadow-sm print:rounded-none print:shadow-none">
+              <section key={g.group} ref={setSlideRef(`cg-${g.group}`)}
+                className={`slide rounded-2xl bg-white p-8 shadow-sm print:rounded-none print:shadow-none ${
+                  picked ? "" : "opacity-45 saturate-50"
+                }`}>
                 <div className="mb-4 flex items-start justify-between border-b pb-4">
                   <div>
                     <p className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: GROUP_COLOR[g.group] }}>
@@ -1926,6 +2014,11 @@ export default function CostReportPage() {
                       <span className="inline-block h-3.5 w-3.5 rounded-full" style={{ background: GROUP_COLOR[g.group] }} />
                       {g.group}
                       <span className="text-base font-medium text-gray-400">{GROUP_THAI[g.group]}</span>
+                      {!picked && (
+                        <span className="rounded-full border border-gray-300 bg-gray-100 px-2.5 py-1 text-[11px] font-semibold text-gray-500">
+                          ไม่ได้เลือกในตัวกรอง
+                        </span>
+                      )}
                     </h2>
                     <p className="mt-0.5 text-sm text-gray-400">{periodLabel} เทียบกับ {prevYear}</p>
                   </div>
