@@ -14,11 +14,22 @@
 - Month format for the fleet bridge is `"MM-YY"` (e.g. `"07-26"`), produced by the existing `toBdKey()` in `app/cost-report/page.tsx`. Cost data uses `"YYYY-MM"`. Never mix them.
 - Plate normalization is `normPlate` from `lib/plate-partner.ts:9` (`String(s).replace(/\s+/g,"").trim()`), applied on **both** sides of every join.
 - Plates with no MySQL fleet are bucketed by `partner_flag`, never dropped:
-  `รถสำนักงาน` → `BUCKET_OFFICE` (allocated across fleets pro-rata by truck
-  count, no row of its own); `รถร่วม*` → `BUCKET_PARTNER` (own row);
-  everything else → `BUCKET_UNKNOWN` (own row, marked as a data-quality
-  signal). `BUCKET_PARTNER` and `BUCKET_UNKNOWN` are excluded from every
-  per-truck denominator.
+
+  | `partner_flag` | bucket | row | label |
+  |---|---|---|---|
+  | `รถสำนักงาน` | `BUCKET_OFFICE` | no — allocated into fleets | — |
+  | `รถร่วม*` | `BUCKET_PARTNER` | yes | `รถร่วม` |
+  | `รถมีนา` | `BUCKET_NEW` | yes | `รถใหม่ (ยังไม่เข้าระบบ ops)` |
+  | anything else / none | `BUCKET_UNKNOWN` | yes | `ไม่ระบุ` |
+
+  `BUCKET_NEW` is MENA's own newly-acquired trucks, confirmed by the user on
+  2026-07-18: they draw parts before ops onboarding completes, so they have
+  cost but no `performance_vehicle_daily` record. They are a normal operating
+  condition, not a data error — label them accurately rather than lumping them
+  into `ไม่ระบุ`.
+
+  `BUCKET_PARTNER`, `BUCKET_NEW` and `BUCKET_UNKNOWN` are all excluded from
+  every per-truck denominator, since none of them has a truck count.
 - The pivot's `รวม` row must equal the unfiltered KPI total. This is the
   single check that proves allocation neither double-counts nor drops cost.
 - Fleet filtering is client-side only. Toggling a fleet pill must issue zero network requests.
@@ -474,6 +485,7 @@ const tagFleet = (
     const bucket =
       flag === "รถสำนักงาน" ? BUCKET_OFFICE
       : flag.startsWith("รถร่วม") ? BUCKET_PARTNER
+      : flag === "รถมีนา" ? BUCKET_NEW
       : BUCKET_UNKNOWN
     return { ...r, fleet: bucket }
   })
@@ -917,6 +929,7 @@ const fleetPivot = useMemo(() => {
   const rows = [
     ...FLEET_ORDER.map((f) => mk(f, true)),
     mk(BUCKET_PARTNER, false),
+    mk(BUCKET_NEW, false),
     mk(BUCKET_UNKNOWN, false),
   ].filter((r) => r.currTotal > 0 || r.prevTotal > 0)
 
@@ -964,8 +977,9 @@ Table structure, mirroring `app/truck_utilize_analysis/page.tsx:617-690`:
 - One two-row block per pivot row: `rowSpan={2}` cell holding a `color` dot and
   `label`, then a Buddhist-era year cell (`year + 543` / `prevYear + 543`), then
   the month cells.
-- `ไม่ระบุ` row carries a `⚠` marker and a tooltip reading
-  `ไม่พบข้อมูลใน ระบบ ops` — it is a data-quality signal, not a fleet.
+- `รถใหม่ (ยังไม่เข้าระบบ ops)` and `ไม่ระบุ` render in a muted style below the
+  fleet rows, separated by a divider, so they read as non-fleet buckets rather
+  than as fleets. Neither gets a `FLEET_COLORS` dot.
 - A bold `รวม` row at the bottom, both years.
 - `null` cells render `—`, never `0`.
 - Wrap the table in `overflow-x-auto` so a 12-month range scrolls rather than
