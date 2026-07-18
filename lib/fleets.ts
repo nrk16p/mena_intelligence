@@ -3,8 +3,10 @@ import { normPlate } from "@/lib/plate-partner"
 // Shared fleet constants. Previously duplicated in truck_utilize_analysis/page.tsx,
 // api/truck-utilize/export/route.ts, api/breakdown-rate/customers/route.ts and
 // cost-report/page.tsx.
-// TODO(Task 0): Plate-join check — record the observed Mongo↔MySQL plate match
-// rate here once the Task 0 spike has run.
+// Plate-join coverage (measured Task 0, range Jan–Jul 2026): 85.8% of cost maps
+// to a fleet by exact plate+month against performance_vehicle_daily; 83.7% for
+// 2026-07 alone. The remainder has no MySQL operations row for that month and is
+// bucketed by partner_flag instead (see the fallback buckets below).
 
 export const FLEET_MAP: Record<string, string> = {
   "1": "ML", "2": "MS", "3": "TDM", "4": "BTG",
