@@ -21,6 +21,8 @@ import {
 // normPlate lives in lib/plate-partner (dependency-free). Never import
 // lib/plate-partner-server here — it pulls in Mongo and breaks the client build.
 import { normPlate } from "@/lib/plate-partner"
+import * as XLSX from "xlsx"
+import { saveAs } from "file-saver"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -124,6 +126,14 @@ const MONTH_LABEL: Record<string, string> = {
   "01": "Jan", "02": "Feb", "03": "Mar", "04": "Apr", "05": "May", "06": "Jun",
   "07": "Jul", "08": "Aug", "09": "Sep", "10": "Oct", "11": "Nov", "12": "Dec",
 }
+
+// Thai month abbreviations — used for the Excel export's month columns, where
+// the audience is Thai-reading and the sheet is read without the page around it.
+const MONTH_TH: Record<string, string> = {
+  "01": "ม.ค.", "02": "ก.พ.", "03": "มี.ค.", "04": "เม.ย.", "05": "พ.ค.", "06": "มิ.ย.",
+  "07": "ก.ค.", "08": "ส.ค.", "09": "ก.ย.", "10": "ต.ค.", "11": "พ.ย.", "12": "ธ.ค.",
+}
+const monthTh = (my: string) => MONTH_TH[my.split("-")[1]] ?? my
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -913,6 +923,173 @@ export default function CostReportPage() {
     return n > 0 ? String(Math.round(n)) : ""
   }
 
+  // ── Export Excel ────────────────────────────────────────────────────────────
+  // Every sheet is built from the fleet-tagged, fleet-FILTERED arrays (fdCurr /
+  // fdPrev) and the memos the on-screen slides already use — fleetPivot,
+  // groupAggs, wsAgg, countsCurrLocal / countsPrevLocal. Re-deriving anything
+  // from the raw detCurr / detPrev would bypass the fleet pills and produce a
+  // file that silently disagrees with the screen it was exported from.
+  //
+  // Cell styling is deliberately absent: the community build of xlsx@0.18.5
+  // supports only "!cols" — no bold headers, number formats or merges.
+  const exportExcel = () => {
+    const num = (n: number) => +(Number(n) || 0).toFixed(2)
+    const yBE = year + 543, pBE = prevYear + 543
+    const pctStr = (curr: number, prev: number) => {
+      const p = pctOf(curr, prev)
+      return p === null ? "" : num(p)
+    }
+
+    // ── Sheet 1: สรุป ─────────────────────────────────────────────────────────
+    // The filter block leads the sheet on purpose. A workbook gets forwarded and
+    // re-read out of context far more readily than the on-screen deck, so a file
+    // narrowed to one fleet has to say so on its face.
+    const K_ITEM = "รายการ", K_CURR = `ปี ${yBE}`, K_PREV = `ปี ${pBE}`, K_YOY = "YoY %"
+    const listOr = (s: Set<string>, label: (v: string) => string) =>
+      s.size === 0 ? "ทั้งหมด" : [...s].map(label).join(", ")
+
+    const summaryRows: Record<string, string | number>[] = [
+      { [K_ITEM]: "ช่วงเดือน",       [K_CURR]: `${startMonth} ถึง ${endMonth}`, [K_PREV]: "", [K_YOY]: "" },
+      { [K_ITEM]: "ฟลีตที่เลือก",    [K_CURR]: listOr(selectedFleets, fleetLabel), [K_PREV]: "", [K_YOY]: "" },
+      { [K_ITEM]: "คลังสินค้าที่เลือก", [K_CURR]: listOr(selectedWh, (v) => v), [K_PREV]: "", [K_YOY]: "" },
+      { [K_ITEM]: "Partner Flag ที่เลือก", [K_CURR]: listOr(selectedFlag, (v) => v), [K_PREV]: "", [K_YOY]: "" },
+      { [K_ITEM]: "", [K_CURR]: "", [K_PREV]: "", [K_YOY]: "" },
+      { [K_ITEM]: "ค่าใช้จ่ายรวม (฿)", [K_CURR]: num(totalCurr), [K_PREV]: num(totalPrev), [K_YOY]: pctStr(totalCurr, totalPrev) },
+      { [K_ITEM]: "จำนวนคัน",         [K_CURR]: countsCurrLocal.plate_count, [K_PREV]: countsPrevLocal.plate_count, [K_YOY]: pctStr(countsCurrLocal.plate_count, countsPrevLocal.plate_count) },
+      { [K_ITEM]: "จำนวนใบเบิก (WD)", [K_CURR]: countsCurrLocal.wd_count, [K_PREV]: countsPrevLocal.wd_count, [K_YOY]: pctStr(countsCurrLocal.wd_count, countsPrevLocal.wd_count) },
+      { [K_ITEM]: "จำนวนรหัสสินค้า",  [K_CURR]: countsCurrLocal.product_count, [K_PREV]: countsPrevLocal.product_count, [K_YOY]: pctStr(countsCurrLocal.product_count, countsPrevLocal.product_count) },
+      { [K_ITEM]: "จำนวนรายการเบิก",  [K_CURR]: num(countsCurrLocal.record_count), [K_PREV]: num(countsPrevLocal.record_count), [K_YOY]: pctStr(countsCurrLocal.record_count, countsPrevLocal.record_count) },
+      {
+        [K_ITEM]: "ค่าเฉลี่ยต่อคัน (฿)",
+        [K_CURR]: countsCurrLocal.plate_count > 0 ? num(totalCurr / countsCurrLocal.plate_count) : "",
+        [K_PREV]: countsPrevLocal.plate_count > 0 ? num(totalPrev / countsPrevLocal.plate_count) : "",
+        [K_YOY]: countsCurrLocal.plate_count > 0 && countsPrevLocal.plate_count > 0
+          ? pctStr(totalCurr / countsCurrLocal.plate_count, totalPrev / countsPrevLocal.plate_count) : "",
+      },
+      { [K_ITEM]: "ค่าซ่อมอู่ใน (฿)",  [K_CURR]: num(wsAgg.curr.nai), [K_PREV]: num(wsAgg.prev.nai), [K_YOY]: pctStr(wsAgg.curr.nai, wsAgg.prev.nai) },
+      { [K_ITEM]: "ค่าซ่อมอู่นอก (฿)", [K_CURR]: num(wsAgg.curr.nok), [K_PREV]: num(wsAgg.prev.nok), [K_YOY]: pctStr(wsAgg.curr.nok, wsAgg.prev.nok) },
+    ]
+    const wsSummary = XLSX.utils.json_to_sheet(summaryRows)
+    wsSummary["!cols"] = [{ wch: 26 }, { wch: 30 }, { wch: 18 }, { wch: 12 }]
+
+    // ── Sheet 2: ตามฟลีต — fleet × month, one row per fleet per year ──────────
+    const K_FLEET = "ฟลีต", K_YEAR = "ปี", K_TOTAL = "รวม"
+    const pivotRow = (label: string, be: number, byMonth: Record<string, number>, total: number) => {
+      const o: Record<string, string | number> = { [K_FLEET]: label, [K_YEAR]: be }
+      // prev-year cells are already aligned onto the current-range month keys by
+      // fleetPivot, so both year rows line up under the same column.
+      months.forEach((my) => { o[monthTh(my)] = num(byMonth[my] || 0) })
+      o[K_TOTAL] = num(total)
+      return o
+    }
+    const fleetRows = fleetPivot.rows.flatMap((r) => [
+      pivotRow(r.label, yBE, r.curr, r.currTotal),
+      pivotRow(r.label, pBE, r.prev, r.prevTotal),
+    ])
+    fleetRows.push(pivotRow("รวมทั้งหมด", yBE, fleetPivot.totals.curr, fleetPivot.totals.currTotal))
+    fleetRows.push(pivotRow("รวมทั้งหมด", pBE, fleetPivot.totals.prev, fleetPivot.totals.prevTotal))
+    const wsFleet = XLSX.utils.json_to_sheet(fleetRows)
+    wsFleet["!cols"] = [{ wch: 16 }, { wch: 8 }, ...months.map(() => ({ wch: 14 })), { wch: 16 }]
+
+    // ── Sheet 3: กลุ่มต้นทุน — cost group × month, both years ─────────────────
+    const K_GROUP = "กลุ่มต้นทุน"
+    const groupRow = (label: string, be: number, byMonth: Record<string, number>, total: number) => {
+      const o: Record<string, string | number> = { [K_GROUP]: label, [K_YEAR]: be }
+      months.forEach((my) => { o[monthTh(my)] = num(byMonth[my] || 0) })
+      o[K_TOTAL] = num(total)
+      return o
+    }
+    const groupRows = groupAggs.flatMap((g) => [
+      groupRow(GROUP_THAI[g.group] ?? g.group, yBE, g.byMonth, g.curr),
+      groupRow(GROUP_THAI[g.group] ?? g.group, pBE, g.byMonthPrev, g.prev),
+    ])
+    const groupTotCurr: Record<string, number> = {}, groupTotPrev: Record<string, number> = {}
+    months.forEach((my) => {
+      groupTotCurr[my] = groupAggs.reduce((s, g) => s + (g.byMonth[my] || 0), 0)
+      groupTotPrev[my] = groupAggs.reduce((s, g) => s + (g.byMonthPrev[my] || 0), 0)
+    })
+    groupRows.push(groupRow("รวมทั้งหมด", yBE, groupTotCurr, groupAggs.reduce((s, g) => s + g.curr, 0)))
+    groupRows.push(groupRow("รวมทั้งหมด", pBE, groupTotPrev, groupAggs.reduce((s, g) => s + g.prev, 0)))
+    const wsGroup = XLSX.utils.json_to_sheet(groupRows)
+    wsGroup["!cols"] = [{ wch: 22 }, { wch: 8 }, ...months.map(() => ({ wch: 14 })), { wch: 16 }]
+
+    // ── Sheet 4: อู่ใน-อู่นอก — in-house vs outside workshop, per month ───────
+    const wsRows = months.map((my) => {
+      const c = wsAgg.curr.byMonth[my] ?? { nai: 0, nok: 0, naiPlates: 0, nokPlates: 0 }
+      const p = wsAgg.prev.byMonth[my] ?? { nai: 0, nok: 0, naiPlates: 0, nokPlates: 0 }
+      const tot = c.nai + c.nok, totP = p.nai + p.nok
+      return {
+        "เดือน": monthTh(my),
+        [`อู่ใน ${yBE} (฿)`]:  num(c.nai),
+        [`อู่นอก ${yBE} (฿)`]: num(c.nok),
+        [`รวม ${yBE} (฿)`]:    num(tot),
+        [`สัดส่วนอู่นอก ${yBE} (%)`]: tot > 0 ? num((c.nok / tot) * 100) : "",
+        "คันอู่ใน":  c.naiPlates,
+        "คันอู่นอก": c.nokPlates,
+        [`อู่ใน ${pBE} (฿)`]:  num(p.nai),
+        [`อู่นอก ${pBE} (฿)`]: num(p.nok),
+        [`สัดส่วนอู่นอก ${pBE} (%)`]: totP > 0 ? num((p.nok / totP) * 100) : "",
+      }
+    })
+    const totNai = wsAgg.curr.nai, totNok = wsAgg.curr.nok, totAll = totNai + totNok
+    const totNaiP = wsAgg.prev.nai, totNokP = wsAgg.prev.nok, totAllP = totNaiP + totNokP
+    wsRows.push({
+      "เดือน": "รวม",
+      [`อู่ใน ${yBE} (฿)`]:  num(totNai),
+      [`อู่นอก ${yBE} (฿)`]: num(totNok),
+      [`รวม ${yBE} (฿)`]:    num(totAll),
+      [`สัดส่วนอู่นอก ${yBE} (%)`]: totAll > 0 ? num((totNok / totAll) * 100) : "",
+      "คันอู่ใน":  wsAgg.curr.naiPlates,
+      "คันอู่นอก": wsAgg.curr.nokPlates,
+      [`อู่ใน ${pBE} (฿)`]:  num(totNaiP),
+      [`อู่นอก ${pBE} (฿)`]: num(totNokP),
+      [`สัดส่วนอู่นอก ${pBE} (%)`]: totAllP > 0 ? num((totNokP / totAllP) * 100) : "",
+    })
+    const wsWorkshop = XLSX.utils.json_to_sheet(wsRows)
+    wsWorkshop["!cols"] = [{ wch: 10 }, ...Array.from({ length: 9 }, () => ({ wch: 16 }))]
+
+    // ── Sheet 5: รายคัน — plate × month, months as columns ────────────────────
+    // isAllocated rows are excluded: they are synthetic office-allocation slices
+    // carrying an office plate, not a vehicle. Including them would put phantom
+    // trucks in the sheet and make its plate count disagree with the KPI.
+    type PlateAgg = { fleet: string; fleetCost: Record<string, number>; byMonth: Record<string, number>; total: number }
+    const plateMap = new Map<string, PlateAgg>()
+    fdCurr.forEach((r) => {
+      if (r.isAllocated || !r.plate) return
+      let e = plateMap.get(r.plate)
+      if (!e) { e = { fleet: r.fleet, fleetCost: {}, byMonth: {}, total: 0 }; plateMap.set(r.plate, e) }
+      e.byMonth[r.month_year] = (e.byMonth[r.month_year] || 0) + r.plate_total
+      e.total += r.plate_total
+      // a plate can change fleet mid-range; label it with the fleet that carries
+      // most of its cost rather than whichever month happened to be seen first
+      e.fleetCost[r.fleet] = (e.fleetCost[r.fleet] || 0) + r.plate_total
+    })
+    const plateRows = [...plateMap.entries()]
+      .map(([plate, e]) => {
+        const dominant = Object.entries(e.fleetCost).sort((a, b) => b[1] - a[1])[0]?.[0] ?? e.fleet
+        const o: Record<string, string | number> = { "ทะเบียน": plate, [K_FLEET]: fleetLabel(dominant) }
+        months.forEach((my) => { o[monthTh(my)] = num(e.byMonth[my] || 0) })
+        o[K_TOTAL] = num(e.total)
+        return o
+      })
+      .sort((a, b) => Number(b[K_TOTAL]) - Number(a[K_TOTAL]))
+    const wsPlate = XLSX.utils.json_to_sheet(plateRows)
+    wsPlate["!cols"] = [{ wch: 16 }, { wch: 12 }, ...months.map(() => ({ wch: 14 })), { wch: 16 }]
+
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, wsSummary,  "สรุป")
+    XLSX.utils.book_append_sheet(wb, wsFleet,    "ตามฟลีต")
+    XLSX.utils.book_append_sheet(wb, wsGroup,    "กลุ่มต้นทุน")
+    XLSX.utils.book_append_sheet(wb, wsWorkshop, "อู่ใน-อู่นอก")
+    XLSX.utils.book_append_sheet(wb, wsPlate,    "รายคัน")
+
+    const buf = XLSX.write(wb, { bookType: "xlsx", type: "array" })
+    const blob = new Blob([buf], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    })
+    saveAs(blob, `mm-report_${startMonth}_${endMonth}.xlsx`)
+  }
+
   // ── Save slide as PNG (full slide, 2x resolution) ───────────────────────────
   const slideRefs = useRef<Record<string, HTMLElement | null>>({})
   const setSlideRef = (key: string) => (el: HTMLElement | null) => { slideRefs.current[key] = el }
@@ -1022,6 +1199,10 @@ export default function CostReportPage() {
           <button onClick={() => window.print()}
             className="rounded-xl border bg-white px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">
             🖨 Export PDF
+          </button>
+          <button onClick={exportExcel} disabled={!hasData}
+            className="rounded-xl border bg-white px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">
+            📊 Export Excel
           </button>
         </div>
 
