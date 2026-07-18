@@ -14,7 +14,7 @@ import {
   YAxis,
 } from "recharts"
 import {
-  FLEET_MAP, FLEET_ORDER, FLEET_COLORS, UNKNOWN_FLEET,
+  FLEET_MAP, FLEET_ORDER, FLEET_COLORS,
   BUCKET_OFFICE, BUCKET_PARTNER, BUCKET_NEW, BUCKET_UNKNOWN,
   fleetKey, fleetLabel, allocateOffice,
 } from "@/lib/fleets"
@@ -184,8 +184,6 @@ export default function CostReportPage() {
   const [sumPrev, setSumPrev]       = useState<SummaryRow[]>([])
   const [detCurr, setDetCurr]       = useState<PlateDetailRow[]>([])
   const [detPrev, setDetPrev]       = useState<PlateDetailRow[]>([])
-  const [counts, setCounts]         = useState<CountsResult | null>(null)
-  const [countsPrev, setCountsPrev] = useState<CountsResult | null>(null)
   const [bdCurr, setBdCurr]         = useState<BDRow[]>([])
   const [bdPrev, setBdPrev]         = useState<BDRow[]>([])
 
@@ -232,27 +230,24 @@ export default function CostReportPage() {
       const pS = shiftYear(startMonth, -1), pE = shiftYear(endMonth, -1)
       // Fleet mapping does not depend on the warehouse / partner_flag chips, so
       // it is fetched here only — never in the chip-change effect below.
-      const [s1, s2, d1, d2, c1, c2, b1, b2, f1, f2] = await Promise.all([
+      const [s1, s2, d1, d2, b1, b2, f1, f2] = await Promise.all([
         fetch(`/api/cost/summary?group_by=${gp}&start=${startMonth}&end=${endMonth}`, { cache: "no-store" }),
         fetch(`/api/cost/summary?group_by=${gp}&start=${pS}&end=${pE}`, { cache: "no-store" }),
         fetch(`/api/cost/detail?${countsParams(startMonth, endMonth)}`, { cache: "no-store" }),
         fetch(`/api/cost/detail?${countsParams(pS, pE)}`, { cache: "no-store" }),
-        fetch(`/api/cost/counts?${countsParams(startMonth, endMonth)}`, { cache: "no-store" }),
-        fetch(`/api/cost/counts?${countsParams(pS, pE)}`, { cache: "no-store" }),
         fetch(`/api/truck-utilize/breakdown?${bdParams(toBdKey(startMonth), toBdKey(endMonth))}`, { cache: "no-store" }),
         fetch(`/api/truck-utilize/breakdown?${bdParams(toBdKey(pS), toBdKey(pE))}`, { cache: "no-store" }),
         fetch(`/api/fleet/plate-map?start=${toBdKey(startMonth)}&end=${toBdKey(endMonth)}`, { cache: "no-store" }),
         fetch(`/api/fleet/plate-map?start=${toBdKey(pS)}&end=${toBdKey(pE)}`, { cache: "no-store" }),
       ])
-      const [j1, j2, j3, j4, j5, j6, j7, j8, j9, j10] = await Promise.all([s1.json(), s2.json(), d1.json(), d2.json(), c1.json(), c2.json(), b1.json(), b2.json(), f1.json(), f2.json()])
+      const [j1, j2, j3, j4, j5, j6, j7, j8] = await Promise.all([s1.json(), s2.json(), d1.json(), d2.json(), b1.json(), b2.json(), f1.json(), f2.json()])
       if (!j1.success) throw new Error(j1.error || "summary failed")
       setSumCurr(j1.data); setSumPrev(j2.success ? j2.data : [])
       setDetCurr(j3.success ? j3.data : []); setDetPrev(j4.success ? j4.data : [])
-      setCounts(j5.success ? j5.data : null); setCountsPrev(j6.success ? j6.data : null)
-      setBdCurr(j7.success ? j7.data : []); setBdPrev(j8.success ? j8.data : [])
-      setFleetMapCurr(j9.success ? j9.data : {}); setFleetMapPrev(j10.success ? j10.data : {})
-      setFlagMapCurr(j9.success ? (j9.flags ?? {}) : {})
-      setFlagMapPrev(j10.success ? (j10.flags ?? {}) : {})
+      setBdCurr(j5.success ? j5.data : []); setBdPrev(j6.success ? j6.data : [])
+      setFleetMapCurr(j7.success ? j7.data : {}); setFleetMapPrev(j8.success ? j8.data : {})
+      setFlagMapCurr(j7.success ? (j7.flags ?? {}) : {})
+      setFlagMapPrev(j8.success ? (j8.flags ?? {}) : {})
       setHasData(true)
     } catch (e: any) {
       setError(e.message || "Load failed")
@@ -263,27 +258,23 @@ export default function CostReportPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { fetchAll() }, [])
 
-  // counts + detail are aggregated server-side → refetch when chip filters change
+  // detail + breakdown are aggregated server-side → refetch when chip filters change
   useEffect(() => {
     if (!hasData) return
     const pS = shiftYear(startMonth, -1), pE = shiftYear(endMonth, -1)
     ;(async () => {
       try {
-        const [c1, c2, d1, d2, b1, b2] = await Promise.all([
-          fetch(`/api/cost/counts?${countsParams(startMonth, endMonth)}`, { cache: "no-store" }),
-          fetch(`/api/cost/counts?${countsParams(pS, pE)}`, { cache: "no-store" }),
+        const [d1, d2, b1, b2] = await Promise.all([
           fetch(`/api/cost/detail?${countsParams(startMonth, endMonth)}`, { cache: "no-store" }),
           fetch(`/api/cost/detail?${countsParams(pS, pE)}`, { cache: "no-store" }),
           fetch(`/api/truck-utilize/breakdown?${bdParams(toBdKey(startMonth), toBdKey(endMonth))}`, { cache: "no-store" }),
           fetch(`/api/truck-utilize/breakdown?${bdParams(toBdKey(pS), toBdKey(pE))}`, { cache: "no-store" }),
         ])
-        const [j1, j2, j3, j4, j5, j6] = await Promise.all([c1.json(), c2.json(), d1.json(), d2.json(), b1.json(), b2.json()])
-        if (j1.success) setCounts(j1.data)
-        if (j2.success) setCountsPrev(j2.data)
-        if (j3.success) setDetCurr(j3.data)
-        if (j4.success) setDetPrev(j4.data)
-        if (j5.success) setBdCurr(j5.data)
-        if (j6.success) setBdPrev(j6.data)
+        const [j1, j2, j3, j4] = await Promise.all([d1.json(), d2.json(), b1.json(), b2.json()])
+        if (j1.success) setDetCurr(j1.data)
+        if (j2.success) setDetPrev(j2.data)
+        if (j3.success) setBdCurr(j3.data)
+        if (j4.success) setBdPrev(j4.data)
       } catch { /* keep previous data on transient failure */ }
     })()
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -299,18 +290,8 @@ export default function CostReportPage() {
     [sumCurr]
   )
 
-  const filterSum = (rows: SummaryRow[]) => rows.filter((r) => {
-    if (selectedWh.size > 0 && !selectedWh.has(r.warehouse || "ไม่ระบุ")) return false
-    if (selectedFlag.size > 0 && !selectedFlag.has(r.partner_flag || "ไม่ระบุ")) return false
-    return true
-  })
   // detail rows are filtered server-side (warehouse/partner_flag passed on fetch),
   // so detail-driven slides (workshop split, top items) follow the chips too
-
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const fCurr = useMemo(() => filterSum(sumCurr), [sumCurr, selectedWh, selectedFlag])
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const fPrev = useMemo(() => filterSum(sumPrev), [sumPrev, selectedWh, selectedFlag])
 
   // ── Fleet tagging ───────────────────────────────────────────────────────────
   // Every detail row gets a fleet id from the plate+month bridge. Rows the
@@ -1061,47 +1042,6 @@ export default function CostReportPage() {
 
       {error && (
         <div className="print:hidden mx-auto mb-4 max-w-[1400px] rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>
-      )}
-
-      {/* TEMPORARY — removed in Task 8. Find it by data-debug="fleet-recon". */}
-      {hasData && (
-        <div data-debug="fleet-recon" className="print:hidden mx-auto mb-4 max-w-[1400px] rounded border border-amber-300 bg-amber-50 p-3 text-xs">
-          <div className="font-semibold text-amber-900">DEBUG — fleet reconciliation (removed before merge)</div>
-          <div className="mt-1 grid gap-1 text-amber-800">
-            <div>summary total: {Math.round(fCurr.reduce((s, r) => s + r.total_cost, 0)).toLocaleString()}</div>
-            <div>detail total: {Math.round(taggedCurr.reduce((s, r) => s + r.plate_total, 0)).toLocaleString()}</div>
-            <div>prev — summary total: {Math.round(fPrev.reduce((s, r) => s + r.total_cost, 0)).toLocaleString()} / detail total: {Math.round(taggedPrev.reduce((s, r) => s + r.plate_total, 0)).toLocaleString()}</div>
-            <div>
-              unmapped plates: {taggedCurr.filter((r) => r.fleet === UNKNOWN_FLEET).length} / {taggedCurr.length}
-              {"  "}(after fleet filter: {fleetFilter(taggedCurr).length})
-            </div>
-            <div>
-              by fleet:{" "}
-              {[...FLEET_ORDER, BUCKET_OFFICE, BUCKET_PARTNER, BUCKET_NEW, BUCKET_UNKNOWN].map((f) => {
-                const n = taggedCurr.filter((r) => r.fleet === f).length
-                return n ? `${fleetLabel(f)}=${n}` : null
-              }).filter(Boolean).join("  ")}
-            </div>
-            <div>
-              cost share:{" "}
-              {(() => {
-                const tot = taggedCurr.reduce((s, r) => s + r.plate_total, 0) || 1
-                return [...FLEET_ORDER, BUCKET_OFFICE, BUCKET_PARTNER, BUCKET_NEW, BUCKET_UNKNOWN].map((f) => {
-                  const c = taggedCurr.filter((r) => r.fleet === f).reduce((s, r) => s + r.plate_total, 0)
-                  return c ? `${fleetLabel(f)}=${((c / tot) * 100).toFixed(1)}%` : null
-                }).filter(Boolean).join("  ")
-              })()}
-            </div>
-            <div>
-              mapped to a real fleet:{" "}
-              {(() => {
-                const tot = taggedCurr.reduce((s, r) => s + r.plate_total, 0) || 1
-                const mapped = taggedCurr.filter((r) => FLEET_ORDER.includes(r.fleet)).reduce((s, r) => s + r.plate_total, 0)
-                return `${((mapped / tot) * 100).toFixed(1)}% of cost`
-              })()}
-            </div>
-          </div>
-        </div>
       )}
 
       {hasData && (
