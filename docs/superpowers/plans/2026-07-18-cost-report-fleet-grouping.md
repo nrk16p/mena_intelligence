@@ -802,7 +802,12 @@ cell over two year rows.
   `PivotRow = { key, label, color, isFleet, curr: Record<string,number>,
   prev: Record<string,number>, currTotal, prevTotal, trucks: Record<string,number> }`
 
-- [ ] **Step 1: Write the failing test for the allocation helper**
+> **Superseded steps.** Steps 1–4 below built `allocateOffice` and unit-tested
+> it. That work moved to **Task 6b**, which allocates office cost upstream of
+> every consumer so the KPI row and the pivot cannot disagree. `allocateOffice`
+> and its tests already exist. **Skip Steps 1–4 and start at Step 5.**
+
+- [ ] ~~**Step 1: Write the failing test for the allocation helper**~~ (done in Task 6b)
 
 The allocation is pure arithmetic, so it is unit-tested. Add to
 `lib/fleets.test.ts`:
@@ -895,27 +900,18 @@ const fleetPivot = useMemo(() => {
   }
   const cCurr = cost(fdCurr), cPrev = cost(fdPrev)
 
-  // allocate office cost per month across fleets present that month
-  const allocate = (c: Record<string, Record<string, number>>) => {
-    const alloc: Record<string, Record<string, number>> = {}
-    months.forEach((my) => {
-      const office = c[BUCKET_OFFICE]?.[my] || 0
-      if (!office) return
-      const tby: Record<string, number> = {}
-      FLEET_ORDER.forEach((f) => { const n = trucks[f]?.[my] || 0; if (n) tby[f] = n })
-      const split = allocateOffice(office, tby)
-      for (const [f, v] of Object.entries(split)) (alloc[f] ??= {})[my] = v
-    })
-    return alloc
-  }
-  const aCurr = allocate(cCurr), aPrev = allocate(cPrev)
+  // NOTE: office (รถสำนักงาน) cost is ALREADY allocated into the fleet rows by
+  // Task 6b, which expands each office row into per-fleet fractional rows during
+  // tagging. BUCKET_OFFICE no longer appears in the row set at all, so this
+  // component does no allocation of its own — it simply aggregates. Do not
+  // reintroduce allocation here; that would double-count.
 
   const mk = (key: string, isFleet: boolean): PivotRow => {
     const curr: Record<string, number> = {}, prev: Record<string, number> = {}
     months.forEach((my) => {
-      curr[my] = (cCurr[key]?.[my] || 0) + (isFleet ? (aCurr[key]?.[my] || 0) : 0)
+      curr[my] = cCurr[key]?.[my] || 0
       const pmy = shiftYear(my, -1)
-      prev[my] = (cPrev[key]?.[pmy] || 0) + (isFleet ? (aPrev[key]?.[pmy] || 0) : 0)
+      prev[my] = cPrev[key]?.[pmy] || 0
     })
     return {
       key, label: fleetLabel(key), color: FLEET_COLORS[key] ?? "#9ca3af", isFleet,
