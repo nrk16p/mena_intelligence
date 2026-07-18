@@ -1,6 +1,6 @@
 import pool from "@/lib/mysql"
 import { NextResponse } from "next/server"
-import { EXCLUDED_PLATES, fleetKey } from "@/lib/fleets"
+import { EXCLUDED_PLATES, fleetKey, monthsBetween } from "@/lib/fleets"
 import { normPlate } from "@/lib/plate-partner"
 import { getPlateFlagMap } from "@/lib/plate-partner-server"
 
@@ -23,6 +23,14 @@ export async function GET(req: Request) {
       )
     }
 
+    const months = monthsBetween(start, end)
+    if (months.length === 0) {
+      return NextResponse.json(
+        { success: false, error: "invalid or out-of-range start/end (MM-YY)" },
+        { status: 400 },
+      )
+    }
+
     const ck = `${start}..${end}`
     const hit = cache.get(ck)
     let data: Record<string, string>
@@ -30,16 +38,17 @@ export async function GET(req: Request) {
     if (hit && Date.now() - hit.at < TTL) {
       data = hit.data
     } else {
-      const placeholders = EXCLUDED_PLATES.map(() => "?").join(",")
+      const excludedPlaceholders = EXCLUDED_PLATES.map(() => "?").join(",")
+      const monthPlaceholders = months.map(() => "?").join(",")
       const sql = `
         SELECT DISTINCT REPLACE(license_plate, ' ', '') AS plate, month_year, fleet_group_id
           FROM performance_vehicle_daily
          WHERE license_plate NOT LIKE '%(%'
-           AND license_plate NOT IN (${placeholders})
-           AND month_year >= ? AND month_year <= ?
+           AND license_plate NOT IN (${excludedPlaceholders})
+           AND month_year IN (${monthPlaceholders})
            AND fleet_group_id IS NOT NULL
       `
-      const [rows] = await pool.query<any[]>(sql, [...EXCLUDED_PLATES, start, end])
+      const [rows] = await pool.query<any[]>(sql, [...EXCLUDED_PLATES, ...months])
 
       data = {}
       for (const r of rows as any[]) {

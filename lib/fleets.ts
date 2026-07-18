@@ -44,3 +44,49 @@ export function fleetLabel(id: string): string {
 export function fleetKey(plate: string, monthMMYY: string): string {
   return `${normPlate(plate)}|${monthMMYY}`
 }
+
+const MAX_MONTHS_SPAN = 120
+
+/**
+ * Expands a "MM-YY" range into the explicit list of months it spans,
+ * inclusive of both endpoints, in chronological order.
+ *
+ * month_year is stored as "MM-YY" text, so a naive SQL range comparison
+ * (month_year >= start AND month_year <= end) sorts lexicographically by
+ * month before year — e.g. a 01-26..07-26 range would also match 02-25,
+ * 03-25, etc. Building the exact month list here and filtering with
+ * `IN (...)` avoids that trap entirely.
+ *
+ * "YY" is 2000-based ("26" -> 2026). Returns [] if start is after end, or if
+ * the span exceeds MAX_MONTHS_SPAN months (guards against runaway input)
+ * instead of throwing.
+ */
+export function monthsBetween(startMMYY: string, endMMYY: string): string[] {
+  const parse = (mmYY: string): { month: number; year: number } | null => {
+    const match = /^(\d{2})-(\d{2})$/.exec(mmYY)
+    if (!match) return null
+    const month = Number(match[1])
+    const year = 2000 + Number(match[2])
+    if (month < 1 || month > 12) return null
+    return { month, year }
+  }
+
+  const start = parse(startMMYY)
+  const end = parse(endMMYY)
+  if (!start || !end) return []
+
+  const startIndex = start.year * 12 + (start.month - 1)
+  const endIndex = end.year * 12 + (end.month - 1)
+  if (startIndex > endIndex) return []
+  if (endIndex - startIndex + 1 > MAX_MONTHS_SPAN) return []
+
+  const months: string[] = []
+  for (let i = startIndex; i <= endIndex; i++) {
+    const year = Math.floor(i / 12)
+    const month = (i % 12) + 1
+    const mm = String(month).padStart(2, "0")
+    const yy = String(year % 100).padStart(2, "0")
+    months.push(`${mm}-${yy}`)
+  }
+  return months
+}

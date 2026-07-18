@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { FLEET_MAP, FLEET_ORDER, FLEET_COLORS, UNKNOWN_FLEET, fleetLabel, fleetKey } from "./fleets"
+import { FLEET_MAP, FLEET_ORDER, FLEET_COLORS, UNKNOWN_FLEET, fleetLabel, fleetKey, monthsBetween } from "./fleets"
 
 describe("fleet constants", () => {
   it("maps all eight fleet ids to names", () => {
@@ -35,5 +35,36 @@ describe("fleetKey", () => {
 
   it("is stable regardless of surrounding whitespace", () => {
     expect(fleetKey("  70-1234 ", "12-25")).toBe("70-1234|12-25")
+  })
+})
+
+describe("monthsBetween", () => {
+  it("returns every month in a same-year span, inclusive", () => {
+    expect(monthsBetween("01-26", "04-26")).toEqual(["01-26", "02-26", "03-26", "04-26"])
+  })
+
+  it("returns every month across a year boundary, inclusive", () => {
+    expect(monthsBetween("11-25", "02-26")).toEqual(["11-25", "12-25", "01-26", "02-26"])
+  })
+
+  it("returns a single month when start equals end", () => {
+    expect(monthsBetween("07-26", "07-26")).toEqual(["07-26"])
+  })
+
+  it("returns an empty array when start is after end", () => {
+    expect(monthsBetween("07-26", "01-26")).toEqual([])
+  })
+
+  it("returns an empty array when the span exceeds 120 months", () => {
+    expect(monthsBetween("01-00", "02-11")).toEqual([])
+  })
+
+  it("does not leak lexicographically-matching months from other years (regression)", () => {
+    // month_year is "MM-YY"; a naive string range 01-26..07-26 also lexically
+    // matches e.g. 02-25 (month "02" falls between "01" and "07"). The exact
+    // month list must never include months from the wrong year.
+    const months = monthsBetween("01-26", "07-26")
+    expect(months).not.toContain("02-25")
+    expect(months).toEqual(["01-26", "02-26", "03-26", "04-26", "05-26", "06-26", "07-26"])
   })
 })
