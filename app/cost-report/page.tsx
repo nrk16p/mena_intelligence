@@ -218,6 +218,41 @@ export default function CostReportPage() {
   const [error, setError]     = useState<string | null>(null)
   const [hasData, setHasData] = useState(false)
 
+  // ── Staged load progress ────────────────────────────────────────────────────
+  // A bare "Loading…" over a 2–4s load reads as a hang. The four MySQL scans
+  // behind it are ~700–930ms each and cannot be indexed away (cardinality 18 on
+  // a 390k-row table), so the honest fix is to show what is happening.
+  //
+  // The seven requests stay in ONE Promise.all — splitting them into sequential
+  // stages to show progress would make the page slower, which defeats the
+  // point. Each stage instead hangs a .then() off its own fetches and flips
+  // when they really resolve.
+  //
+  // Because they run in parallel the stages can finish out of order — the fleet
+  // bridge often beats the cost scans. So each stage renders its OWN state
+  // independently rather than as a strict sequence: a finished later stage
+  // shows ✓ while an earlier one still spins, and nothing ever jumps backwards.
+  type LoadStage = "cost" | "fleet" | "compute"
+  const [stagesDone, setStagesDone] = useState<Record<LoadStage, boolean>>({
+    cost: false, fleet: false, compute: false,
+  })
+  const [loadStartedAt, setLoadStartedAt] = useState<number | null>(null)
+  const [elapsed, setElapsed] = useState(0)
+  const markStage = (s: LoadStage) => setStagesDone((p) => (p[s] ? p : { ...p, [s]: true }))
+
+  useEffect(() => {
+    if (!loading || loadStartedAt === null) return
+    setElapsed((Date.now() - loadStartedAt) / 1000)
+    const id = setInterval(() => setElapsed((Date.now() - loadStartedAt) / 1000), 100)
+    return () => clearInterval(id)
+  }, [loading, loadStartedAt])
+
+  const LOAD_STAGES: { key: LoadStage; label: string }[] = [
+    { key: "cost",    label: "ดึงข้อมูลต้นทุน" },
+    { key: "fleet",   label: "เชื่อมข้อมูลฟลีต" },
+    { key: "compute", label: "คำนวณและจัดกลุ่ม" },
+  ]
+
   const [selectedWh, setSelectedWh]     = useState<Set<string>>(new Set())
   const [selectedFlag, setSelectedFlag] = useState<Set<string>>(new Set())
   // Cost group is the only LINE-level filter on this page — see cgFilter below.
@@ -244,19 +279,30 @@ export default function CostReportPage() {
   const fetchAll = async () => {
     setLoading(true)
     setError(null)
+    setStagesDone({ cost: false, fleet: false, compute: false })
+    setLoadStartedAt(Date.now())
+    setElapsed(0)
     try {
       const gp = encodeURIComponent("จุดประสงค์ในการเบิก")
       const pS = shiftYear(startMonth, -1), pE = shiftYear(endMonth, -1)
       // Fleet mapping does not depend on the warehouse / partner_flag chips, so
       // it is fetched here only — never in the chip-change effect below.
+      const pSum  = fetch(`/api/cost/summary?group_by=${gp}&start=${startMonth}&end=${endMonth}`, { cache: "no-store" })
+      const pDet1 = fetch(`/api/cost/detail?${countsParams(startMonth, endMonth)}`, { cache: "no-store" })
+      const pDet2 = fetch(`/api/cost/detail?${countsParams(pS, pE)}`, { cache: "no-store" })
+      const pBd1  = fetch(`/api/truck-utilize/breakdown?${bdParams(toBdKey(startMonth), toBdKey(endMonth))}`, { cache: "no-store" })
+      const pBd2  = fetch(`/api/truck-utilize/breakdown?${bdParams(toBdKey(pS), toBdKey(pE))}`, { cache: "no-store" })
+      const pFl1  = fetch(`/api/fleet/plate-map?start=${toBdKey(startMonth)}&end=${toBdKey(endMonth)}`, { cache: "no-store" })
+      const pFl2  = fetch(`/api/fleet/plate-map?start=${toBdKey(pS)}&end=${toBdKey(pE)}`, { cache: "no-store" })
+
+      // Stage ticks hang off the SAME promises the await below consumes — the
+      // requests are not re-issued and not serialised. A rejection is swallowed
+      // here on purpose; the await is what surfaces the error.
+      Promise.all([pSum, pDet1, pDet2]).then(() => markStage("cost")).catch(() => {})
+      Promise.all([pBd1, pBd2, pFl1, pFl2]).then(() => markStage("fleet")).catch(() => {})
+
       const [s1, d1, d2, b1, b2, f1, f2] = await Promise.all([
-        fetch(`/api/cost/summary?group_by=${gp}&start=${startMonth}&end=${endMonth}`, { cache: "no-store" }),
-        fetch(`/api/cost/detail?${countsParams(startMonth, endMonth)}`, { cache: "no-store" }),
-        fetch(`/api/cost/detail?${countsParams(pS, pE)}`, { cache: "no-store" }),
-        fetch(`/api/truck-utilize/breakdown?${bdParams(toBdKey(startMonth), toBdKey(endMonth))}`, { cache: "no-store" }),
-        fetch(`/api/truck-utilize/breakdown?${bdParams(toBdKey(pS), toBdKey(pE))}`, { cache: "no-store" }),
-        fetch(`/api/fleet/plate-map?start=${toBdKey(startMonth)}&end=${toBdKey(endMonth)}`, { cache: "no-store" }),
-        fetch(`/api/fleet/plate-map?start=${toBdKey(pS)}&end=${toBdKey(pE)}`, { cache: "no-store" }),
+        pSum, pDet1, pDet2, pBd1, pBd2, pFl1, pFl2,
       ])
       const [j1, j2, j3, j4, j5, j6, j7] = await Promise.all([s1.json(), d1.json(), d2.json(), b1.json(), b2.json(), f1.json(), f2.json()])
       if (!j1.success) throw new Error(j1.error || "summary failed")
@@ -273,6 +319,7 @@ export default function CostReportPage() {
       setFlagMapCurr(j6.success ? (j6.flags ?? {}) : {})
       setFlagMapPrev(j7.success ? (j7.flags ?? {}) : {})
       setHasData(true)
+      markStage("compute")
     } catch (e: any) {
       setFleetBridgeStatus("failed")
       setError(e.message || "Load failed")
@@ -1387,6 +1434,35 @@ export default function CostReportPage() {
         </div>
       )}
 
+      {loading && (
+        <div className="print:hidden mx-auto mb-5 max-w-[420px] rounded-2xl border bg-white p-5 shadow-sm">
+          <div className="flex items-baseline justify-between gap-3">
+            <p className="text-sm font-semibold text-gray-700">⏳ กำลังโหลดข้อมูล…</p>
+            <p className="text-sm tabular-nums text-gray-400">{elapsed.toFixed(1)}ว</p>
+          </div>
+          <ul className="mt-3 space-y-1.5">
+            {LOAD_STAGES.map((s) => {
+              const done = stagesDone[s.key]
+              // "คำนวณ" genuinely cannot start until both fetch stages land, so
+              // it is the one stage with a real not-yet-started state. The two
+              // fetch stages are always in flight together while loading.
+              const active = !done && (s.key !== "compute" || (stagesDone.cost && stagesDone.fleet))
+              return (
+                <li key={s.key} className={`flex items-center gap-2 text-[13px] ${
+                  done ? "text-gray-700" : active ? "text-gray-500" : "text-gray-300"
+                }`}>
+                  <span className={done ? "text-emerald-500" : active ? "animate-pulse text-gray-400" : "text-gray-300"}>
+                    {done ? "✓" : active ? "●" : "○"}
+                  </span>
+                  {s.label}
+                </li>
+              )
+            })}
+          </ul>
+          <p className="mt-3 border-t pt-2.5 text-[11px] text-gray-400">ช่วงเวลากว้างอาจใช้ 3–5 วินาที</p>
+        </div>
+      )}
+
       {hasData && (
         <div className="mx-auto max-w-[1400px] space-y-6">
 
@@ -2165,9 +2241,6 @@ export default function CostReportPage() {
         </div>
       )}
 
-      {loading && !hasData && (
-        <div className="py-16 text-center text-sm text-gray-400">กำลังโหลดข้อมูล…</div>
-      )}
 
       {/* print styles (same pattern as /fleet-report) */}
       <style>{`
