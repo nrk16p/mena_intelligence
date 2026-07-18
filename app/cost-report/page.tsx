@@ -191,7 +191,10 @@ export default function CostReportPage() {
   // used to bucket plates the bridge has no row for.
   const [fleetMapCurr, setFleetMapCurr] = useState<Record<string, string>>({})
   const [fleetMapPrev, setFleetMapPrev] = useState<Record<string, string>>({})
-  const [flagMap, setFlagMap]           = useState<Record<string, string>>({})
+  // flags are keyed plate|MM-YY and are range-specific: the current-range
+  // response must not bucket prior-year rows (a truck can change flag).
+  const [flagMapCurr, setFlagMapCurr]   = useState<Record<string, string>>({})
+  const [flagMapPrev, setFlagMapPrev]   = useState<Record<string, string>>({})
   const [selectedFleets, setSelectedFleets] = useState<Set<string>>(new Set())
 
   const [loading, setLoading] = useState(false)
@@ -246,7 +249,8 @@ export default function CostReportPage() {
       setCounts(j5.success ? j5.data : null); setCountsPrev(j6.success ? j6.data : null)
       setBdCurr(j7.success ? j7.data : []); setBdPrev(j8.success ? j8.data : [])
       setFleetMapCurr(j9.success ? j9.data : {}); setFleetMapPrev(j10.success ? j10.data : {})
-      setFlagMap(j9.success ? (j9.flags ?? {}) : {})
+      setFlagMapCurr(j9.success ? (j9.flags ?? {}) : {})
+      setFlagMapPrev(j10.success ? (j10.flags ?? {}) : {})
       setHasData(true)
     } catch (e: any) {
       setError(e.message || "Load failed")
@@ -316,13 +320,23 @@ export default function CostReportPage() {
     rows: PlateDetailRow[],
     fleetMap: Record<string, string>,
     flags: Record<string, string>,
-  ): TaggedPlateRow[] =>
-    rows.map((r) => {
+  ): TaggedPlateRow[] => {
+    // flags are keyed plate|MM-YY. A plate can be missing in one month (it drew
+    // no parts that month) while present in another — without a per-plate
+    // fallback those rows would newly drop to ไม่ระบุ and shift the split.
+    const anyFlagForPlate: Record<string, string> = {}
+    for (const [k, v] of Object.entries(flags)) {
+      const plate = k.slice(0, k.lastIndexOf("|"))
+      if (plate && anyFlagForPlate[plate] === undefined) anyFlagForPlate[plate] = v
+    }
+
+    return rows.map((r) => {
       // cost month_year is "YYYY-MM"; the bridge is keyed "MM-YY" — passing the
       // raw value here silently misses 100% of plates.
       const f = fleetMap[fleetKey(r.plate, toBdKey(r.month_year))]
       if (f) return { ...r, fleet: f }
-      const flag = flags[normPlate(r.plate)] ?? ""
+      const np = normPlate(r.plate)
+      const flag = flags[fleetKey(r.plate, toBdKey(r.month_year))] ?? anyFlagForPlate[np] ?? ""
       const bucket =
         flag === "รถสำนักงาน" ? BUCKET_OFFICE
         : flag.startsWith("รถร่วม") ? BUCKET_PARTNER
@@ -330,11 +344,12 @@ export default function CostReportPage() {
         : BUCKET_UNKNOWN
       return { ...r, fleet: bucket }
     })
+  }
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const taggedCurr = useMemo(() => tagFleet(detCurr, fleetMapCurr, flagMap), [detCurr, fleetMapCurr, flagMap])
+  const taggedCurr = useMemo(() => tagFleet(detCurr, fleetMapCurr, flagMapCurr), [detCurr, fleetMapCurr, flagMapCurr])
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const taggedPrev = useMemo(() => tagFleet(detPrev, fleetMapPrev, flagMap), [detPrev, fleetMapPrev, flagMap])
+  const taggedPrev = useMemo(() => tagFleet(detPrev, fleetMapPrev, flagMapPrev), [detPrev, fleetMapPrev, flagMapPrev])
 
   // empty selection = no filter, matching the warehouse / partner-flag chips
   const fleetFilter = (rows: TaggedPlateRow[]) =>

@@ -70,6 +70,24 @@ export function fleetKey(plate: string, monthMMYY: string): string {
   return `${normPlate(plate)}|${monthMMYY}`
 }
 
+/**
+ * "YYYY-MM" (Mongo dw_stockmovement.month_year, cost detail month_year)
+ * → "MM-YY" (the bridge / fleetKey convention). Returns "" on malformed input.
+ * Mirrors the toBdKey helper in app/cost-report/page.tsx.
+ */
+export function ymToMonthKey(ym: string): string {
+  const match = /^(\d{4})-(\d{2})$/.exec(ym ?? "")
+  if (!match) return ""
+  return `${match[2]}-${match[1].slice(2)}`
+}
+
+/** Inverse of {@link ymToMonthKey}. "YY" is 2000-based. Returns "" if malformed. */
+export function monthKeyToYm(monthMMYY: string): string {
+  const match = /^(\d{2})-(\d{2})$/.exec(monthMMYY ?? "")
+  if (!match) return ""
+  return `20${match[2]}-${match[1]}`
+}
+
 const MAX_MONTHS_SPAN = 120
 
 /**

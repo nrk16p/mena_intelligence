@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest"
 import {
   FLEET_MAP, FLEET_ORDER, FLEET_COLORS, UNKNOWN_FLEET,
   BUCKET_OFFICE, BUCKET_PARTNER, BUCKET_NEW, BUCKET_UNKNOWN,
-  fleetLabel, fleetKey, monthsBetween,
+  fleetLabel, fleetKey, monthsBetween, ymToMonthKey, monthKeyToYm,
 } from "./fleets"
 
 describe("fleet constants", () => {
@@ -101,5 +101,52 @@ describe("monthsBetween", () => {
     const months = monthsBetween("01-26", "07-26")
     expect(months).not.toContain("02-25")
     expect(months).toEqual(["01-26", "02-26", "03-26", "04-26", "05-26", "06-26", "07-26"])
+  })
+})
+
+describe("ymToMonthKey / monthKeyToYm", () => {
+  it("converts YYYY-MM to MM-YY", () => {
+    expect(ymToMonthKey("2026-01")).toBe("01-26")
+    expect(ymToMonthKey("2025-12")).toBe("12-25")
+    expect(ymToMonthKey("2026-07")).toBe("07-26")
+  })
+
+  it("converts MM-YY back to YYYY-MM", () => {
+    expect(monthKeyToYm("01-26")).toBe("2026-01")
+    expect(monthKeyToYm("12-25")).toBe("2025-12")
+  })
+
+  it("round-trips every month of a year in both directions", () => {
+    for (let m = 1; m <= 12; m++) {
+      const mm = String(m).padStart(2, "0")
+      const ym = `2026-${mm}`
+      expect(monthKeyToYm(ymToMonthKey(ym))).toBe(ym)
+      const key = `${mm}-26`
+      expect(ymToMonthKey(monthKeyToYm(key))).toBe(key)
+    }
+  })
+
+  it("handles the January and December boundaries without year drift", () => {
+    expect(ymToMonthKey("2025-01")).toBe("01-25")
+    expect(ymToMonthKey("2025-12")).toBe("12-25")
+    expect(monthKeyToYm("01-25")).toBe("2025-01")
+    expect(monthKeyToYm("12-25")).toBe("2025-12")
+  })
+
+  it("matches the toBdKey convention used by cost-report", () => {
+    const toBdKey = (ym: string) => `${ym.split("-")[1]}-${ym.split("-")[0].slice(2)}`
+    for (const ym of ["2024-01", "2025-06", "2026-12"]) {
+      expect(ymToMonthKey(ym)).toBe(toBdKey(ym))
+    }
+  })
+
+  it("returns null-ish empty string for malformed input", () => {
+    expect(ymToMonthKey("")).toBe("")
+    expect(ymToMonthKey("2026")).toBe("")
+    expect(monthKeyToYm("nope")).toBe("")
+  })
+
+  it("builds bridge-compatible keys from a YYYY-MM month", () => {
+    expect(fleetKey("70-1234", ymToMonthKey("2026-03"))).toBe(fleetKey("70-1234", "03-26"))
   })
 })

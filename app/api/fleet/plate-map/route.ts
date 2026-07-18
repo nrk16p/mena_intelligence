@@ -2,8 +2,7 @@ import pool from "@/lib/mysql"
 import { NextResponse } from "next/server"
 import { EXCLUDED_PLATES, fleetKey, monthsBetween } from "@/lib/fleets"
 import { buildPlateMapQuery } from "@/lib/plate-map-query"
-import { normPlate } from "@/lib/plate-partner"
-import { getPlateFlagMap } from "@/lib/plate-partner-server"
+import { getPlateFlagMapByMonth } from "@/lib/plate-partner-server"
 
 // plate+month → fleet_group_id, cached in-process for 10 min per range.
 // Month-aware on purpose: a truck that moves ML→TDM mid-year keeps its earlier
@@ -50,15 +49,14 @@ export async function GET(req: Request) {
       cache.set(ck, { at: Date.now(), data })
     }
 
-    // Per-plate partner_flag so the client can bucket plates that have no
-    // fleet match. Reuses the existing Mongo-backed lookup — no new
-    // aggregation pipeline. Must not fail the whole request if Mongo errors.
+    // Per-plate+month partner_flag so the client can bucket plates that have no
+    // fleet match. Month-aware for the same reason the fleet map is: a truck
+    // that changed flag mid-history must not have its older cost bucketed by
+    // today's flag. Must not fail the whole request if Mongo errors.
     let flags: Record<string, string> = {}
     try {
-      const flagMap = await getPlateFlagMap()
-      flags = Object.fromEntries(
-        [...flagMap.entries()].map(([plate, flag]) => [normPlate(plate), flag]),
-      )
+      const flagMap = await getPlateFlagMapByMonth(months)
+      flags = Object.fromEntries(flagMap.entries())
     } catch (flagError) {
       console.error("fleet/plate-map flag lookup error:", flagError)
       flags = {}
