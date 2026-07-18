@@ -14,7 +14,7 @@ import {
   YAxis,
 } from "recharts"
 import {
-  FLEET_ORDER, UNKNOWN_FLEET,
+  FLEET_MAP, FLEET_ORDER, FLEET_COLORS, UNKNOWN_FLEET,
   BUCKET_OFFICE, BUCKET_PARTNER, BUCKET_NEW, BUCKET_UNKNOWN,
   fleetKey, fleetLabel,
 } from "@/lib/fleets"
@@ -67,8 +67,10 @@ type BDRow = {
   breakdown_count: number
 }
 
-const FLEET_ML = "1"
-const FLEET_MS = "2"
+// Selectable fleet pills. BUCKET_OFFICE is deliberately absent — office cost is
+// allocated across the fleet rows downstream, so it is not independently
+// selectable and its rows stay reachable only through the unfiltered view.
+const FLEET_PILLS = [...FLEET_ORDER, BUCKET_PARTNER, BUCKET_NEW, BUCKET_UNKNOWN]
 
 // ── Cost Group mapping (same as /cost, incl. the เเย็น double-sara-e variant) ──
 
@@ -564,8 +566,8 @@ export default function CostReportPage() {
       }
     }
     return [
-      { key: "ML", name: "ML · Mixer Large", ...calc(FLEET_ML) },
-      { key: "MS", name: "MS · Mixer Small", ...calc(FLEET_MS) },
+      { key: FLEET_MAP["1"], name: `${FLEET_MAP["1"]} · Mixer Large`, ...calc("1") },
+      { key: FLEET_MAP["2"], name: `${FLEET_MAP["2"]} · Mixer Small`, ...calc("2") },
     ]
   }, [bdCurr, bdPrev, months])
 
@@ -704,6 +706,19 @@ export default function CostReportPage() {
     else next.add(v)
     setter(next)
   }
+
+  const toggleFleet = (id: string) =>
+    setSelectedFleets((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+
+  // empty = no filter, matching the warehouse / partner-flag chips, so "Clear"
+  // returns the full unfiltered view rather than an empty one
+  const toggleAllFleets = () =>
+    setSelectedFleets((prev) => (prev.size === 0 ? new Set(FLEET_PILLS) : new Set()))
 
   const fmtLabel = (v: any) => {
     const n = Number(v)
@@ -850,6 +865,30 @@ export default function CostReportPage() {
             )}
           </div>
         )}
+
+        {/* Row 4: fleet pills — client-side filter only, never triggers a refetch */}
+        <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-gray-100 pt-2.5">
+          <span className="w-24 shrink-0 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Fleet</span>
+          <button onClick={toggleAllFleets}
+            className="rounded-full border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-500 transition hover:bg-gray-50">
+            {selectedFleets.size === 0 ? "All" : "Clear"}
+          </button>
+          {FLEET_PILLS.map((g) => {
+            const on = selectedFleets.has(g)
+            const color = FLEET_COLORS[g]
+            return (
+              <button key={g} onClick={() => toggleFleet(g)}
+                className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-medium transition ${
+                  on
+                    ? color ? "border-transparent text-white" : "border-gray-700 bg-gray-600 text-white"
+                    : "bg-white text-gray-500 hover:bg-gray-50"
+                }`}
+                style={on && color ? { backgroundColor: color, borderColor: color } : {}}>
+                {fleetLabel(g)}
+              </button>
+            )
+          })}
+        </div>
       </div>
 
       {error && (
