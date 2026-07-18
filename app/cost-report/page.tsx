@@ -340,11 +340,18 @@ export default function CostReportPage() {
   const fleetFilter = (rows: TaggedPlateRow[]) =>
     selectedFleets.size === 0 ? rows : rows.filter((r) => selectedFleets.has(r.fleet))
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const fdCurr = useMemo(() => fleetFilter(taggedCurr), [taggedCurr, selectedFleets])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const fdPrev = useMemo(() => fleetFilter(taggedPrev), [taggedPrev, selectedFleets])
+
   const months = useMemo(() => getMonthsInRange(startMonth, endMonth), [startMonth, endMonth])
 
   // ── Overview aggregates ─────────────────────────────────────────────────────
-  const totalCurr = useMemo(() => fCurr.reduce((s, r) => s + r.total_cost, 0), [fCurr])
-  const totalPrev = useMemo(() => fPrev.reduce((s, r) => s + r.total_cost, 0), [fPrev])
+  // Sourced from the fleet-tagged detail rows (not /api/cost/summary) so the
+  // fleet chips reach every headline number. Verified identical to the baht.
+  const totalCurr = useMemo(() => fdCurr.reduce((s, r) => s + r.plate_total, 0), [fdCurr])
+  const totalPrev = useMemo(() => fdPrev.reduce((s, r) => s + r.plate_total, 0), [fdPrev])
 
   type GroupAgg = {
     group: string; curr: number; prev: number
@@ -356,20 +363,25 @@ export default function CostReportPage() {
       if (!m.has(g)) m.set(g, { group: g, curr: 0, prev: 0, byMonth: {}, byMonthPrev: {} })
       return m.get(g)!
     }
-    fCurr.forEach((r) => {
-      const e = ensure(getCostGroup(r.group_value))
-      e.curr += r.total_cost
-      e.byMonth[r.month_year] = (e.byMonth[r.month_year] || 0) + r.total_cost
+    // line.จุดประสงค์ is the same field /api/cost/summary grouped by (group_value)
+    fdCurr.forEach((row) => {
+      row.lines?.forEach((ln) => {
+        const e = ensure(getCostGroup(ln.จุดประสงค์))
+        e.curr += ln.cost
+        e.byMonth[row.month_year] = (e.byMonth[row.month_year] || 0) + ln.cost
+      })
     })
-    fPrev.forEach((r) => {
-      const e = ensure(getCostGroup(r.group_value))
-      e.prev += r.total_cost
-      const aligned = shiftYear(r.month_year, 1)
-      e.byMonthPrev[aligned] = (e.byMonthPrev[aligned] || 0) + r.total_cost
+    fdPrev.forEach((row) => {
+      const aligned = shiftYear(row.month_year, 1)
+      row.lines?.forEach((ln) => {
+        const e = ensure(getCostGroup(ln.จุดประสงค์))
+        e.prev += ln.cost
+        e.byMonthPrev[aligned] = (e.byMonthPrev[aligned] || 0) + ln.cost
+      })
     })
     return GROUP_ORDER.filter((g) => m.has(g)).map((g) => m.get(g)!)
       .sort((a, b) => b.curr - a.curr)
-  }, [fCurr, fPrev])
+  }, [fdCurr, fdPrev])
 
   // Chart shows only the top 3 groups; the rest collapse into "อื่นๆ" so the
   // stack stays readable. The comparison table keeps all groups.
@@ -806,9 +818,9 @@ export default function CostReportPage() {
         <div data-debug="fleet-recon" className="print:hidden mx-auto mb-4 max-w-[1400px] rounded border border-amber-300 bg-amber-50 p-3 text-xs">
           <div className="font-semibold text-amber-900">DEBUG — fleet reconciliation (removed before merge)</div>
           <div className="mt-1 grid gap-1 text-amber-800">
-            <div>summary total: {Math.round(totalCurr).toLocaleString()}</div>
+            <div>summary total: {Math.round(fCurr.reduce((s, r) => s + r.total_cost, 0)).toLocaleString()}</div>
             <div>detail total: {Math.round(taggedCurr.reduce((s, r) => s + r.plate_total, 0)).toLocaleString()}</div>
-            <div>prev — summary total: {Math.round(totalPrev).toLocaleString()} / detail total: {Math.round(taggedPrev.reduce((s, r) => s + r.plate_total, 0)).toLocaleString()}</div>
+            <div>prev — summary total: {Math.round(fPrev.reduce((s, r) => s + r.total_cost, 0)).toLocaleString()} / detail total: {Math.round(taggedPrev.reduce((s, r) => s + r.plate_total, 0)).toLocaleString()}</div>
             <div>
               unmapped plates: {taggedCurr.filter((r) => r.fleet === UNKNOWN_FLEET).length} / {taggedCurr.length}
               {"  "}(after fleet filter: {fleetFilter(taggedCurr).length})
