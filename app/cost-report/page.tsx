@@ -13,6 +13,14 @@ import {
   XAxis,
   YAxis,
 } from "recharts"
+import {
+  FLEET_ORDER, UNKNOWN_FLEET,
+  BUCKET_OFFICE, BUCKET_PARTNER, BUCKET_NEW, BUCKET_UNKNOWN,
+  fleetKey, fleetLabel,
+} from "@/lib/fleets"
+// normPlate lives in lib/plate-partner (dependency-free). Never import
+// lib/plate-partner-server here — it pulls in Mongo and breaks the client build.
+import { normPlate } from "@/lib/plate-partner"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -179,6 +187,13 @@ export default function CostReportPage() {
   const [bdCurr, setBdCurr]         = useState<BDRow[]>([])
   const [bdPrev, setBdPrev]         = useState<BDRow[]>([])
 
+  // plate+month → fleet_group_id bridge (MySQL), plus the per-plate partner_flag
+  // used to bucket plates the bridge has no row for.
+  const [fleetMapCurr, setFleetMapCurr] = useState<Record<string, string>>({})
+  const [fleetMapPrev, setFleetMapPrev] = useState<Record<string, string>>({})
+  const [flagMap, setFlagMap]           = useState<Record<string, string>>({})
+  const [selectedFleets, setSelectedFleets] = useState<Set<string>>(new Set())
+
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState<string | null>(null)
   const [hasData, setHasData] = useState(false)
@@ -210,7 +225,9 @@ export default function CostReportPage() {
     try {
       const gp = encodeURIComponent("จุดประสงค์ในการเบิก")
       const pS = shiftYear(startMonth, -1), pE = shiftYear(endMonth, -1)
-      const [s1, s2, d1, d2, c1, c2, b1, b2] = await Promise.all([
+      // Fleet mapping does not depend on the warehouse / partner_flag chips, so
+      // it is fetched here only — never in the chip-change effect below.
+      const [s1, s2, d1, d2, c1, c2, b1, b2, f1, f2] = await Promise.all([
         fetch(`/api/cost/summary?group_by=${gp}&start=${startMonth}&end=${endMonth}`, { cache: "no-store" }),
         fetch(`/api/cost/summary?group_by=${gp}&start=${pS}&end=${pE}`, { cache: "no-store" }),
         fetch(`/api/cost/detail?${countsParams(startMonth, endMonth)}`, { cache: "no-store" }),
@@ -219,13 +236,17 @@ export default function CostReportPage() {
         fetch(`/api/cost/counts?${countsParams(pS, pE)}`, { cache: "no-store" }),
         fetch(`/api/truck-utilize/breakdown?${bdParams(toBdKey(startMonth), toBdKey(endMonth))}`, { cache: "no-store" }),
         fetch(`/api/truck-utilize/breakdown?${bdParams(toBdKey(pS), toBdKey(pE))}`, { cache: "no-store" }),
+        fetch(`/api/fleet/plate-map?start=${toBdKey(startMonth)}&end=${toBdKey(endMonth)}`, { cache: "no-store" }),
+        fetch(`/api/fleet/plate-map?start=${toBdKey(pS)}&end=${toBdKey(pE)}`, { cache: "no-store" }),
       ])
-      const [j1, j2, j3, j4, j5, j6, j7, j8] = await Promise.all([s1.json(), s2.json(), d1.json(), d2.json(), c1.json(), c2.json(), b1.json(), b2.json()])
+      const [j1, j2, j3, j4, j5, j6, j7, j8, j9, j10] = await Promise.all([s1.json(), s2.json(), d1.json(), d2.json(), c1.json(), c2.json(), b1.json(), b2.json(), f1.json(), f2.json()])
       if (!j1.success) throw new Error(j1.error || "summary failed")
       setSumCurr(j1.data); setSumPrev(j2.success ? j2.data : [])
       setDetCurr(j3.success ? j3.data : []); setDetPrev(j4.success ? j4.data : [])
       setCounts(j5.success ? j5.data : null); setCountsPrev(j6.success ? j6.data : null)
       setBdCurr(j7.success ? j7.data : []); setBdPrev(j8.success ? j8.data : [])
+      setFleetMapCurr(j9.success ? j9.data : {}); setFleetMapPrev(j10.success ? j10.data : {})
+      setFlagMap(j9.success ? (j9.flags ?? {}) : {})
       setHasData(true)
     } catch (e: any) {
       setError(e.message || "Load failed")
@@ -284,6 +305,40 @@ export default function CostReportPage() {
   const fCurr = useMemo(() => filterSum(sumCurr), [sumCurr, selectedWh, selectedFlag])
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const fPrev = useMemo(() => filterSum(sumPrev), [sumPrev, selectedWh, selectedFlag])
+
+  // ── Fleet tagging ───────────────────────────────────────────────────────────
+  // Every detail row gets a fleet id from the plate+month bridge. Rows the
+  // bridge has no entry for (no MySQL operations record that month) fall back
+  // to a bucket derived from partner_flag — nothing is ever dropped.
+  type TaggedPlateRow = PlateDetailRow & { fleet: string }
+
+  const tagFleet = (
+    rows: PlateDetailRow[],
+    fleetMap: Record<string, string>,
+    flags: Record<string, string>,
+  ): TaggedPlateRow[] =>
+    rows.map((r) => {
+      // cost month_year is "YYYY-MM"; the bridge is keyed "MM-YY" — passing the
+      // raw value here silently misses 100% of plates.
+      const f = fleetMap[fleetKey(r.plate, toBdKey(r.month_year))]
+      if (f) return { ...r, fleet: f }
+      const flag = flags[normPlate(r.plate)] ?? ""
+      const bucket =
+        flag === "รถสำนักงาน" ? BUCKET_OFFICE
+        : flag.startsWith("รถร่วม") ? BUCKET_PARTNER
+        : flag === "รถมีนา" ? BUCKET_NEW
+        : BUCKET_UNKNOWN
+      return { ...r, fleet: bucket }
+    })
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const taggedCurr = useMemo(() => tagFleet(detCurr, fleetMapCurr, flagMap), [detCurr, fleetMapCurr, flagMap])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const taggedPrev = useMemo(() => tagFleet(detPrev, fleetMapPrev, flagMap), [detPrev, fleetMapPrev, flagMap])
+
+  // empty selection = no filter, matching the warehouse / partner-flag chips
+  const fleetFilter = (rows: TaggedPlateRow[]) =>
+    selectedFleets.size === 0 ? rows : rows.filter((r) => selectedFleets.has(r.fleet))
 
   const months = useMemo(() => getMonthsInRange(startMonth, endMonth), [startMonth, endMonth])
 
@@ -744,6 +799,47 @@ export default function CostReportPage() {
 
       {error && (
         <div className="print:hidden mx-auto mb-4 max-w-[1400px] rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">{error}</div>
+      )}
+
+      {/* TEMPORARY — removed in Task 8. Find it by data-debug="fleet-recon". */}
+      {hasData && (
+        <div data-debug="fleet-recon" className="print:hidden mx-auto mb-4 max-w-[1400px] rounded border border-amber-300 bg-amber-50 p-3 text-xs">
+          <div className="font-semibold text-amber-900">DEBUG — fleet reconciliation (removed before merge)</div>
+          <div className="mt-1 grid gap-1 text-amber-800">
+            <div>summary total: {Math.round(totalCurr).toLocaleString()}</div>
+            <div>detail total: {Math.round(taggedCurr.reduce((s, r) => s + r.plate_total, 0)).toLocaleString()}</div>
+            <div>prev — summary total: {Math.round(totalPrev).toLocaleString()} / detail total: {Math.round(taggedPrev.reduce((s, r) => s + r.plate_total, 0)).toLocaleString()}</div>
+            <div>
+              unmapped plates: {taggedCurr.filter((r) => r.fleet === UNKNOWN_FLEET).length} / {taggedCurr.length}
+              {"  "}(after fleet filter: {fleetFilter(taggedCurr).length})
+            </div>
+            <div>
+              by fleet:{" "}
+              {[...FLEET_ORDER, BUCKET_OFFICE, BUCKET_PARTNER, BUCKET_NEW, BUCKET_UNKNOWN].map((f) => {
+                const n = taggedCurr.filter((r) => r.fleet === f).length
+                return n ? `${fleetLabel(f)}=${n}` : null
+              }).filter(Boolean).join("  ")}
+            </div>
+            <div>
+              cost share:{" "}
+              {(() => {
+                const tot = taggedCurr.reduce((s, r) => s + r.plate_total, 0) || 1
+                return [...FLEET_ORDER, BUCKET_OFFICE, BUCKET_PARTNER, BUCKET_NEW, BUCKET_UNKNOWN].map((f) => {
+                  const c = taggedCurr.filter((r) => r.fleet === f).reduce((s, r) => s + r.plate_total, 0)
+                  return c ? `${fleetLabel(f)}=${((c / tot) * 100).toFixed(1)}%` : null
+                }).filter(Boolean).join("  ")
+              })()}
+            </div>
+            <div>
+              mapped to a real fleet:{" "}
+              {(() => {
+                const tot = taggedCurr.reduce((s, r) => s + r.plate_total, 0) || 1
+                const mapped = taggedCurr.filter((r) => FLEET_ORDER.includes(r.fleet)).reduce((s, r) => s + r.plate_total, 0)
+                return `${((mapped / tot) * 100).toFixed(1)}% of cost`
+              })()}
+            </div>
+          </div>
+        </div>
       )}
 
       {hasData && (

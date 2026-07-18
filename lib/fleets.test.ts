@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest"
-import { FLEET_MAP, FLEET_ORDER, FLEET_COLORS, UNKNOWN_FLEET, fleetLabel, fleetKey, monthsBetween } from "./fleets"
+import {
+  FLEET_MAP, FLEET_ORDER, FLEET_COLORS, UNKNOWN_FLEET,
+  BUCKET_OFFICE, BUCKET_PARTNER, BUCKET_NEW, BUCKET_UNKNOWN,
+  fleetLabel, fleetKey, monthsBetween,
+} from "./fleets"
 
 describe("fleet constants", () => {
   it("maps all eight fleet ids to names", () => {
@@ -25,6 +29,37 @@ describe("fleetLabel", () => {
 
   it("returns ไม่ระบุ for an id that is not in the map", () => {
     expect(fleetLabel("99")).toBe("ไม่ระบุ")
+  })
+
+  it("labels the office bucket", () => {
+    expect(fleetLabel(BUCKET_OFFICE)).toBe("สำนักงาน")
+  })
+
+  it("labels the partner bucket", () => {
+    expect(fleetLabel(BUCKET_PARTNER)).toBe("รถร่วม")
+  })
+
+  it("labels the newly-acquired-truck bucket", () => {
+    expect(fleetLabel(BUCKET_NEW)).toBe("รถใหม่ (ยังไม่เข้าระบบ ops)")
+  })
+
+  it("labels the unknown bucket", () => {
+    expect(fleetLabel(BUCKET_UNKNOWN)).toBe("ไม่ระบุ")
+  })
+})
+
+describe("bucket constants", () => {
+  it("keeps UNKNOWN_FLEET and BUCKET_UNKNOWN as one and the same value", () => {
+    // Deliberately a single constant with a back-compat alias — two competing
+    // constants sharing the value "unknown" would drift apart silently.
+    expect(BUCKET_UNKNOWN).toBe("unknown")
+    expect(UNKNOWN_FLEET).toBe(BUCKET_UNKNOWN)
+  })
+
+  it("gives every bucket a value distinct from the numeric fleet ids", () => {
+    const buckets = [BUCKET_OFFICE, BUCKET_PARTNER, BUCKET_NEW, BUCKET_UNKNOWN]
+    expect(new Set(buckets).size).toBe(4)
+    buckets.forEach((b) => expect(FLEET_ORDER).not.toContain(b))
   })
 })
 

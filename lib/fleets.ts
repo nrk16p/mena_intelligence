@@ -18,8 +18,25 @@ export const FLEET_COLORS: Record<string, string> = {
   "5": "#ec4899", "6": "#8b5cf6", "7": "#ef4444", "8": "#eab308",
 }
 
-/** Plates with no fleet match. Rendered, never dropped. */
-export const UNKNOWN_FLEET = "unknown"
+// ── Fallback buckets ──────────────────────────────────────────────────────────
+// A plate with no MySQL operations record for a given month has no fleet, so it
+// is bucketed by its Mongo partner_flag instead. These share the id space with
+// the numeric fleet ids, so their values must never collide with "1".."8".
+
+/** partner_flag "รถสำนักงาน" — office vehicles, allocated across fleets later. */
+export const BUCKET_OFFICE = "office"
+/** partner_flag starting with "รถร่วม" — subcontracted trucks. */
+export const BUCKET_PARTNER = "partner"
+/** partner_flag "รถมีนา" — newly acquired trucks not yet onboarded to ops. */
+export const BUCKET_NEW = "new"
+/** No fleet match and no usable partner_flag. Rendered, never dropped. */
+export const BUCKET_UNKNOWN = "unknown"
+
+/**
+ * @deprecated Alias of {@link BUCKET_UNKNOWN}, kept so existing call sites keep
+ * compiling. Same value by construction — do not redeclare it independently.
+ */
+export const UNKNOWN_FLEET = BUCKET_UNKNOWN
 
 export const EXCLUDED_PLATES: string[] = [
   "C001-01-01","C001-01-02","C001-01-03","C001-01-04",
@@ -36,8 +53,16 @@ export const EXCLUDED_PLATES: string[] = [
   "สบ.00-00000","สบ.00-00002",
 ]
 
+const BUCKET_LABELS: Record<string, string> = {
+  [BUCKET_OFFICE]:  "สำนักงาน",
+  [BUCKET_PARTNER]: "รถร่วม",
+  [BUCKET_NEW]:     "รถใหม่ (ยังไม่เข้าระบบ ops)",
+  [BUCKET_UNKNOWN]: "ไม่ระบุ",
+}
+
+/** Display label for a fleet id or a fallback bucket. Unrecognised → "ไม่ระบุ". */
 export function fleetLabel(id: string): string {
-  return FLEET_MAP[id] ?? "ไม่ระบุ"
+  return FLEET_MAP[id] ?? BUCKET_LABELS[id] ?? "ไม่ระบุ"
 }
 
 /** Join key for the plate→fleet bridge. month is "MM-YY". */
