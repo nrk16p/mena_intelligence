@@ -554,8 +554,11 @@ export default function CostReportPage() {
         if (side === "curr") e.qty += Number(l.sum_actual_issue) || 0
       }))
     }
-    walk(detCurr, "curr")
-    walk(detPrev, "prev")
+    // fdCurr/fdPrev, not the raw detail: this slide's header uses groupAggs,
+    // which is fleet-filtered. Walking the untagged rows here made the table
+    // contradict its own header under a fleet filter.
+    walk(fdCurr, "curr")
+    walk(fdPrev, "prev")
 
     const out = new Map<string, { pgs: PgAgg[]; items: ItemAgg[] }>()
     items.forEach((im, g) => {
@@ -574,7 +577,7 @@ export default function CostReportPage() {
       })
     })
     return out
-  }, [detCurr, detPrev])
+  }, [fdCurr, fdPrev])
 
   // ── Auto takeaways (overview) ───────────────────────────────────────────────
   const takeaways = useMemo(() => {
@@ -704,10 +707,12 @@ export default function CostReportPage() {
       })
       return { nai, nok, naiPlates: naiP.size, nokPlates: nokP.size, byMonth }
     }
-    return { curr: agg(detCurr, false), prev: agg(detPrev, true) }
-  }, [detCurr, detPrev])
+    // fleet-filtered, like every other slide — the workshop split must follow
+    // the pills or it reports the whole company under a single-fleet heading.
+    return { curr: agg(fdCurr, false), prev: agg(fdPrev, true) }
+  }, [fdCurr, fdPrev])
 
-  const hasWs = detCurr.length > 0
+  const hasWs = fdCurr.length > 0
   const wsNaiAvg = wsAgg.curr.naiPlates > 0 ? wsAgg.curr.nai / wsAgg.curr.naiPlates : 0
   const wsNokAvg = wsAgg.curr.nokPlates > 0 ? wsAgg.curr.nok / wsAgg.curr.nokPlates : 0
   const wsTotal  = wsAgg.curr.nai + wsAgg.curr.nok
