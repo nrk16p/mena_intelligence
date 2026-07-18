@@ -756,6 +756,117 @@ export default function CostReportPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wsAgg, months, prevYear])
 
+  // ── Fleet × Month pivot ─────────────────────────────────────────────────────
+  // Aggregation only. Office (รถสำนักงาน) cost has ALREADY been split across the
+  // fleet rows by allocateOfficeRows, upstream of fdCurr/fdPrev, so BUCKET_OFFICE
+  // does not appear in the row set and gets no row here. Re-allocating at this
+  // level would double-count.
+  type PivotRow = {
+    key: string; label: string; color: string; isFleet: boolean
+    curr: Record<string, number>; prev: Record<string, number>
+    currTotal: number; prevTotal: number
+    trucks: Record<string, number>; trucksPrev: Record<string, number>
+  }
+
+  const fleetPivot = useMemo(() => {
+    // fleet id → "MM-YY" → truck_count, from the MySQL breakdown rows
+    const truckIndex = (bd: BDRow[]) => {
+      const out: Record<string, Record<string, number>> = {}
+      for (const b of bd) {
+        const id = String(b.fleet_group_id)
+        ;(out[id] ??= {})[b.month_year] = (out[id][b.month_year] ?? 0) + (Number(b.truck_count) || 0)
+      }
+      return out
+    }
+    const tCurr = truckIndex(bdCurr), tPrev = truckIndex(bdPrev)
+
+    // fleet id → "YYYY-MM" → cost
+    const cost = (rows: TaggedPlateRow[]) => {
+      const m: Record<string, Record<string, number>> = {}
+      for (const r of rows) {
+        const bucket = (m[r.fleet] ??= {})
+        bucket[r.month_year] = (bucket[r.month_year] ?? 0) + r.plate_total
+      }
+      return m
+    }
+    const cCurr = cost(fdCurr), cPrev = cost(fdPrev)
+
+    const mk = (key: string, isFleet: boolean): PivotRow => {
+      const curr: Record<string, number> = {}, prev: Record<string, number> = {}
+      const trucks: Record<string, number> = {}, trucksPrev: Record<string, number> = {}
+      months.forEach((my) => {
+        curr[my] = cCurr[key]?.[my] ?? 0
+        prev[my] = cPrev[key]?.[shiftYear(my, -1)] ?? 0
+        // trucks are keyed by the current-range month so both year rows line up
+        // against the same column; the prev row uses the prior year's own count.
+        trucks[my]     = tCurr[key]?.[toBdKey(my)] ?? 0
+        trucksPrev[my] = tPrev[key]?.[toBdKey(shiftYear(my, -1))] ?? 0
+      })
+      return {
+        key, label: fleetLabel(key), color: FLEET_COLORS[key] ?? "#9ca3af", isFleet,
+        curr, prev,
+        currTotal: Object.values(curr).reduce((s, v) => s + v, 0),
+        prevTotal: Object.values(prev).reduce((s, v) => s + v, 0),
+        trucks, trucksPrev,
+      }
+    }
+
+    const rows = [
+      ...FLEET_ORDER.map((f) => mk(f, true)),
+      mk(BUCKET_PARTNER, false),
+      mk(BUCKET_NEW, false),
+      mk(BUCKET_UNKNOWN, false),
+    ].filter((r) => r.currTotal > 0 || r.prevTotal > 0)
+
+    const totals = {
+      curr: {} as Record<string, number>,
+      prev: {} as Record<string, number>,
+      trucks: {} as Record<string, number>,
+      trucksPrev: {} as Record<string, number>,
+      currTotal: 0,
+      prevTotal: 0,
+    }
+    months.forEach((my) => {
+      totals.curr[my]       = rows.reduce((s, r) => s + (r.curr[my] || 0), 0)
+      totals.prev[my]       = rows.reduce((s, r) => s + (r.prev[my] || 0), 0)
+      // only real fleets carry a truck count — the three fallback buckets have none
+      totals.trucks[my]     = rows.filter((r) => r.isFleet).reduce((s, r) => s + (r.trucks[my] || 0), 0)
+      totals.trucksPrev[my] = rows.filter((r) => r.isFleet).reduce((s, r) => s + (r.trucksPrev[my] || 0), 0)
+    })
+    totals.currTotal = rows.reduce((s, r) => s + r.currTotal, 0)
+    totals.prevTotal = rows.reduce((s, r) => s + r.prevTotal, 0)
+
+    return { rows, totals }
+  }, [fdCurr, fdPrev, bdCurr, bdPrev, months])
+
+  const [pivotMetric, setPivotMetric] = useState<"total" | "perTruck">("total")
+
+  // null renders as "—" (no truck count), never 0 and never NaN.
+  const pivotCell = (
+    cost: number,
+    trucks: number,
+    isFleet: boolean,
+  ): number | null => {
+    if (pivotMetric === "total") return cost
+    return isFleet && trucks > 0 ? cost / trucks : null
+  }
+
+  // Range total for the รวม column. In per-truck mode the month cells are
+  // ฿/คัน, so the total is cost ÷ total truck-months — the same unit averaged
+  // over the range, not a sum of per-truck figures (which would be meaningless).
+  const pivotRowTotal = (
+    cost: number,
+    trucksByMonth: Record<string, number>,
+    isFleet: boolean,
+  ): number | null => {
+    if (pivotMetric === "total") return cost
+    if (!isFleet) return null
+    const truckMonths = months.reduce((s, my) => s + (trucksByMonth[my] || 0), 0)
+    return truckMonths > 0 ? cost / truckMonths : null
+  }
+
+  const hasPivot = fleetPivot.rows.length > 0
+
   const periodLabel = `${MONTH_LABEL[startMonth.split("-")[1]]} – ${MONTH_LABEL[endMonth.split("-")[1]]} ${year}`
   const toggleSet = (set: Set<string>, setter: (s: Set<string>) => void, v: string) => {
     const next = new Set(set)
@@ -1431,6 +1542,157 @@ export default function CostReportPage() {
             </section>
           )}
 
+          {/* ══ SLIDE: ต้นทุนรายฟลีท × เดือน ═══════════════════════════════════ */}
+          {hasPivot && (
+            <section ref={setSlideRef("fleetPivot")} className="slide rounded-2xl bg-white p-8 shadow-sm print:rounded-none print:shadow-none">
+              <div className="mb-4 flex items-start justify-between border-b pb-4">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-widest text-indigo-600">Fleet × Month</p>
+                  <h2 className="mt-1 text-2xl font-bold text-gray-900">ต้นทุนรายฟลีท แยกตามเดือน</h2>
+                  <p className="mt-0.5 text-sm text-gray-400">
+                    {periodLabel} เทียบกับ {prevYear} · ค่าใช้จ่ายรถสำนักงานถูกเฉลี่ยเข้าแต่ละฟลีทตามจำนวนรถแล้ว
+                  </p>
+                </div>
+                <div className="flex flex-col items-end gap-1.5">
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs text-gray-300">Slide {2 + (hasBd ? 1 : 0) + (hasWs ? 1 : 0)} — Fleet × Month</p>
+                    <PngButton slideKey="fleetPivot" name={`mm-report-${2 + (hasBd ? 1 : 0) + (hasWs ? 1 : 0)}-fleet-pivot-${year}`} />
+                  </div>
+                  <FilterTags />
+                </div>
+              </div>
+
+              {/* metric toggle */}
+              <div className="mb-3 flex items-center gap-1.5">
+                {([["total", "ต้นทุนรวม"], ["perTruck", "ต้นทุนต่อคัน"]] as const).map(([m, label]) => (
+                  <button key={m} onClick={() => setPivotMetric(m)}
+                    className={`rounded-full border px-3 py-1 text-[11px] font-semibold transition ${
+                      pivotMetric === m
+                        ? "border-indigo-500 bg-indigo-500 text-white"
+                        : "border-gray-200 bg-white text-gray-500 hover:bg-gray-50"
+                    }`}>
+                    {label}
+                  </button>
+                ))}
+                <span className="ml-2 text-[11px] text-gray-400">
+                  {pivotMetric === "perTruck" ? "หารด้วยจำนวนรถของฟลีทในเดือนนั้น · กลุ่มที่ไม่มีจำนวนรถแสดง —" : "บาท"}
+                </span>
+              </div>
+
+              {/* a 12-month range is wider than the slide — scroll the table, not the page */}
+              <div className="overflow-x-auto rounded-xl border">
+                <table className="w-full border-separate border-spacing-0 text-xs">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="sticky left-0 min-w-[150px] border-b border-r bg-gray-50 px-3 py-2 text-left font-semibold uppercase tracking-wide text-gray-500">Fleet</th>
+                      <th className="border-b border-r px-2 py-2 text-center font-semibold uppercase tracking-wide text-gray-500">ปี</th>
+                      {months.map((my) => (
+                        <th key={my} className="min-w-[62px] border-b px-2 py-2 text-right font-semibold text-gray-400">
+                          {MONTH_LABEL[my.split("-")[1]] ?? my}
+                        </th>
+                      ))}
+                      <th className="min-w-[72px] border-b border-l px-2 py-2 text-right font-semibold uppercase tracking-wide text-gray-500">รวม</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {fleetPivot.rows.map((r, idx) => {
+                      const prevRow = fleetPivot.rows[idx - 1]
+                      // divider where the fleet rows end and the fallback buckets begin
+                      const startsBuckets = !r.isFleet && (!prevRow || prevRow.isFleet)
+                      const muted = r.isFleet ? "" : "text-gray-400"
+                      const cell = (v: number | null, extra: string) =>
+                        v === null
+                          ? <span className="text-gray-300">—</span>
+                          : <span className={extra}>{v > 0 ? fmtNum(v) : "—"}</span>
+                      return (
+                        <React.Fragment key={r.key}>
+                          <tr className={startsBuckets ? "border-t-4 border-t-gray-300" : undefined}>
+                            <td rowSpan={2}
+                              className={`sticky left-0 border-b-2 border-r bg-white px-3 align-middle ${startsBuckets ? "border-t-4 border-t-gray-300" : ""}`}>
+                              <div className="flex items-center gap-2">
+                                {r.isFleet && (
+                                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: r.color }} />
+                                )}
+                                <span className={`text-[12px] ${r.isFleet ? "font-bold text-gray-800" : "font-medium text-gray-400"}`}>
+                                  {r.label}
+                                </span>
+                              </div>
+                            </td>
+                            <td className={`border-r px-2 py-1.5 text-center ${startsBuckets ? "border-t-4 border-t-gray-300" : ""}`}>
+                              <span className="inline-block rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-600">{year + 543}</span>
+                            </td>
+                            {months.map((my) => (
+                              <td key={my} className={`px-2 py-1.5 text-right tabular-nums ${startsBuckets ? "border-t-4 border-t-gray-300" : ""} ${muted || "text-gray-800"}`}>
+                                {cell(pivotCell(r.curr[my] || 0, r.trucks[my] || 0, r.isFleet), "font-semibold")}
+                              </td>
+                            ))}
+                            <td className={`border-l px-2 py-1.5 text-right tabular-nums ${startsBuckets ? "border-t-4 border-t-gray-300" : ""} ${muted || "text-gray-900"}`}>
+                              {cell(pivotRowTotal(r.currTotal, r.trucks, r.isFleet), "font-bold")}
+                            </td>
+                          </tr>
+                          <tr className="border-b-2">
+                            <td className="border-b-2 border-r px-2 py-1.5 text-center">
+                              <span className="inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">{prevYear + 543}</span>
+                            </td>
+                            {months.map((my) => (
+                              <td key={my} className="border-b-2 px-2 py-1.5 text-right tabular-nums text-gray-400">
+                                {cell(pivotCell(r.prev[my] || 0, r.trucksPrev[my] || 0, r.isFleet), "")}
+                              </td>
+                            ))}
+                            <td className="border-b-2 border-l px-2 py-1.5 text-right tabular-nums text-gray-500">
+                              {cell(pivotRowTotal(r.prevTotal, r.trucksPrev, r.isFleet), "font-semibold")}
+                            </td>
+                          </tr>
+                        </React.Fragment>
+                      )
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-gray-50">
+                      <td rowSpan={2} className="sticky left-0 border-r border-t-2 bg-gray-50 px-3 align-middle text-[12px] font-bold text-gray-900">รวม</td>
+                      <td className="border-r border-t-2 px-2 py-1.5 text-center">
+                        <span className="inline-block rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-600">{year + 543}</span>
+                      </td>
+                      {months.map((my) => (
+                        <td key={my} className="border-t-2 px-2 py-1.5 text-right font-bold tabular-nums text-gray-900">
+                          {(() => {
+                            const v = pivotCell(fleetPivot.totals.curr[my] || 0, fleetPivot.totals.trucks[my] || 0, true)
+                            return v === null || v <= 0 ? <span className="text-gray-300">—</span> : fmtNum(v)
+                          })()}
+                        </td>
+                      ))}
+                      <td className="border-l border-t-2 px-2 py-1.5 text-right font-bold tabular-nums text-gray-900">
+                        {(() => {
+                          const v = pivotRowTotal(fleetPivot.totals.currTotal, fleetPivot.totals.trucks, true)
+                          return v === null || v <= 0 ? <span className="text-gray-300">—</span> : fmtNum(v)
+                        })()}
+                      </td>
+                    </tr>
+                    <tr className="bg-gray-50">
+                      <td className="border-r px-2 py-1.5 text-center">
+                        <span className="inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">{prevYear + 543}</span>
+                      </td>
+                      {months.map((my) => (
+                        <td key={my} className="px-2 py-1.5 text-right font-semibold tabular-nums text-gray-500">
+                          {(() => {
+                            const v = pivotCell(fleetPivot.totals.prev[my] || 0, fleetPivot.totals.trucksPrev[my] || 0, true)
+                            return v === null || v <= 0 ? <span className="text-gray-300">—</span> : fmtNum(v)
+                          })()}
+                        </td>
+                      ))}
+                      <td className="border-l px-2 py-1.5 text-right font-semibold tabular-nums text-gray-500">
+                        {(() => {
+                          const v = pivotRowTotal(fleetPivot.totals.prevTotal, fleetPivot.totals.trucksPrev, true)
+                          return v === null || v <= 0 ? <span className="text-gray-300">—</span> : fmtNum(v)
+                        })()}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </section>
+          )}
+
           {/* ══ SLIDES 3+: one per cost group ═════════════════════════════════ */}
           {groupAggs.map((g, idx) => {
             const det = detailByGroup.get(g.group)
@@ -1460,10 +1722,10 @@ export default function CostReportPage() {
                   </div>
                   <div className="flex flex-col items-end gap-1.5">
                     <div className="flex items-center gap-2">
-                      <p className="text-xs text-gray-300">Slide {idx + 2 + (hasBd ? 1 : 0) + (hasWs ? 1 : 0)}</p>
+                      <p className="text-xs text-gray-300">Slide {idx + 2 + (hasBd ? 1 : 0) + (hasWs ? 1 : 0) + (hasPivot ? 1 : 0)}</p>
                       <PngButton
                         slideKey={`cg-${g.group}`}
-                        name={`mm-report-${idx + 2 + (hasBd ? 1 : 0) + (hasWs ? 1 : 0)}-${g.group.split(" - ")[0].replace(/\s+/g, "").toLowerCase()}-${year}`}
+                        name={`mm-report-${idx + 2 + (hasBd ? 1 : 0) + (hasWs ? 1 : 0) + (hasPivot ? 1 : 0)}-${g.group.split(" - ")[0].replace(/\s+/g, "").toLowerCase()}-${year}`}
                       />
                     </div>
                     <FilterTags />
