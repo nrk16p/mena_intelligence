@@ -360,6 +360,34 @@ export default function CostReportPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const fdPrev = useMemo(() => fleetFilter(taggedPrev), [taggedPrev, selectedFleets])
 
+  // /api/cost/counts returns one unfiltered aggregate ({_id: null}) and cannot be
+  // fleet-filtered, so the KPI counts are recomputed from the fleet-filtered rows.
+  const countsFrom = (rows: TaggedPlateRow[]): CountsResult => {
+    const wd = new Set<string>(), plates = new Set<string>(), products = new Set<string>()
+    let total = 0, records = 0
+    rows.forEach((r) => {
+      if (r.wd) wd.add(String(r.wd))
+      if (r.plate) plates.add(String(r.plate))
+      total += r.plate_total
+      r.lines?.forEach((ln) => {
+        if (ln.รหัสสินค้า) products.add(String(ln.รหัสสินค้า))
+        records += ln.records ?? 0
+      })
+    })
+    return {
+      wd_count:      wd.size,
+      plate_count:   plates.size,
+      product_count: products.size,
+      total_cost:    total,
+      record_count:  records,
+    }
+  }
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const countsCurrLocal = useMemo(() => countsFrom(fdCurr), [fdCurr])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const countsPrevLocal = useMemo(() => countsFrom(fdPrev), [fdPrev])
+
   const months = useMemo(() => getMonthsInRange(startMonth, endMonth), [startMonth, endMonth])
 
   // ── Overview aggregates ─────────────────────────────────────────────────────
@@ -910,10 +938,10 @@ export default function CostReportPage() {
               </div>
               <div className="rounded-2xl border px-5 py-4">
                 <p className="text-xs text-gray-400">Fleet ({year})</p>
-                <p className="mt-1 text-3xl font-bold text-gray-900">{counts?.plate_count ?? "—"}</p>
+                <p className="mt-1 text-3xl font-bold text-gray-900">{countsCurrLocal.plate_count}</p>
                 <p className="mt-0.5 text-xs text-gray-400">
-                  คัน{counts && counts.plate_count > 0 ? ` · เฉลี่ย ฿${fmtNum(totalCurr / counts.plate_count)}/คัน` : ""}
-                  {countsPrev && countsPrev.plate_count > 0 ? ` (${prevYear}: ฿${fmtNum(totalPrev / countsPrev.plate_count)})` : ""}
+                  คัน{countsCurrLocal.plate_count > 0 ? ` · เฉลี่ย ฿${fmtNum(totalCurr / countsCurrLocal.plate_count)}/คัน` : ""}
+                  {countsPrevLocal.plate_count > 0 ? ` (${prevYear}: ฿${fmtNum(totalPrev / countsPrevLocal.plate_count)})` : ""}
                 </p>
                 <p className="mt-1.5 border-t pt-1.5 text-[9px] leading-snug text-gray-400">
                   นับเฉพาะรถที่มีค่าซ่อม/เบิกอะไหล่ในช่วงที่เลือก · เฉลี่ย/คัน = ค่าใช้จ่ายรวม ÷ จำนวนคัน
