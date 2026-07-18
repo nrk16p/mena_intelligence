@@ -67,10 +67,13 @@ type BDRow = {
   breakdown_count: number
 }
 
-// Selectable fleet pills. BUCKET_OFFICE is deliberately absent — office cost is
-// split across the real fleets during tagging (see allocateOfficeRows), so by
-// the time any view sees a row there is no office bucket left to select.
-const FLEET_PILLS = [...FLEET_ORDER, BUCKET_PARTNER, BUCKET_NEW, BUCKET_UNKNOWN]
+// Selectable fleet pills. BUCKET_OFFICE is normally empty — office cost is split
+// across the real fleets during tagging (see allocateOfficeRows) — but it is
+// listed anyway as a safety net: if a month yields no allocation denominator at
+// all, the row stays in BUCKET_OFFICE and must remain selectable, or "All" would
+// filter out cost that "Clear" includes. "All" and "Clear" must always total the
+// same, so every bucket a row can hold needs a pill here.
+const FLEET_PILLS = [...FLEET_ORDER, BUCKET_PARTNER, BUCKET_NEW, BUCKET_UNKNOWN, BUCKET_OFFICE]
 
 // ── Cost Group mapping (same as /cost, incl. the เเย็น double-sara-e variant) ──
 
@@ -353,13 +356,34 @@ export default function CostReportPage() {
       bucket[fleet] = (bucket[fleet] ?? 0) + n
     }
 
+    // Fallback denominator: "MM-YY" → { fleet id → non-office cost }. Truck
+    // counts come from MySQL and can be missing for a month the cost side does
+    // have (a year-boundary range used to empty them entirely). Splitting by
+    // each fleet's share of that month's own cost keeps office overhead
+    // distributed instead of stranding it in an unattributed bucket.
+    const costByMonth: Record<string, Record<string, number>> = {}
+    for (const r of rows) {
+      if (!FLEET_ORDER.includes(r.fleet)) continue
+      const v = Number(r.plate_total) || 0
+      if (v <= 0) continue
+      const bucket = (costByMonth[toBdKey(r.month_year)] ??= {})
+      bucket[r.fleet] = (bucket[r.fleet] ?? 0) + v
+    }
+
     const out: TaggedPlateRow[] = []
     for (const r of rows) {
       if (r.fleet !== BUCKET_OFFICE) { out.push(r); continue }
+      const mk = toBdKey(r.month_year)
       // share of 1 = fraction of the month's trucks belonging to each fleet
-      const shares = allocateOffice(1, trucksByMonth[toBdKey(r.month_year)] ?? {})
-      // No truck data for this month — keep the row in BUCKET_OFFICE rather than
-      // drop it. Cost must never vanish, even if it stays unattributed.
+      let shares = allocateOffice(1, trucksByMonth[mk] ?? {})
+      // No truck data this month — fall back to the month's cost split.
+      if (Object.keys(shares).length === 0) {
+        shares = allocateOffice(1, costByMonth[mk] ?? {})
+      }
+      // Neither denominator available (no trucks AND no fleet cost this month) —
+      // keep the row in BUCKET_OFFICE rather than drop it. Cost must never
+      // vanish, even if it stays unattributed; the office pill and pivot row
+      // exist precisely so it stays visible when this happens.
       if (Object.keys(shares).length === 0) { out.push(r); continue }
       for (const [fleet, share] of Object.entries(shares)) {
         out.push({
@@ -740,8 +764,9 @@ export default function CostReportPage() {
   // ── Fleet × Month pivot ─────────────────────────────────────────────────────
   // Aggregation only. Office (รถสำนักงาน) cost has ALREADY been split across the
   // fleet rows by allocateOfficeRows, upstream of fdCurr/fdPrev, so BUCKET_OFFICE
-  // does not appear in the row set and gets no row here. Re-allocating at this
-  // level would double-count.
+  // is normally empty here. Re-allocating at this level would double-count. A
+  // BUCKET_OFFICE row is still built (and dropped when zero) so that any cost
+  // allocateOfficeRows could not distribute still lands in the รวม.
   type PivotRow = {
     key: string; label: string; color: string; isFleet: boolean
     curr: Record<string, number>; prev: Record<string, number>
@@ -797,7 +822,12 @@ export default function CostReportPage() {
       mk(BUCKET_PARTNER, false),
       mk(BUCKET_NEW, false),
       mk(BUCKET_UNKNOWN, false),
-    ].filter((r) => r.currTotal > 0 || r.prevTotal > 0)
+      // Normally allocated away to zero and dropped by the filter below. It is
+      // listed so that office cost which could not be allocated (no truck count
+      // AND no fleet cost that month) still reaches the รวม row instead of
+      // silently undercounting the KPI total.
+      mk(BUCKET_OFFICE, false),
+    ].filter((r) => r.currTotal !== 0 || r.prevTotal !== 0)
 
     const totals = {
       curr: {} as Record<string, number>,
@@ -1543,7 +1573,10 @@ export default function CostReportPage() {
                       const cell = (v: number | null, extra: string) =>
                         v === null
                           ? <span className="text-gray-300">—</span>
-                          : <span className={extra}>{v > 0 ? fmtNum(v) : "—"}</span>
+                          // v !== 0, not v > 0: a credit/adjustment makes a month
+                          // negative, and hiding it as "—" while it still counts
+                          // in the รวม makes the row visibly not add up.
+                          : <span className={extra}>{v !== 0 ? fmtNum(v) : "—"}</span>
                       return (
                         <React.Fragment key={r.key}>
                           <tr className={startsBuckets ? "border-t-4 border-t-gray-300" : undefined}>
