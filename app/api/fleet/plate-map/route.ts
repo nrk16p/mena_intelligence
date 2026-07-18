@@ -1,6 +1,7 @@
 import pool from "@/lib/mysql"
 import { NextResponse } from "next/server"
 import { EXCLUDED_PLATES, fleetKey, monthsBetween } from "@/lib/fleets"
+import { buildPlateMapQuery } from "@/lib/plate-map-query"
 import { normPlate } from "@/lib/plate-partner"
 import { getPlateFlagMap } from "@/lib/plate-partner-server"
 
@@ -38,17 +39,8 @@ export async function GET(req: Request) {
     if (hit && Date.now() - hit.at < TTL) {
       data = hit.data
     } else {
-      const excludedPlaceholders = EXCLUDED_PLATES.map(() => "?").join(",")
-      const monthPlaceholders = months.map(() => "?").join(",")
-      const sql = `
-        SELECT DISTINCT REPLACE(license_plate, ' ', '') AS plate, month_year, fleet_group_id
-          FROM performance_vehicle_daily
-         WHERE license_plate NOT LIKE '%(%'
-           AND license_plate NOT IN (${excludedPlaceholders})
-           AND month_year IN (${monthPlaceholders})
-           AND fleet_group_id IS NOT NULL
-      `
-      const [rows] = await pool.query<any[]>(sql, [...EXCLUDED_PLATES, ...months])
+      const { sql, params } = buildPlateMapQuery(months, EXCLUDED_PLATES)
+      const [rows] = await pool.query<any[]>(sql, params)
 
       data = {}
       for (const r of rows as any[]) {
