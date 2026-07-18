@@ -21,8 +21,6 @@ import {
 // normPlate lives in lib/plate-partner (dependency-free). Never import
 // lib/plate-partner-server here — it pulls in Mongo and breaks the client build.
 import { normPlate } from "@/lib/plate-partner"
-import * as XLSX from "xlsx"
-import { saveAs } from "file-saver"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -212,6 +210,9 @@ export default function CostReportPage() {
   const [flagMapCurr, setFlagMapCurr]   = useState<Record<string, string>>({})
   const [flagMapPrev, setFlagMapPrev]   = useState<Record<string, string>>({})
   const [selectedFleets, setSelectedFleets] = useState<Set<string>>(new Set())
+  // "failed" = the plate-map call errored (retrying may help); "empty" = it
+  // succeeded but MySQL has no operations rows for the range (retrying will not).
+  const [fleetBridgeStatus, setFleetBridgeStatus] = useState<"ok" | "failed" | "empty">("ok")
 
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState<string | null>(null)
@@ -261,10 +262,17 @@ export default function CostReportPage() {
       setDetCurr(j2.success ? j2.data : []); setDetPrev(j3.success ? j3.data : [])
       setBdCurr(j4.success ? j4.data : []); setBdPrev(j5.success ? j5.data : [])
       setFleetMapCurr(j6.success ? j6.data : {}); setFleetMapPrev(j7.success ? j7.data : {})
+      // count comes straight from the route; it is the only way to tell a failed
+      // bridge apart from a range that genuinely has no MySQL operations rows.
+      const bridgeCount = j6.count ?? Object.keys(j6.data ?? {}).length
+      setFleetBridgeStatus(
+        !f1.ok || !j6.success ? "failed" : bridgeCount === 0 ? "empty" : "ok",
+      )
       setFlagMapCurr(j6.success ? (j6.flags ?? {}) : {})
       setFlagMapPrev(j7.success ? (j7.flags ?? {}) : {})
       setHasData(true)
     } catch (e: any) {
+      setFleetBridgeStatus("failed")
       setError(e.message || "Load failed")
     } finally {
       setLoading(false)
@@ -335,7 +343,11 @@ export default function CostReportPage() {
       // cost month_year is "YYYY-MM"; the bridge is keyed "MM-YY" — passing the
       // raw value here silently misses 100% of plates.
       const f = fleetMap[fleetKey(r.plate, toBdKey(r.month_year))]
-      if (f) return { ...r, fleet: f }
+      // Only ids the UI can actually render are accepted. An unrecognised id
+      // (e.g. a 9th fleet added to performance_vehicle_daily) has no pill and no
+      // pivot row, so totalCurr would count it while the pivot รวม would not.
+      // Fall through to the partner_flag bucket instead.
+      if (f && FLEET_ORDER.includes(f)) return { ...r, fleet: f }
       const np = normPlate(r.plate)
       const flag = flags[fleetKey(r.plate, toBdKey(r.month_year))] ?? anyFlagForPlate[np] ?? ""
       const bucket =
@@ -932,7 +944,12 @@ export default function CostReportPage() {
   //
   // Cell styling is deliberately absent: the community build of xlsx@0.18.5
   // supports only "!cols" — no bold headers, number formats or merges.
-  const exportExcel = () => {
+  const exportExcel = async () => {
+    // xlsx (~276 KB) and file-saver are pulled in on demand, not at page load —
+    // same pattern as the html-to-image import in savePng below.
+    const XLSX = await import("xlsx")
+    const { saveAs } = await import("file-saver")
+
     const num = (n: number) => +(Number(n) || 0).toFixed(2)
     const yBE = year + 543, pBE = prevYear + 543
     const pctStr = (curr: number, prev: number) => {
@@ -1156,7 +1173,9 @@ export default function CostReportPage() {
     if (!hasFilters) return null
     return (
       <div className="flex max-w-[260px] flex-wrap justify-end gap-1">
-        {[...selectedFleets].map((g) => (
+        {/* a full selection shows the same data as an empty one, so it is not a
+            filter — rendering 12 chips for it just crowds the box. */}
+        {selectedFleets.size < FLEET_PILLS.length && [...selectedFleets].map((g) => (
           <span key={g} className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">{fleetLabel(g)}</span>
         ))}
         {[...selectedWh].map((w) => (
@@ -1262,7 +1281,9 @@ export default function CostReportPage() {
                     : "bg-white text-gray-500 hover:bg-gray-50"
                 }`}
                 style={on && color ? { backgroundColor: color, borderColor: color } : {}}>
-                {fleetLabel(g)}
+                {/* disambiguated from the Partner Flag "ไม่ระบุ" chip a row above.
+                    The label is overridden here only — BUCKET_LABELS is shared. */}
+                {g === BUCKET_UNKNOWN ? "ไม่ระบุฟลีท" : fleetLabel(g)}
               </button>
             )
           })}
@@ -1275,8 +1296,17 @@ export default function CostReportPage() {
 
       {fleetBridgeDown && (
         <div className="mx-auto mb-4 max-w-[1400px] rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-          ไม่สามารถโหลดข้อมูลจับคู่ทะเบียน–ฟลีท (plate-map) ได้ — ยอดรวมยังถูกต้อง
-          แต่ทุกคันจะถูกจัดอยู่ในกลุ่ม “ไม่ระบุ” และการกรองตามฟลีทจะใช้งานไม่ได้ กรุณากด Generate ใหม่อีกครั้ง
+          {fleetBridgeStatus === "empty" ? (
+            <>
+              ไม่พบข้อมูลจับคู่ทะเบียน–ฟลีท (plate-map) ในช่วงเดือนที่เลือก — ยอดรวมยังถูกต้อง
+              แต่ทุกคันจะถูกจัดอยู่ในกลุ่ม “ไม่ระบุฟลีท” และการกรองตามฟลีทจะใช้งานไม่ได้ กรุณาเลือกช่วงเดือนอื่น
+            </>
+          ) : (
+            <>
+              ไม่สามารถโหลดข้อมูลจับคู่ทะเบียน–ฟลีท (plate-map) ได้ — ยอดรวมยังถูกต้อง
+              แต่ทุกคันจะถูกจัดอยู่ในกลุ่ม “ไม่ระบุฟลีท” และการกรองตามฟลีทจะใช้งานไม่ได้ กรุณากด Generate ใหม่อีกครั้ง
+            </>
+          )}
         </div>
       )}
 
