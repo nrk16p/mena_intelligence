@@ -1,0 +1,74 @@
+import pool from "@/lib/mysql"
+import { NextResponse } from "next/server"
+import { EXCLUDED_PLATES, fleetKey } from "@/lib/fleets"
+import { normPlate } from "@/lib/plate-partner"
+import { getPlateFlagMap } from "@/lib/plate-partner-server"
+
+// plate+month → fleet_group_id, cached in-process for 10 min per range.
+// Month-aware on purpose: a truck that moves ML→TDM mid-year keeps its earlier
+// cost credited to ML.
+const TTL = 10 * 60 * 1000
+const cache = new Map<string, { at: number; data: Record<string, string> }>()
+
+export async function GET(req: Request) {
+  try {
+    const { searchParams } = new URL(req.url)
+    const start = searchParams.get("start")
+    const end   = searchParams.get("end")
+
+    if (!start || !end) {
+      return NextResponse.json(
+        { success: false, error: "start and end are required (MM-YY)" },
+        { status: 400 },
+      )
+    }
+
+    const ck = `${start}..${end}`
+    const hit = cache.get(ck)
+    let data: Record<string, string>
+
+    if (hit && Date.now() - hit.at < TTL) {
+      data = hit.data
+    } else {
+      const placeholders = EXCLUDED_PLATES.map(() => "?").join(",")
+      const sql = `
+        SELECT DISTINCT REPLACE(license_plate, ' ', '') AS plate, month_year, fleet_group_id
+          FROM performance_vehicle_daily
+         WHERE license_plate NOT LIKE '%(%'
+           AND license_plate NOT IN (${placeholders})
+           AND month_year >= ? AND month_year <= ?
+           AND fleet_group_id IS NOT NULL
+      `
+      const [rows] = await pool.query<any[]>(sql, [...EXCLUDED_PLATES, start, end])
+
+      data = {}
+      for (const r of rows as any[]) {
+        data[fleetKey(r.plate, r.month_year)] = String(r.fleet_group_id)
+      }
+
+      cache.set(ck, { at: Date.now(), data })
+    }
+
+    // Per-plate partner_flag so the client can bucket plates that have no
+    // fleet match. Reuses the existing Mongo-backed lookup — no new
+    // aggregation pipeline. Must not fail the whole request if Mongo errors.
+    let flags: Record<string, string> = {}
+    try {
+      const flagMap = await getPlateFlagMap()
+      flags = Object.fromEntries(
+        [...flagMap.entries()].map(([plate, flag]) => [normPlate(plate), flag]),
+      )
+    } catch (flagError) {
+      console.error("fleet/plate-map flag lookup error:", flagError)
+      flags = {}
+    }
+
+    return NextResponse.json({ success: true, count: Object.keys(data).length, data, flags })
+  } catch (error: any) {
+    console.error("fleet/plate-map API error:", error)
+    return NextResponse.json(
+      { success: false, error: error.message || "Internal Server Error" },
+      { status: 500 },
+    )
+  }
+}
