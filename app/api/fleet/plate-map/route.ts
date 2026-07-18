@@ -7,6 +7,10 @@ import { getPlateFlagMapByMonth } from "@/lib/plate-partner-server"
 // plate+month → fleet_group_id, cached in-process for 10 min per range.
 // Month-aware on purpose: a truck that moves ML→TDM mid-year keeps its earlier
 // cost credited to ML.
+// A MySQL query plus a Mongo aggregation in sequence; the platform default is
+// too tight for a wide month range. cf. api/truck-utilize/export (120).
+export const maxDuration = 60
+
 const TTL = 10 * 60 * 1000
 const cache = new Map<string, { at: number; data: Record<string, string> }>()
 
@@ -62,7 +66,13 @@ export async function GET(req: Request) {
       flags = {}
     }
 
-    return NextResponse.json({ success: true, count: Object.keys(data).length, data, flags })
+    // The in-process Map above only helps within one warm lambda instance. The
+    // edge cache is what actually spares MySQL/Mongo on repeat requests.
+    // Success only — errors and 400s must never be cached.
+    return NextResponse.json(
+      { success: true, count: Object.keys(data).length, data, flags },
+      { headers: { "Cache-Control": "s-maxage=600, stale-while-revalidate=1800" } },
+    )
   } catch (error: any) {
     console.error("fleet/plate-map API error:", error)
     return NextResponse.json(
