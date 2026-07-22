@@ -69,6 +69,7 @@ export default function StockOnhandKpiPage() {
   const [rawGroup, setRawGroup] = useState<string>("all")
   const [bd, setBd] = useState<BdData | null>(null)
   const [items, setItems] = useState<ItemData | null>(null)
+  const [itemsErr, setItemsErr] = useState(false)
   const [selected, setSelected] = useState<Set<string> | null>(null)
 
   useEffect(() => {
@@ -93,8 +94,8 @@ export default function StockOnhandKpiPage() {
       .catch(() => {})
     fetch("/api/stock-onhand-kpi/items")
       .then((r) => r.json())
-      .then((d: ItemData) => { if (d.success) setItems(d) })
-      .catch(() => {})
+      .then((d: ItemData) => { if (d.success) setItems(d); else setItemsErr(true) })
+      .catch(() => setItemsErr(true))
   }, [])
 
   const allGroups = useMemo(() => {
@@ -247,7 +248,18 @@ export default function StockOnhandKpiPage() {
       {bd && year != null && <BreakdownSection bd={bd} year={year} selected={sel} />}
 
       {/* Breakdown by product code (item) */}
-      {items && year != null && <ItemBreakdownSection data={items} year={year} selected={sel} />}
+      {year != null && (
+        items ? (
+          <ItemBreakdownSection data={items} year={year} selected={sel} />
+        ) : itemsErr ? null : (
+          <div style={{ marginTop: 28 }}>
+            <h2 style={{ fontFamily: "'Red Hat Display', sans-serif", fontWeight: 800, fontSize: 19, color: PV.ink, margin: "0 0 8px" }}>รายละเอียดตามรหัสสินค้า (คงเหลือ)</h2>
+            <div style={{ padding: 18, background: PV.surface, border: `1px solid ${PV.border}`, borderRadius: 14, color: PV.sub, fontSize: 13 }}>
+              ⏳ กำลังโหลดรายละเอียดตามรหัสสินค้า… (ข้อมูลเยอะ อาจใช้เวลา ~10 วินาที)
+            </div>
+          </div>
+        )
+      )}
 
       {/* Raw data download */}
       <div style={{ marginTop: 24, background: PV.surface, border: `1px solid ${PV.border}`, borderRadius: 14, padding: 18 }}>
@@ -479,15 +491,20 @@ function BreakdownSection({ bd, year, selected }: { bd: BdData; year: number; se
 
 function ItemBreakdownSection({ data, year, selected }: { data: ItemData; year: number; selected: Set<string> }) {
   const [cKey, setCKey] = useState<string>(data.groups[0]?.key ?? "")
+  const [gFilter, setGFilter] = useState<string>("")
   const group = data.groups.find((g) => g.key === cKey) ?? data.groups[0]
   const months = useMemo(() => group.months.filter((m) => Number(m.slice(0, 4)) === year), [group, year])
+  const groupOptions = useMemo(
+    () => [...new Set(group.items.filter((it) => selected.has(it.group)).map((it) => it.group))].sort(),
+    [group, selected]
+  )
 
   const { rows, totals, totalsMom, allFiltered } = useMemo(() => {
     const fullMonths = group.months
     const prevOf = (ym: string) => { const i = fullMonths.indexOf(ym); return i > 0 ? fullMonths[i - 1] : null }
     const mom = (cur: number, prev: number | null): number | null => (prev == null || prev === 0 ? null : ((cur - prev) / Math.abs(prev)) * 100)
     const val = (it: ItemGroup["items"][number], ym: string) => it.cells[ym] ?? 0
-    const filtered = group.items.filter((it) => selected.has(it.group))
+    const filtered = group.items.filter((it) => selected.has(it.group) && (!gFilter || it.group === gFilter))
     const lastYm = months[months.length - 1]
     const ranked = filtered
       .map((it) => ({ it, score: months.reduce((s, ym) => s + Math.abs(val(it, ym)), 0), last: lastYm ? val(it, lastYm) : 0 }))
@@ -512,7 +529,7 @@ function ItemBreakdownSection({ data, year, selected }: { data: ItemData; year: 
     const totals: Record<string, number> = Object.fromEntries(months.map((ym) => [ym, totalAt(ym)]))
     const totalsMom: Record<string, number | null> = Object.fromEntries(months.map((ym) => { const p = prevOf(ym); return [ym, p ? mom(totalAt(ym), totalAt(p)) : null] }))
     return { rows, totals, totalsMom, allFiltered: ranked.map((x) => x.it) }
-  }, [group, months, selected])
+  }, [group, months, selected, gFilter])
 
   const exportItems = () => {
     const header = ["รหัสสินค้า", "ชื่อสินค้า", "กลุ่ม", ...months.map((ym) => `${TH_MONTHS[monthIdx(ym)]} คงเหลือ`)]
@@ -539,7 +556,15 @@ function ItemBreakdownSection({ data, year, selected }: { data: ItemData; year: 
           <div style={{ fontSize: 13, color: PV.sub, marginTop: 2 }}>ปี {year} · Top {TOP_ITEMS} รหัสตามคงเหลือ + &quot;อื่นๆ&quot; · บาท + % + MoM · โหลด Excel ได้ครบทุกรหัส</div>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          {data.groups.map((g) => <button key={g.key} onClick={() => setCKey(g.key)} style={pillStyle(g.key === cKey)}>{g.key}</button>)}
+          {data.groups.map((g) => <button key={g.key} onClick={() => { setCKey(g.key); setGFilter("") }} style={pillStyle(g.key === cKey)}>{g.key}</button>)}
+          <select
+            value={gFilter}
+            onChange={(e) => setGFilter(e.target.value)}
+            style={{ padding: "6px 10px", borderRadius: 8, border: `1px solid ${gFilter ? PV.blue : PV.border}`, background: gFilter ? "#EFF6FF" : "#fff", fontSize: 13, fontWeight: 600, color: PV.ink, maxWidth: 200 }}
+          >
+            <option value="">ทุกกลุ่มสินค้า</option>
+            {groupOptions.map((g) => <option key={g} value={g}>{g}</option>)}
+          </select>
           <span style={{ width: 1, height: 22, background: PV.border, margin: "0 2px" }} />
           <button onClick={exportItems} style={{ ...pillStyle(false), background: "#16A34A", color: "#fff", border: "none" }}>⬇ Excel (ครบ)</button>
         </div>
