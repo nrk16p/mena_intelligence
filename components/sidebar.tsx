@@ -157,6 +157,8 @@ const NAV_GROUPS: NavGroup[] = [
     activeBorder: "border-violet-500",
     items: [
       { href: "/procurement-search",      label: "Search",          icon: Search },
+      { href: "/stock-onhand-kpi",        label: "KPI สต็อคคงเหลือ", icon: Warehouse },
+      { href: "/deadstock-kpi",           label: "KPI Dead Stock",  icon: Warehouse },
       { href: "/stock-budget-ladkrabang", label: "Stock Budget",    icon: PackageSearch },
       { href: "/price-benchmark",         label: "Price Benchmark", icon: TrendingUp },
       { href: "/supplier-analysis",       label: "Suppliers",       icon: Users },
