@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import * as XLSX from "xlsx"
 import { saveAs } from "file-saver"
 import { GroupFilter } from "@/components/kpi-group-filter"
+import { defaultKeptGroups } from "@/lib/kpi-excluded-groups"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // KPI: มูลค่าสินค้าคงคลัง >12 เดือน (Dead Stock) — ไม่เกิน 2% ของยอดควบคุม
@@ -64,7 +65,7 @@ export default function DeadstockKpiPage() {
         setBd(d)
         const all = new Set<string>()
         for (const c of d.centers) for (const p of c.productGroups) all.add(p.name)
-        setSelected(all)
+        setSelected(new Set(defaultKeptGroups([...all]))) // default = เฉพาะอะไหล่ (ตัด 26 กลุ่ม)
       })
       .catch(() => {})
   }, [])
@@ -179,7 +180,7 @@ export default function DeadstockKpiPage() {
         {data.years.map((y) => (
           <button key={y} onClick={() => setYear(y)} style={{ padding: "6px 16px", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer", border: `1px solid ${y === year ? PV.blue : PV.border}`, background: y === year ? PV.blue : PV.surface, color: y === year ? "#fff" : PV.ink }}>{y}</button>
         ))}
-        {bd && <span style={{ marginLeft: "auto" }}><GroupFilter allGroups={allGroups} selected={sel} onChange={setSelected} /></span>}
+        {bd && <span style={{ marginLeft: "auto" }}><GroupFilter allGroups={allGroups} selected={sel} onChange={setSelected} defaultGroups={defaultKeptGroups(allGroups)} /></span>}
         <button onClick={exportExcel} style={{ marginLeft: bd ? 0 : "auto", padding: "6px 16px", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer", border: "none", background: "#16A34A", color: "#fff" }}>⬇ Export Excel</button>
       </div>
 

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import * as XLSX from "xlsx"
 import { saveAs } from "file-saver"
 import { GroupFilter } from "@/components/kpi-group-filter"
+import { defaultKeptGroups } from "@/lib/kpi-excluded-groups"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // KPI ควบคุมสต็อคคงเหลือ (Stock On-hand) — ศลบ. / สสบ.
@@ -82,7 +83,7 @@ export default function StockOnhandKpiPage() {
         setBd(d)
         const all = new Set<string>()
         for (const g of d.groups) for (const p of g.productGroups) all.add(p.name)
-        setSelected(all)
+        setSelected(new Set(defaultKeptGroups([...all]))) // default = เฉพาะอะไหล่ (ตัด 26 กลุ่ม)
       })
       .catch(() => {})
   }, [])
@@ -184,7 +185,7 @@ export default function StockOnhandKpiPage() {
             }}
           >{y}</button>
         ))}
-        {bd && <span style={{ marginLeft: "auto" }}><GroupFilter allGroups={allGroups} selected={sel} onChange={setSelected} /></span>}
+        {bd && <span style={{ marginLeft: "auto" }}><GroupFilter allGroups={allGroups} selected={sel} onChange={setSelected} defaultGroups={defaultKeptGroups(allGroups)} /></span>}
         <button
           onClick={exportExcel}
           style={{
@@ -300,6 +301,18 @@ function GroupRows({ group, yearMonths, rowMap }: { group: Group; yearMonths: st
   )
 }
 
+// บรรทัด MoM (เทียบเดือนก่อน) — ▲ เพิ่ม (แดง) / ▼ ลด (เขียว) เพราะยิ่งน้อยยิ่งดี
+function MomLine({ m }: { m: number | null }) {
+  if (m == null) return <div style={{ fontSize: 10, color: "#CBD5E1" }}>–</div>
+  const up = m > 0.05, down = m < -0.05
+  const color = up ? "#B91C1C" : down ? "#15803D" : "#94A3B8"
+  return (
+    <div style={{ fontSize: 10, fontWeight: 600, color }}>
+      {up ? "▲" : down ? "▼" : "="}{Math.abs(m).toFixed(1)}%
+    </div>
+  )
+}
+
 function pillStyle(active: boolean, activeColor = PV.blue): React.CSSProperties {
   return {
     padding: "6px 14px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer",
@@ -318,8 +331,13 @@ function BreakdownSection({ bd, year, selected }: { bd: BdData; year: number; se
     [group, year]
   )
 
-  const { rows, totals } = useMemo(() => {
+  const { rows, totals, totalsMom } = useMemo(() => {
     const val = (pg: BdGroup["productGroups"][number], ym: string) => pg.cells[ym]?.[metric] ?? 0
+    const fullMonths = group.months // ทุกเดือน 2025+ (ใช้หา prev แม้ ม.ค. ของปีที่เลือก)
+    const prevOf = (ym: string) => { const i = fullMonths.indexOf(ym); return i > 0 ? fullMonths[i - 1] : null }
+    const mom = (cur: number, prev: number | null): number | null =>
+      prev == null || prev === 0 ? null : ((cur - prev) / Math.abs(prev)) * 100
+
     const pgs = group.productGroups.filter((pg) => selected.has(pg.name))
     const ranked = pgs
       .map((pg) => ({ pg, score: months.reduce((s, ym) => s + Math.abs(val(pg, ym)), 0) }))
@@ -327,20 +345,24 @@ function BreakdownSection({ bd, year, selected }: { bd: BdData; year: number; se
       .sort((a, b) => b.score - a.score)
     const top = ranked.slice(0, TOP_N).map((x) => x.pg)
     const rest = ranked.slice(TOP_N).map((x) => x.pg)
+    const sumRest = (ym: string) => rest.reduce((s, pg) => s + val(pg, ym), 0)
 
-    const rows: { name: string; byMonth: Record<string, number> }[] = top.map((pg) => ({
+    type Row = { name: string; byMonth: Record<string, number>; momByMonth: Record<string, number | null> }
+    const rows: Row[] = top.map((pg) => ({
       name: pg.name,
       byMonth: Object.fromEntries(months.map((ym) => [ym, val(pg, ym)])),
+      momByMonth: Object.fromEntries(months.map((ym) => { const p = prevOf(ym); return [ym, p ? mom(val(pg, ym), val(pg, p)) : null] })),
     }))
     if (rest.length)
       rows.push({
         name: `อื่นๆ (${rest.length} กลุ่ม)`,
-        byMonth: Object.fromEntries(months.map((ym) => [ym, rest.reduce((s, pg) => s + val(pg, ym), 0)])),
+        byMonth: Object.fromEntries(months.map((ym) => [ym, sumRest(ym)])),
+        momByMonth: Object.fromEntries(months.map((ym) => { const p = prevOf(ym); return [ym, p ? mom(sumRest(ym), sumRest(p)) : null] })),
       })
-    const totals: Record<string, number> = Object.fromEntries(
-      months.map((ym) => [ym, pgs.reduce((s, pg) => s + val(pg, ym), 0)])
-    )
-    return { rows, totals }
+    const totalAt = (ym: string) => pgs.reduce((s, pg) => s + val(pg, ym), 0)
+    const totals: Record<string, number> = Object.fromEntries(months.map((ym) => [ym, totalAt(ym)]))
+    const totalsMom: Record<string, number | null> = Object.fromEntries(months.map((ym) => { const p = prevOf(ym); return [ym, p ? mom(totalAt(ym), totalAt(p)) : null] }))
+    return { rows, totals, totalsMom }
   }, [group, months, metric, selected])
 
   const metricLabel = BD_METRICS.find((m) => m.key === metric)!.label
@@ -349,11 +371,11 @@ function BreakdownSection({ bd, year, selected }: { bd: BdData; year: number; se
   const exportBd = () => {
     const header = ["กลุ่มสินค้า", ...months.flatMap((ym) => {
       const l = TH_MONTHS[monthIdx(ym)]
-      return [`${l} (บาท)`, `${l} %`]
+      return [`${l} (บาท)`, `${l} %`, `${l} MoM%`]
     })]
     const aoa: (string | number)[][] = [
       [`รายละเอียดตามกลุ่มสินค้า — ${metricLabel} — ${gKey}`],
-      [`ปี ${year} · ตัวเลข (บาท) + สัดส่วน % ต่อเดือน`],
+      [`ปี ${year} · ตัวเลข (บาท) + สัดส่วน % + MoM (เทียบเดือนก่อน) ต่อเดือน`],
       [],
       header,
     ]
@@ -362,15 +384,16 @@ function BreakdownSection({ bd, year, selected }: { bd: BdData; year: number; se
       for (const ym of months) {
         const v = r.byMonth[ym] ?? 0
         const tot = totals[ym] || 0
-        line.push(Math.round(v), Number((tot !== 0 ? (v / tot) * 100 : 0).toFixed(1)))
+        const m = r.momByMonth[ym]
+        line.push(Math.round(v), Number((tot !== 0 ? (v / tot) * 100 : 0).toFixed(1)), m == null ? "" : Number(m.toFixed(1)))
       }
       aoa.push(line)
     }
     const totalLine: (string | number)[] = ["รวม"]
-    for (const ym of months) totalLine.push(Math.round(totals[ym] || 0), 100)
+    for (const ym of months) { const m = totalsMom[ym]; totalLine.push(Math.round(totals[ym] || 0), 100, m == null ? "" : Number(m.toFixed(1))) }
     aoa.push(totalLine)
     const ws = XLSX.utils.aoa_to_sheet(aoa)
-    ws["!cols"] = [{ wch: 26 }, ...months.flatMap(() => [{ wch: 13 }, { wch: 7 }])]
+    ws["!cols"] = [{ wch: 26 }, ...months.flatMap(() => [{ wch: 13 }, { wch: 7 }, { wch: 8 }])]
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, `${gKey} ${metricLabel}`.slice(0, 31))
     const buf = XLSX.write(wb, { bookType: "xlsx", type: "array" })
@@ -385,7 +408,7 @@ function BreakdownSection({ bd, year, selected }: { bd: BdData; year: number; se
           <h2 style={{ fontFamily: "'Red Hat Display', sans-serif", fontWeight: 800, fontSize: 19, color: PV.ink, margin: 0 }}>
             รายละเอียดตามกลุ่มสินค้า — {metricLabel}
           </h2>
-          <div style={{ fontSize: 13, color: PV.sub, marginTop: 2 }}>ปี {year} · ตัวเลข (บาท) + สัดส่วน % ต่อเดือน</div>
+          <div style={{ fontSize: 13, color: PV.sub, marginTop: 2 }}>ปี {year} · บาท + สัดส่วน % + MoM (เทียบเดือนก่อน) ต่อเดือน</div>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
           {bd.groups.map((g) => (
@@ -420,6 +443,7 @@ function BreakdownSection({ bd, year, selected }: { bd: BdData; year: number; se
                     <td key={ym} style={tdBase}>
                       <div style={{ fontWeight: 600, fontFamily: "'Fira Code', monospace", color: v < 0 ? "#B91C1C" : PV.ink }}>{baht(v)}</div>
                       <div style={{ fontSize: 11, color: PV.sub }}>{pct.toFixed(1)}%</div>
+                      <MomLine m={r.momByMonth[ym]} />
                     </td>
                   )
                 })}
@@ -428,7 +452,10 @@ function BreakdownSection({ bd, year, selected }: { bd: BdData; year: number; se
             <tr style={{ background: "#EEF2FF" }}>
               <td style={{ ...labelCell, background: "#EEF2FF", fontWeight: 800, color: "#1E3A8A" }}>รวม</td>
               {months.map((ym) => (
-                <td key={ym} style={{ ...tdBase, fontWeight: 700, fontFamily: "'Fira Code', monospace", color: "#1E3A8A" }}>{baht(totals[ym] || 0)}</td>
+                <td key={ym} style={{ ...tdBase, fontWeight: 700, fontFamily: "'Fira Code', monospace", color: "#1E3A8A" }}>
+                  <div>{baht(totals[ym] || 0)}</div>
+                  <MomLine m={totalsMom[ym]} />
+                </td>
               ))}
             </tr>
           </tbody>

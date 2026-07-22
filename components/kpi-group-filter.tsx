@@ -7,10 +7,12 @@ export function GroupFilter({
   allGroups,
   selected,
   onChange,
+  defaultGroups,
 }: {
   allGroups: string[]
   selected: Set<string>
   onChange: (s: Set<string>) => void
+  defaultGroups?: string[] // ชุดเริ่มต้น (เฉพาะอะไหล่) — ถ้ามี จะโชว์ปุ่มรีเซ็ต
 }) {
   const [open, setOpen] = useState(false)
   const border = "#E5E7EB"
@@ -43,7 +45,10 @@ export function GroupFilter({
               border: `1px solid ${border}`, borderRadius: 12, boxShadow: "0 8px 24px rgba(0,0,0,.12)", padding: 10,
             }}
           >
-            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+            <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+              {defaultGroups && (
+                <button onClick={() => onChange(new Set(defaultGroups))} style={{ ...miniBtn, background: "#EFF6FF", borderColor: "#2563EB", color: "#1D4ED8" }}>เฉพาะอะไหล่</button>
+              )}
               <button onClick={() => onChange(new Set(allGroups))} style={miniBtn}>เลือกทั้งหมด</button>
               <button onClick={() => onChange(new Set())} style={miniBtn}>ล้าง</button>
             </div>
