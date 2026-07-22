@@ -1311,12 +1311,62 @@ function ProductCombobox({ month, value, onChange, onPick }: {
 
 // ── Contract-price upload ─────────────────────────────────────────────────────
 
+function CField({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
+  return (
+    <label style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+      <span style={{ fontFamily: FONT_BODY, fontSize: 11, color: PV.gray }}>{label}</span>
+      <input
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        style={{ fontFamily: FONT_BODY, fontSize: 13, padding: "6px 8px", border: `1px solid ${PV.border}`, borderRadius: 6, outline: "none" }}
+      />
+    </label>
+  )
+}
+
 function ContractUpload({ onUploaded }: { onUploaded?: () => void }) {
   const [open, setOpen]       = useState(false)
   const [busy, setBusy]       = useState(false)
   const [result, setResult]   = useState<{ total_rows: number; accepted: number; upserted: number; modified: number; error_count: number; errors: { row: number; reason: string }[] } | null>(null)
   const [error, setError]     = useState("")
   const fileRef = useRef<HTMLInputElement>(null)
+
+  // ── กรอกทีละรายการ + แนบหลักฐาน ──
+  const [f, setF] = useState({ code: "", name: "", supplier: "", price: "", start: "", end: "", note: "" })
+  const evRef = useRef<HTMLInputElement>(null)
+  const [sBusy, setSBusy] = useState(false)
+  const [sMsg, setSMsg]   = useState<{ ok: boolean; text: string; url?: string } | null>(null)
+  const setField = (k: keyof typeof f, v: string) => setF(prev => ({ ...prev, [k]: v }))
+
+  async function saveSingle() {
+    if (!f.code.trim() || !f.supplier.trim() || !f.price.trim() || !f.start.trim()) {
+      setSMsg({ ok: false, text: "กรอก รหัสสินค้า / ซัพพลายเออร์ / ราคาสัญญา / เริ่ม ให้ครบ" }); return
+    }
+    setSBusy(true); setSMsg(null)
+    try {
+      const fd = new FormData()
+      fd.append("mode", "single")
+      fd.append("รหัสสินค้า", f.code.trim())
+      fd.append("ชื่อสินค้า", f.name.trim())
+      fd.append("ซัพพลายเออร์", f.supplier.trim())
+      fd.append("ราคาสัญญา", f.price.trim())
+      fd.append("เริ่ม", f.start.trim())
+      fd.append("สิ้นสุด", f.end.trim())
+      fd.append("หมายเหตุ", f.note.trim())
+      const file = evRef.current?.files?.[0]
+      if (file) fd.append("evidence", file)
+      const res = await fetch("/api/price-benchmark/contract", { method: "POST", body: fd })
+      const json = await res.json()
+      if (!json.success) throw new Error(json.error || "บันทึกไม่สำเร็จ")
+      setSMsg({ ok: true, text: json.upserted ? "บันทึกใหม่สำเร็จ" : "อัปเดตสำเร็จ", url: json.evidence_url || undefined })
+      setF({ code: "", name: "", supplier: "", price: "", start: "", end: "", note: "" })
+      if (evRef.current) evRef.current.value = ""
+      onUploaded?.()
+    } catch (e: any) {
+      setSMsg({ ok: false, text: e.message || "บันทึกไม่สำเร็จ" })
+    } finally { setSBusy(false) }
+  }
 
   function downloadTemplate() {
     const rows = [
@@ -1370,6 +1420,31 @@ function ContractUpload({ onUploaded }: { onUploaded?: () => void }) {
             <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ fontFamily: FONT_BODY, fontSize: 13 }} />
             <PrimaryButton onClick={upload} disabled={busy}>{busy ? "กำลังอัปโหลด..." : "อัปโหลด"}</PrimaryButton>
             <SecondaryButton onClick={downloadTemplate}>ดาวน์โหลด template</SecondaryButton>
+          </div>
+
+          {/* กรอกทีละรายการ + แนบหลักฐาน */}
+          <div style={{ borderTop: `1px dashed ${PV.border}`, paddingTop: 12 }}>
+            <div style={{ fontFamily: FONT_HEAD, fontSize: 13, fontWeight: 600, color: PV.ink, marginBottom: 8 }}>หรือ กรอกทีละรายการ + แนบหลักฐาน</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 }}>
+              <CField label="รหัสสินค้า *"      value={f.code}     onChange={v => setField("code", v)} />
+              <CField label="ชื่อสินค้า"         value={f.name}     onChange={v => setField("name", v)} />
+              <CField label="ซัพพลายเออร์ *"     value={f.supplier} onChange={v => setField("supplier", v)} />
+              <CField label="ราคาสัญญา *"        value={f.price}    onChange={v => setField("price", v)} placeholder="1250" />
+              <CField label="เริ่ม (YYYY-MM) *"  value={f.start}    onChange={v => setField("start", v)} placeholder="2026-01" />
+              <CField label="สิ้นสุด (YYYY-MM)"  value={f.end}      onChange={v => setField("end", v)} placeholder="ว่าง = ไม่มีกำหนด" />
+              <CField label="หมายเหตุ"           value={f.note}     onChange={v => setField("note", v)} />
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 10, flexWrap: "wrap" }}>
+              <label style={{ fontFamily: FONT_BODY, fontSize: 12, color: PV.gray }}>หลักฐาน (PDF/รูป):</label>
+              <input ref={evRef} type="file" accept=".pdf,image/*" style={{ fontFamily: FONT_BODY, fontSize: 12 }} />
+              <PrimaryButton onClick={saveSingle} disabled={sBusy}>{sBusy ? "กำลังบันทึก..." : "บันทึก"}</PrimaryButton>
+            </div>
+            {sMsg && (
+              <div style={{ marginTop: 8, fontFamily: FONT_BODY, fontSize: 13, color: sMsg.ok ? PV.green : PV.error }}>
+                {sMsg.ok ? "✓ " : ""}{sMsg.text}
+                {sMsg.url && <> · <a href={sMsg.url} target="_blank" rel="noreferrer" style={{ color: PV.blue }}>ดูหลักฐาน</a></>}
+              </div>
+            )}
           </div>
           {error && (
             <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: PV.error, background: `${PV.error}10`, border: `1px solid ${PV.error}40`, borderRadius: 8, padding: "8px 12px" }}>

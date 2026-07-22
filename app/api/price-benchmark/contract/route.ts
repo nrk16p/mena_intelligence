@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import * as XLSX from "xlsx"
 import clientPromise from "@/lib/mongo"
 import { CONTRACT_COLLECTION, escapeRegex, isValidMonth } from "@/lib/price-benchmark"
+import { uploadFile, ALLOWED_EVIDENCE_TYPES, MAX_EVIDENCE_BYTES } from "@/lib/spaces"
 
 export const maxDuration = 60
 
@@ -78,13 +79,61 @@ export async function GET(req: Request) {
   }
 }
 
-/** POST: upload negotiated contract prices from an Excel/CSV file (multipart form, field `file`). */
+/** POST: single-entry (mode=single, จาก UI + แนบหลักฐาน) หรือ bulk Excel/CSV (field `file`). */
+async function handleSingle(form: FormData, uploadedBy: string) {
+  const code     = String(form.get("รหัสสินค้า") ?? form.get("code") ?? "").trim()
+  const name     = String(form.get("ชื่อสินค้า") ?? form.get("name") ?? "").trim()
+  const supplier = String(form.get("ซัพพลายเออร์") ?? form.get("supplier") ?? "").trim()
+  const price    = toNumber(form.get("ราคาสัญญา") ?? form.get("price"))
+  const start    = toMonth(form.get("เริ่ม") ?? form.get("start"))
+  const end      = toMonth(form.get("สิ้นสุด") ?? form.get("end"))
+  const note     = String(form.get("หมายเหตุ") ?? form.get("note") ?? "").trim()
+
+  if (!code)              return NextResponse.json({ success: false, error: "ไม่มีรหัสสินค้า" }, { status: 400 })
+  if (!supplier)          return NextResponse.json({ success: false, error: "ไม่มีซัพพลายเออร์" }, { status: 400 })
+  if (price === null)     return NextResponse.json({ success: false, error: "ราคาสัญญาไม่ถูกต้อง" }, { status: 400 })
+  if (!start)             return NextResponse.json({ success: false, error: "วันเริ่มมีผลไม่ถูกต้อง (YYYY-MM)" }, { status: 400 })
+  if (end && end < start) return NextResponse.json({ success: false, error: "วันสิ้นสุดก่อนวันเริ่ม" }, { status: 400 })
+
+  // แนบหลักฐาน (optional) → อัปขึ้น Spaces
+  let evidence_url: string | null = null
+  let evidence_name: string | null = null
+  const ev = form.get("evidence")
+  if (ev && typeof ev !== "string" && (ev as Blob).size > 0) {
+    const blob = ev as File
+    const ct = blob.type || "application/octet-stream"
+    if (!ALLOWED_EVIDENCE_TYPES.includes(ct)) return NextResponse.json({ success: false, error: "หลักฐานต้องเป็น PDF/PNG/JPG" }, { status: 400 })
+    if (blob.size > MAX_EVIDENCE_BYTES)        return NextResponse.json({ success: false, error: "หลักฐานเกิน 10MB" }, { status: 400 })
+    const buf = Buffer.from(await blob.arrayBuffer())
+    evidence_url = await uploadFile(buf, ct, blob.name, "contract-evidence")
+    evidence_name = blob.name || "evidence"
+  }
+
+  const set: Record<string, unknown> = {
+    ชื่อสินค้า: name, contract_price: price, effective_end: end, note,
+    uploaded_by: uploadedBy, uploaded_at: new Date(),
+  }
+  if (evidence_url) { set.evidence_url = evidence_url; set.evidence_name = evidence_name; set.evidence_uploaded_at = new Date() }
+
+  const client = await clientPromise
+  const res = await client.db("atms").collection(CONTRACT_COLLECTION).updateOne(
+    { รหัสสินค้า: code, ซัพพลายเออร์: supplier, effective_start: start },
+    { $set: set, $setOnInsert: { รหัสสินค้า: code, ซัพพลายเออร์: supplier, effective_start: start } },
+    { upsert: true }
+  )
+  return NextResponse.json({ success: true, mode: "single", upserted: res.upsertedCount, modified: res.modifiedCount, evidence_url })
+}
+
 export async function POST(req: Request) {
   try {
     const form = await req.formData()
-    const file = form.get("file")
     const uploadedBy = String(form.get("uploaded_by") ?? "").trim() || "-"
 
+    if (String(form.get("mode") ?? "") === "single") {
+      return await handleSingle(form, uploadedBy)
+    }
+
+    const file = form.get("file")
     if (!file || typeof file === "string") {
       return NextResponse.json({ success: false, error: "แนบไฟล์ Excel/CSV ในฟิลด์ file" }, { status: 400 })
     }

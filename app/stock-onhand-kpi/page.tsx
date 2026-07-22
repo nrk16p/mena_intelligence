@@ -37,6 +37,10 @@ type ApiData = { success: boolean; years: number[]; groups: Group[]; error?: str
 type BdCell = { recv: number; issue: number; balance: number }
 type BdGroup = { key: string; months: string[]; productGroups: { name: string; cells: Record<string, BdCell> }[] }
 type BdData = { success: boolean; years: number[]; groups: BdGroup[] }
+
+type ItemGroup = { key: string; months: string[]; items: { code: string; name: string; group: string; cells: Record<string, number> }[] }
+type ItemData = { success: boolean; years: number[]; groups: ItemGroup[] }
+const TOP_ITEMS = 30
 type BdMetric = "balance" | "recv" | "issue"
 const BD_METRICS: { key: BdMetric; label: string }[] = [
   { key: "balance", label: "คงเหลือ" },
@@ -64,6 +68,7 @@ export default function StockOnhandKpiPage() {
   const [year, setYear] = useState<number | null>(null)
   const [rawGroup, setRawGroup] = useState<string>("all")
   const [bd, setBd] = useState<BdData | null>(null)
+  const [items, setItems] = useState<ItemData | null>(null)
   const [selected, setSelected] = useState<Set<string> | null>(null)
 
   useEffect(() => {
@@ -85,6 +90,10 @@ export default function StockOnhandKpiPage() {
         for (const g of d.groups) for (const p of g.productGroups) all.add(p.name)
         setSelected(new Set(defaultKeptGroups([...all]))) // default = เฉพาะอะไหล่ (ตัด 26 กลุ่ม)
       })
+      .catch(() => {})
+    fetch("/api/stock-onhand-kpi/items")
+      .then((r) => r.json())
+      .then((d: ItemData) => { if (d.success) setItems(d) })
       .catch(() => {})
   }, [])
 
@@ -236,6 +245,9 @@ export default function StockOnhandKpiPage() {
 
       {/* Breakdown by product group */}
       {bd && year != null && <BreakdownSection bd={bd} year={year} selected={sel} />}
+
+      {/* Breakdown by product code (item) */}
+      {items && year != null && <ItemBreakdownSection data={items} year={year} selected={sel} />}
 
       {/* Raw data download */}
       <div style={{ marginTop: 24, background: PV.surface, border: `1px solid ${PV.border}`, borderRadius: 14, padding: 18 }}>
@@ -435,6 +447,119 @@ function BreakdownSection({ bd, year, selected }: { bd: BdData; year: number; se
             {rows.map((r) => (
               <tr key={r.name}>
                 <td style={labelCell}>{r.name}</td>
+                {months.map((ym) => {
+                  const v = r.byMonth[ym] ?? 0
+                  const tot = totals[ym] || 0
+                  const pct = tot !== 0 ? (v / tot) * 100 : 0
+                  return (
+                    <td key={ym} style={tdBase}>
+                      <div style={{ fontWeight: 600, fontFamily: "'Fira Code', monospace", color: v < 0 ? "#B91C1C" : PV.ink }}>{baht(v)}</div>
+                      <div style={{ fontSize: 11, color: PV.sub }}>{pct.toFixed(1)}%</div>
+                      <MomLine m={r.momByMonth[ym]} />
+                    </td>
+                  )
+                })}
+              </tr>
+            ))}
+            <tr style={{ background: "#EEF2FF" }}>
+              <td style={{ ...labelCell, background: "#EEF2FF", fontWeight: 800, color: "#1E3A8A" }}>รวม</td>
+              {months.map((ym) => (
+                <td key={ym} style={{ ...tdBase, fontWeight: 700, fontFamily: "'Fira Code', monospace", color: "#1E3A8A" }}>
+                  <div>{baht(totals[ym] || 0)}</div>
+                  <MomLine m={totalsMom[ym]} />
+                </td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function ItemBreakdownSection({ data, year, selected }: { data: ItemData; year: number; selected: Set<string> }) {
+  const [cKey, setCKey] = useState<string>(data.groups[0]?.key ?? "")
+  const group = data.groups.find((g) => g.key === cKey) ?? data.groups[0]
+  const months = useMemo(() => group.months.filter((m) => Number(m.slice(0, 4)) === year), [group, year])
+
+  const { rows, totals, totalsMom, allFiltered } = useMemo(() => {
+    const fullMonths = group.months
+    const prevOf = (ym: string) => { const i = fullMonths.indexOf(ym); return i > 0 ? fullMonths[i - 1] : null }
+    const mom = (cur: number, prev: number | null): number | null => (prev == null || prev === 0 ? null : ((cur - prev) / Math.abs(prev)) * 100)
+    const val = (it: ItemGroup["items"][number], ym: string) => it.cells[ym] ?? 0
+    const filtered = group.items.filter((it) => selected.has(it.group))
+    const lastYm = months[months.length - 1]
+    const ranked = filtered
+      .map((it) => ({ it, score: months.reduce((s, ym) => s + Math.abs(val(it, ym)), 0), last: lastYm ? val(it, lastYm) : 0 }))
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.last - a.last || b.score - a.score)
+    const top = ranked.slice(0, TOP_ITEMS).map((x) => x.it)
+    const rest = ranked.slice(TOP_ITEMS).map((x) => x.it)
+    const sumRest = (ym: string) => rest.reduce((s, it) => s + val(it, ym), 0)
+
+    type Row = { code: string; name: string; byMonth: Record<string, number>; momByMonth: Record<string, number | null> }
+    const rows: Row[] = top.map((it) => ({
+      code: it.code, name: it.name,
+      byMonth: Object.fromEntries(months.map((ym) => [ym, val(it, ym)])),
+      momByMonth: Object.fromEntries(months.map((ym) => { const p = prevOf(ym); return [ym, p ? mom(val(it, ym), val(it, p)) : null] })),
+    }))
+    if (rest.length) rows.push({
+      code: "อื่นๆ", name: `${rest.length} รายการ`,
+      byMonth: Object.fromEntries(months.map((ym) => [ym, sumRest(ym)])),
+      momByMonth: Object.fromEntries(months.map((ym) => { const p = prevOf(ym); return [ym, p ? mom(sumRest(ym), sumRest(p)) : null] })),
+    })
+    const totalAt = (ym: string) => ranked.reduce((s, x) => s + val(x.it, ym), 0)
+    const totals: Record<string, number> = Object.fromEntries(months.map((ym) => [ym, totalAt(ym)]))
+    const totalsMom: Record<string, number | null> = Object.fromEntries(months.map((ym) => { const p = prevOf(ym); return [ym, p ? mom(totalAt(ym), totalAt(p)) : null] }))
+    return { rows, totals, totalsMom, allFiltered: ranked.map((x) => x.it) }
+  }, [group, months, selected])
+
+  const exportItems = () => {
+    const header = ["รหัสสินค้า", "ชื่อสินค้า", "กลุ่ม", ...months.map((ym) => `${TH_MONTHS[monthIdx(ym)]} คงเหลือ`)]
+    const aoa: (string | number)[][] = [
+      [`คงเหลือรายรหัสสินค้า — ${cKey}`],
+      [`ปี ${year} · คงเหลือ (บาท) ต่อเดือน · เฉพาะกลุ่มที่เลือก · เรียงมาก→น้อย`],
+      [],
+      header,
+    ]
+    for (const it of allFiltered) aoa.push([it.code, it.name, it.group, ...months.map((ym) => it.cells[ym] ?? 0)])
+    const ws = XLSX.utils.aoa_to_sheet(aoa)
+    ws["!cols"] = [{ wch: 15 }, { wch: 34 }, { wch: 16 }, ...months.map(() => ({ wch: 12 }))]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, `items ${cKey}`.slice(0, 31))
+    const buf = XLSX.write(wb, { bookType: "xlsx", type: "array" })
+    saveAs(new Blob([buf], { type: "application/octet-stream" }), `KPI_items_${cKey.replace(/\./g, "")}_${year}.xlsx`)
+  }
+
+  return (
+    <div style={{ marginTop: 28 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 12 }}>
+        <div>
+          <h2 style={{ fontFamily: "'Red Hat Display', sans-serif", fontWeight: 800, fontSize: 19, color: PV.ink, margin: 0 }}>รายละเอียดตามรหัสสินค้า (คงเหลือ)</h2>
+          <div style={{ fontSize: 13, color: PV.sub, marginTop: 2 }}>ปี {year} · Top {TOP_ITEMS} รหัสตามคงเหลือ + &quot;อื่นๆ&quot; · บาท + % + MoM · โหลด Excel ได้ครบทุกรหัส</div>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          {data.groups.map((g) => <button key={g.key} onClick={() => setCKey(g.key)} style={pillStyle(g.key === cKey)}>{g.key}</button>)}
+          <span style={{ width: 1, height: 22, background: PV.border, margin: "0 2px" }} />
+          <button onClick={exportItems} style={{ ...pillStyle(false), background: "#16A34A", color: "#fff", border: "none" }}>⬇ Excel (ครบ)</button>
+        </div>
+      </div>
+
+      <div style={{ overflowX: "auto", background: PV.surface, border: `1px solid ${PV.border}`, borderRadius: 14 }}>
+        <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12.5, minWidth: 820 }}>
+          <thead>
+            <tr style={{ background: "#F3F4F6" }}>
+              <th style={{ ...thStyle, textAlign: "left", position: "sticky", left: 0, background: "#F3F4F6", minWidth: 210 }}>รหัสสินค้า</th>
+              {months.map((ym) => <th key={ym} style={{ ...thStyle, minWidth: 92 }}>{TH_MONTHS[monthIdx(ym)]}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.code}>
+                <td style={labelCell}>
+                  <div style={{ fontWeight: 600, fontFamily: "'Fira Code', monospace", color: PV.ink }}>{r.code}</div>
+                  <div style={{ fontSize: 11, color: PV.sub, whiteSpace: "normal" }}>{r.name}</div>
+                </td>
                 {months.map((ym) => {
                   const v = r.byMonth[ym] ?? 0
                   const tot = totals[ym] || 0

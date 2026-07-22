@@ -271,3 +271,83 @@ export async function buildBreakdown(): Promise<BreakdownResult> {
 
   return { years, groups }
 }
+
+// ─── breakdown ระดับรหัสสินค้า (คงเหลือ ณ วันที่ 5 ของเดือนถัดไป) ──────────────
+export type ItemBreakdownResult = {
+  years: number[]
+  groups: {
+    key: GroupKey
+    months: string[]
+    items: { code: string; name: string; group: string; cells: Record<string, number> }[] // cells = balance
+  }[]
+}
+
+/** แตกคงเหลือรายเดือน ต่อรหัสสินค้า ต่อกลุ่มคลัง (เฉพาะ item ที่มีคงเหลือ ≠ 0 บางเดือน) */
+export async function buildItemBreakdown(): Promise<ItemBreakdownResult> {
+  const client = await clientPromise
+  const col = client.db(DB).collection(COLL)
+  const allWarehouses = [...new Set(GROUPS.flatMap((g) => g.warehouses))]
+  const whToGroup: Record<string, GroupKey> = {}
+  for (const cfg of GROUPS) for (const w of cfg.warehouses) whToGroup[w] = cfg.key
+
+  const agg = await col
+    .aggregate(
+      [
+        { $match: { คลังสินค้า: { $in: allWarehouses } } },
+        {
+          $group: {
+            _id: { wh: "$คลังสินค้า", item: "$รหัสสินค้า", ym: "$year_month" },
+            net: { $sum: NET_EXPR },
+            first5: FIRST_N_NET_EXPR,
+            name: { $first: "$ชื่อสินค้า" },
+            group: { $first: "$กลุ่มสินค้า" },
+          },
+        },
+      ],
+      { allowDiskUse: true }
+    )
+    .toArray()
+
+  // data[center|code] = { name, group, byYm: {ym: {net, first5}} }
+  type Rec = { name: string; group: string; byYm: Record<string, { net: number; first5: number }>; _lastYm?: string }
+  const data: Record<GroupKey, Map<string, Rec>> = { "ศลบ.": new Map(), "สสบ.": new Map() }
+  const monthSet = new Set<string>()
+  for (const r of agg) {
+    const center = whToGroup[r._id.wh as string]
+    const ym = r._id.ym as string | null
+    if (!center || !ym) continue
+    monthSet.add(ym)
+    const code = (r._id.item as string | null)?.trim() || "(ไม่มีรหัส)"
+    let rec = data[center].get(code)
+    if (!rec) data[center].set(code, (rec = { name: "", group: "", byYm: {} }))
+    const cell = (rec.byYm[ym] ??= { net: 0, first5: 0 })
+    cell.net += r.net as number
+    cell.first5 += r.first5 as number
+    // เก็บ name/group จากเดือนล่าสุด
+    if (ym >= (rec._lastYm ?? "")) { rec.name = (r.name as string) || rec.name; rec.group = (r.group as string) || rec.group; rec._lastYm = ym }
+  }
+  const months = [...monthSet].sort()
+  const displayMonths = months.filter((m) => Number(m.slice(0, 4)) >= KPI_START_YEAR)
+  const years = [...new Set(displayMonths.map((m) => Number(m.slice(0, 4))))].sort()
+
+  const groups = GROUPS.map((cfg) => {
+    const items: ItemBreakdownResult["groups"][number]["items"] = []
+    for (const [code, rec] of data[cfg.key]) {
+      // end-of-month cumulative → day-5 balance
+      let run = 0
+      const end: Record<string, number> = {}
+      for (const ym of months) { run += rec.byYm[ym]?.net ?? 0; end[ym] = run }
+      const cells: Record<string, number> = {}
+      let hasBal = false
+      for (const ym of displayMonths) {
+        const bal = end[ym] + (rec.byYm[nextYm(ym)]?.first5 ?? 0)
+        cells[ym] = Math.round(bal)
+        if (Math.abs(bal) > 0.5) hasBal = true
+      }
+      if (hasBal) items.push({ code, name: rec.name, group: rec.group || "ไม่ระบุ", cells })
+    }
+    return { key: cfg.key, months: displayMonths, items }
+  })
+
+  return { years, groups }
+}
