@@ -1468,6 +1468,134 @@ function ContractUpload({ onUploaded }: { onUploaded?: () => void }) {
   )
 }
 
+// ── SKU procurement lifecycle (shown when a SKU has no ราคากลาง yet) ───────────
+type SkuHistory = {
+  code: string
+  master: {
+    skuPk: number | null; name: string | null; group: string | null
+    warehouse: string | null; brand: string | null; unit: string | null; oracle_code: string | null
+  } | null
+  created: { added_at_text: string | null; added_at: string | null; username: string | null } | null
+  prs: {
+    pr_code: string; qty: number | null; unit_price: number | null; total: number | null
+    date: string | null; requester: string | null; approved: boolean | null
+    warehouse: string | null; dept: string | null; plate: string | null; note: string | null
+  }[]
+  pos: {
+    po_code: string; qty: number | null; unit_price: number | null; total: number | null
+    received: number | null; outstanding: number | null; date: string | null; due: string | null
+    supplier: string | null; status: string | null; ap_term: string | null; dept: string | null
+  }[]
+}
+
+function LifeSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div style={{ padding: "12px 20px", borderTop: `1px solid ${PV.border}` }}>
+      <div style={{ fontFamily: FONT_HEAD, fontSize: 13, fontWeight: 700, color: PV.ink, marginBottom: 8 }}>{title}</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{children}</div>
+    </div>
+  )
+}
+function LifeRow({ children }: { children: React.ReactNode }) {
+  return <div style={{ border: `1px solid ${PV.border}`, borderRadius: 6, padding: "8px 12px", background: PV.bg }}>{children}</div>
+}
+
+/**
+ * "Where is it" history for a SKU with no benchmark: master info, creation, and
+ * every PR / PO it appears on (with received/outstanding). Falls back to `fallback`
+ * when the code resolves to nothing in the procurement system either.
+ */
+function SkuHistoryPanel({ code, fallback }: { code: string; fallback: React.ReactNode }) {
+  const [data, setData] = useState<SkuHistory | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      setLoading(true)
+      try {
+        const res  = await fetch(`/api/price-benchmark/sku-history?code=${encodeURIComponent(code)}`, { cache: "no-store" })
+        const json = await res.json()
+        if (cancelled) return
+        setData(json.success && (json.master || json.prs?.length || json.pos?.length) ? json : null)
+      } catch { if (!cancelled) setData(null) }
+      finally { if (!cancelled) setLoading(false) }
+    })()
+    return () => { cancelled = true }
+  }, [code])
+
+  if (loading) return <Skeleton h={200} />
+  if (!data) return <>{fallback}</>
+
+  const m = data.master
+  return (
+    <div style={{ background: PV.surface, border: `1px solid ${PV.border}`, borderRadius: 8, overflow: "hidden", boxShadow: "0 1px 2px rgba(0,0,0,0.06)" }}>
+      <div style={{ padding: "16px 20px" }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+          <span style={{ fontFamily: FONT_HEAD, fontSize: 16, fontWeight: 700, color: PV.ink }}>{data.code}</span>
+          <span style={{ fontFamily: FONT_BODY, fontSize: 14, color: PV.ink }}>{m?.name ?? "—"}</span>
+        </div>
+        <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+          <Chip tone="warning">ยังไม่เคยรับเข้า — ไม่มีราคากลาง</Chip>
+          {m?.group     && <Chip tone="neutral">{m.group}</Chip>}
+          {m?.brand     && <Chip tone="neutral">{m.brand}</Chip>}
+          {m?.warehouse && <Chip tone="neutral">{m.warehouse}</Chip>}
+          {m?.unit      && <Chip tone="neutral">หน่วย {m.unit}</Chip>}
+        </div>
+        {data.created && (
+          <div style={{ fontFamily: FONT_BODY, fontSize: 12, color: PV.gray, marginTop: 8 }}>
+            สร้าง SKU: {data.created.added_at_text ?? "—"}{data.created.username ? ` (${data.created.username})` : ""}
+          </div>
+        )}
+      </div>
+
+      <LifeSection title={`ใบสั่งซื้อ (PO) · ${data.pos.length} ใบ`}>
+        {data.pos.length === 0
+          ? <span style={{ fontFamily: FONT_BODY, fontSize: 13, color: PV.gray }}>ยังไม่มี PO</span>
+          : data.pos.map(po => {
+              const received = Number(po.received ?? 0)
+              const outstanding = Number(po.outstanding ?? 0)
+              return (
+                <LifeRow key={po.po_code}>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                    <b style={{ fontFamily: FONT_BODY, fontSize: 14, color: PV.ink }}>{po.po_code}</b>
+                    <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: PV.gray }}>{po.date ?? "—"}</span>
+                    {po.supplier && <span style={{ fontFamily: FONT_BODY, fontSize: 13, color: PV.ink }}>{po.supplier}</span>}
+                  </div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 6 }}>
+                    <span style={{ fontFamily: FONT_BODY, fontSize: 13, color: PV.ink }}>{fmt0(po.qty)}×฿{fmt(po.unit_price)} = ฿{fmt(po.total)}</span>
+                    <Chip tone={outstanding > 0 ? "warning" : "success"}>รับ {fmt0(received)} / ค้าง {fmt0(outstanding)}</Chip>
+                    {po.status && <Chip tone={outstanding > 0 ? "info" : "success"}>{po.status}</Chip>}
+                    {po.due && <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: PV.gray }}>กำหนดส่ง {po.due}</span>}
+                  </div>
+                </LifeRow>
+              )
+            })}
+      </LifeSection>
+
+      <LifeSection title={`ใบขอซื้อ (PR) · ${data.prs.length} ใบ`}>
+        {data.prs.length === 0
+          ? <span style={{ fontFamily: FONT_BODY, fontSize: 13, color: PV.gray }}>ยังไม่มี PR</span>
+          : data.prs.map(pr => (
+              <LifeRow key={pr.pr_code}>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                  <b style={{ fontFamily: FONT_BODY, fontSize: 14, color: PV.ink }}>{pr.pr_code}</b>
+                  <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: PV.gray }}>{pr.date ?? "—"}</span>
+                  {pr.requester && <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: PV.gray }}>{pr.requester}</span>}
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 6 }}>
+                  <span style={{ fontFamily: FONT_BODY, fontSize: 13, color: PV.ink }}>{fmt0(pr.qty)}×฿{fmt(pr.unit_price)} = ฿{fmt(pr.total)}</span>
+                  {pr.approved != null && <Chip tone={pr.approved ? "success" : "neutral"}>{pr.approved ? "อนุมัติแล้ว" : "รออนุมัติ"}</Chip>}
+                  {pr.plate && <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: PV.gray }}>{pr.plate}</span>}
+                </div>
+                {pr.note && <div style={{ fontFamily: FONT_BODY, fontSize: 11, color: PV.gray, marginTop: 4, whiteSpace: "pre-wrap" }}>{pr.note}</div>}
+              </LifeRow>
+            ))}
+      </LifeSection>
+    </div>
+  )
+}
+
 // ── Tab 1: lookup ─────────────────────────────────────────────────────────────
 
 function LookupTab({ prefill, onViewTransactions }: {
@@ -1488,6 +1616,7 @@ function LookupTab({ prefill, onViewTransactions }: {
   const [truncated, setTruncated] = useState(false)
   const [totalProducts, setTotalProducts] = useState(0)
   const [selectedSupplier, setSelectedSupplier] = useState<string | null>(null)
+  const [lastCode, setLastCode] = useState("")
 
   // group options for the multi-select (fuel already excluded server-side)
   useEffect(() => {
@@ -1510,6 +1639,7 @@ function LookupTab({ prefill, onViewTransactions }: {
       return
     }
     setLoading(true); setError(""); setSearched(true); setSelectedSupplier(null)
+    setLastCode(p.trim())
     const params = new URLSearchParams({ month })
     if (p.trim())      params.set("product_code", p.trim())
     if (s.trim())      params.set("supplier", s.trim())
@@ -1644,11 +1774,15 @@ function LookupTab({ prefill, onViewTransactions }: {
         </div>
       )}
 
-      {searched && !loading && !error && rows.length === 0 && (
-        <div style={{ background: PV.surface, border: `1px solid ${PV.border}`, borderRadius: 8, padding: 48, textAlign: "center", fontFamily: FONT_BODY, fontSize: 14, color: PV.gray }}>
-          ไม่พบข้อมูลสำหรับเงื่อนไขที่เลือก
-        </div>
-      )}
+      {searched && !loading && !error && rows.length === 0 && (() => {
+        const empty = (
+          <div style={{ background: PV.surface, border: `1px solid ${PV.border}`, borderRadius: 8, padding: 48, textAlign: "center", fontFamily: FONT_BODY, fontSize: 14, color: PV.gray }}>
+            ไม่พบข้อมูลสำหรับเงื่อนไขที่เลือก
+          </div>
+        )
+        // A specific code with no ราคากลาง → show its procurement lifecycle instead
+        return lastCode ? <SkuHistoryPanel code={lastCode} fallback={empty} /> : empty
+      })()}
 
       {!loading && rows.length > 0 && (
         <>
