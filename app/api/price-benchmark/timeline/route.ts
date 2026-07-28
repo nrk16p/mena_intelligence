@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
-import { escapeRegex, isValidMonth, receiptMatch, weightedIQRBounds, windowFor } from "@/lib/price-benchmark"
+import { branchFilter, escapeRegex, isValidMonth, receiptMatch, weightedIQRBounds, windowFor } from "@/lib/price-benchmark"
 
 export const maxDuration = 60
 
@@ -15,6 +15,8 @@ export async function GET(req: Request) {
     const month       = searchParams.get("month")
     const productCode = searchParams.get("product_code")?.trim()
     const supplier    = searchParams.get("supplier")?.trim()
+    const branches    = (searchParams.get("branches") ?? "")
+      .split(",").map(s => s.trim()).filter(Boolean)
 
     if (!isValidMonth(month)) {
       return NextResponse.json({ success: false, error: "month must be YYYY-MM" }, { status: 400 })
@@ -32,6 +34,10 @@ export async function GET(req: Request) {
       รหัสสินค้า: productCode,
       ราคาทุน: { $ne: null },
     })
+    // Branch (คลัง) scopes the dots/band/monthly-mode; the green ราคากลาง line is
+    // drawn client-side from the pooled benchmark, so it stays company-wide.
+    const bf = branchFilter(branches)
+    if (bf) match["คลังสินค้า"] = bf
 
     const supplierNorm = {
       $cond: {

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import type { Db } from "mongodb"
 import clientPromise from "@/lib/mongo"
-import { ensureSnapshot, escapeRegex, groupFilter, isValidMonth, receiptMatch, SNAPSHOT_COLLECTION } from "@/lib/price-benchmark"
+import { branchFilter, ensureSnapshot, escapeRegex, groupFilter, isValidMonth, receiptMatch, SNAPSHOT_COLLECTION } from "@/lib/price-benchmark"
 
 export const maxDuration = 300
 
@@ -30,6 +30,7 @@ async function scanMonth(
   productCode: string | undefined,
   supplier: string | undefined,
   groups: string[],
+  branches: string[],
 ) {
   await ensureSnapshot(month)
 
@@ -46,9 +47,12 @@ async function scanMonth(
     })
   }
 
-  // 2) Actual receipts for the month (fuel/group filter applied on กลุ่มสินค้า)
+  // 2) Actual receipts for the month (fuel/group filter applied on กลุ่มสินค้า).
+  //    Branch (คลัง) only narrows which receipts we scan — benchmark stays pooled.
   const rcptMatch: Record<string, unknown> = receiptMatch({ year_month: month, กลุ่มสินค้า: groupFilter(groups) })
   if (productCode) rcptMatch["รหัสสินค้า"] = { $regex: escapeRegex(productCode), $options: "i" }
+  const bf = branchFilter(branches)
+  if (bf) rcptMatch["คลังสินค้า"] = bf
 
   const receipts = await db.collection("stockmovement_v5").aggregate([
     { $match: rcptMatch },
@@ -149,6 +153,8 @@ export async function GET(req: Request) {
     const supplier    = searchParams.get("supplier")?.trim() || undefined
     const groups      = (searchParams.get("groups") ?? searchParams.get("group") ?? "")
       .split(",").map(s => s.trim()).filter(Boolean)
+    const branches    = (searchParams.get("branches") ?? "")
+      .split(",").map(s => s.trim()).filter(Boolean)
 
     if (!isValidMonth(start) || !isValidMonth(end)) {
       return NextResponse.json({ success: false, error: "start/end must be YYYY-MM" }, { status: 400 })
@@ -178,7 +184,7 @@ export async function GET(req: Request) {
 
     // Sequential: each month may lazily build a heavy snapshot
     for (const m of months) {
-      const r = await scanMonth(db, m, productCode, supplier, groups)
+      const r = await scanMonth(db, m, productCode, supplier, groups, branches)
       all.push(...r.rows)
       summary.receipts_checked   += r.checked
       summary.flagged_count      += r.overCount

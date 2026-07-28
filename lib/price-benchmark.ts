@@ -75,6 +75,40 @@ export function groupKey(groups?: string[] | null): string | null {
   return list.length > 0 ? list.sort().join("|") : null
 }
 
+/**
+ * Physical warehouses (คลังสินค้า) in stockmovement_v5. Fixed + stable, so the
+ * branch filter uses this constant rather than scanning the 435k collection.
+ */
+export const BRANCHES = ["คลังลาดกระบัง", "คลังสระบุรี", "คลัง DIST", "คลังขอนแก่น"]
+
+/** Clean a branches arg to known warehouses only. */
+function normBranches(branches?: string[] | null): string[] {
+  if (!Array.isArray(branches)) return []
+  const seen = new Set<string>()
+  for (const b of branches) {
+    const s = String(b ?? "").trim()
+    if (s && BRANCHES.includes(s)) seen.add(s)
+  }
+  return [...seen]
+}
+
+/**
+ * Mongo condition for the receipt `คลังสินค้า` field, or null when all/none are
+ * selected (→ no constraint = every branch, identical to the old behaviour).
+ * The benchmark itself is never branch-scoped — this only narrows which receipts
+ * are counted/shown.
+ */
+export function branchFilter(branches?: string[] | null): { $in: string[] } | null {
+  const list = normBranches(branches)
+  return list.length > 0 && list.length < BRANCHES.length ? { $in: list } : null
+}
+
+/** Stable cache key for a set of selected branches (null = all branches). */
+export function branchKey(branches?: string[] | null): string | null {
+  const list = normBranches(branches)
+  return list.length > 0 && list.length < BRANCHES.length ? list.sort().join("|") : null
+}
+
 export type ContractDoc = {
   รหัสสินค้า:   string
   ชื่อสินค้า:   string
@@ -129,6 +163,7 @@ export async function getAvailableMonths(): Promise<{ months: string[]; min: str
 export type MonthStats = {
   month: string
   group: string | null
+  branch: string | null
   summary: {
     receipts_checked: number
     flagged_count: number
@@ -333,7 +368,7 @@ export async function generateSnapshot(month: string): Promise<{ row_count: numb
  * month's benchmark snapshot inside MongoDB ($lookup on the unique index) and
  * aggregate flags, excess value, and top-N breakdowns.
  */
-async function computeMonthStats(month: string, groups: string[] = []): Promise<MonthStats> {
+async function computeMonthStats(month: string, groups: string[] = [], branches: string[] = []): Promise<MonthStats> {
   const client = await clientPromise
   const db = client.db("atms")
 
@@ -345,8 +380,14 @@ async function computeMonthStats(month: string, groups: string[] = []): Promise<
     },
   }
 
+  // Branch only narrows which receipts are counted; the benchmark $lookup below
+  // stays pooled (company-wide), so flags are still against the company ราคากลาง.
+  const bf = branchFilter(branches)
+  const receiptExtra: Record<string, unknown> = { year_month: month, ราคาทุน: { $ne: null }, กลุ่มสินค้า: groupFilter(groups) }
+  if (bf) receiptExtra["คลังสินค้า"] = bf
+
   const [res] = await db.collection("stockmovement_v5").aggregate([
-    { $match: receiptMatch({ year_month: month, ราคาทุน: { $ne: null }, กลุ่มสินค้า: groupFilter(groups) }) },
+    { $match: receiptMatch(receiptExtra) },
     { $addFields: { sup: supplierNorm } },
     {
       $lookup: {
@@ -439,6 +480,7 @@ async function computeMonthStats(month: string, groups: string[] = []): Promise<
   return {
     month,
     group: groupKey(groups),
+    branch: branchKey(branches),
     summary: {
       receipts_checked: s.receipts_checked,
       flagged_count:    s.flagged_count,
@@ -459,20 +501,23 @@ async function computeMonthStats(month: string, groups: string[] = []): Promise<
  * Cached month stats (collection `price_benchmark_stats`, keyed month × group);
  * group = null → all product groups. Recompute on force.
  */
-export async function getMonthStats(month: string, force = false, groups: string[] = []): Promise<MonthStats> {
+export async function getMonthStats(month: string, force = false, groups: string[] = [], branches: string[] = []): Promise<MonthStats> {
   const client = await clientPromise
   const col = client.db("atms").collection(STATS_COLLECTION)
-  const key = groupKey(groups)
+  const key  = groupKey(groups)
+  const bkey = branchKey(branches)
 
   if (!force) {
-    // { group: null } also matches legacy docs saved before the group field existed
-    const cached = await col.findOne({ month, group: key }, { projection: { _id: 0 } })
-    if (cached) return { group: null, ...cached } as unknown as MonthStats
+    // null group/branch also match legacy docs saved before those fields existed
+    // (Mongo treats `field: null` as "null or missing"), so the default all-
+    // branches view keeps hitting the old cache.
+    const cached = await col.findOne({ month, group: key, branch: bkey }, { projection: { _id: 0 } })
+    if (cached) return { group: null, branch: null, ...cached } as unknown as MonthStats
   }
 
   await ensureSnapshot(month)
-  const stats = await computeMonthStats(month, groups)
-  await col.updateOne({ month, group: key }, { $set: stats }, { upsert: true })
+  const stats = await computeMonthStats(month, groups, branches)
+  await col.updateOne({ month, group: key, branch: bkey }, { $set: stats }, { upsert: true })
   return stats
 }
 

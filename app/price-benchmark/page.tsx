@@ -7,6 +7,12 @@ import {
   ResponsiveContainer, ComposedChart, Area, Bar, Cell, Line, ReferenceLine, Scatter,
   XAxis, YAxis, ZAxis, CartesianGrid, Tooltip,
 } from "recharts"
+import { BranchFilter, PB_BRANCHES } from "@/components/branch-filter"
+
+/** Comma param for selected branches, or "" when all/none are chosen (= no filter). */
+function branchParam(branches: Set<string>): string {
+  return branches.size > 0 && branches.size < PB_BRANCHES.length ? [...branches].join(",") : ""
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ระบบราคากลาง (Price Benchmark) — PropertyVue design system
@@ -394,13 +400,14 @@ const PriceScatter3D = dynamic(() => import("@/components/PriceScatter3D"), {
   loading: () => <Skeleton h={460} />,
 })
 
-function PriceTimelineChart({ code, month, supplier, benchmark, contracts = [], auto }: {
+function PriceTimelineChart({ code, month, supplier, benchmark, contracts = [], auto, branchesParam = "" }: {
   code: string
   month: string
   supplier: string | null
   benchmark: number
   contracts?: { supplier: string; price: number }[]
   auto: boolean
+  branchesParam?: string
 }) {
   const [data, setData]       = useState<TimelineMonth[] | null>(null)
   const [suppliers, setSuppliers] = useState<string[]>([])
@@ -418,6 +425,7 @@ function PriceTimelineChart({ code, month, supplier, benchmark, contracts = [], 
       try {
         const params = new URLSearchParams({ month, product_code: code })
         if (supplier) params.set("supplier", supplier)
+        if (branchesParam) params.set("branches", branchesParam)
         const res  = await fetch(`/api/price-benchmark/timeline?${params}`, { cache: "no-store" })
         const json = await res.json()
         if (!cancelled && json.success) { setData(json.monthly); setSuppliers(json.suppliers ?? []) }
@@ -425,7 +433,7 @@ function PriceTimelineChart({ code, month, supplier, benchmark, contracts = [], 
       finally { if (!cancelled) setLoading(false) }
     })()
     return () => { cancelled = true }
-  }, [wanted, code, month, supplier])
+  }, [wanted, code, month, supplier, branchesParam])
 
   if (!wanted) {
     return (
@@ -948,10 +956,11 @@ function SupplierCompareTable({ rows, selectedSupplier, onSelectSupplier }: {
   )
 }
 
-function ProductCard({ code, rows, month, selectedSupplier, autoChart, onSelectSupplier, onViewTransactions }: {
+function ProductCard({ code, rows, month, branchesParam = "", selectedSupplier, autoChart, onSelectSupplier, onViewTransactions }: {
   code: string
   rows: BenchmarkRow[]
   month: string
+  branchesParam?: string
   selectedSupplier: string | null
   autoChart: boolean
   onSelectSupplier?: (s: string | null) => void
@@ -993,6 +1002,7 @@ function ProductCard({ code, rows, month, selectedSupplier, autoChart, onSelectS
           benchmark={overall.benchmark_price}
           contracts={contracts}
           auto={autoChart}
+          branchesParam={branchesParam}
         />
         {rows.length > 1 && <SupplierSection row={overall} rank={0} isOverall dimmed={false} />}
         {ranked.map((r, i) => (
@@ -1606,6 +1616,7 @@ function LookupTab({ prefill, onViewTransactions }: {
   const [product, setProduct]   = useState("")
   const [supplier, setSupplier] = useState("")
   const [groups, setGroups]     = useState<string[]>([])
+  const [branches, setBranches] = useState<Set<string>>(new Set(PB_BRANCHES))
   const [groupOptions, setGroupOptions] = useState<string[]>([])
 
   const [rows, setRows]           = useState<BenchmarkRow[]>([])
@@ -1735,10 +1746,15 @@ function LookupTab({ prefill, onViewTransactions }: {
             <Label>กลุ่มสินค้า</Label>
             <GroupMultiSelect options={groupOptions} selected={groups} onChange={setGroups} />
           </div>
+          <div>
+            <Label>คลัง (สาขา)</Label>
+            <BranchFilter allBranches={PB_BRANCHES} selected={branches} onChange={setBranches} />
+          </div>
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16, gap: 12, flexWrap: "wrap" }}>
           <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: PV.gray }}>
             {computedAt ? <>ราคากลางคำนวณล่าสุด {fmtDate(computedAt)}</> : <>ราคากลาง = ราคาที่พบบ่อยสุดใน 12 เดือนย้อนหลัง</>}
+            {branchParam(branches) && <> · กราฟแสดงเฉพาะคลังที่เลือก (ราคากลางยังคำนวณจากทุกคลัง)</>}
           </span>
           <div style={{ display: "flex", gap: 12 }}>
             <SecondaryButton onClick={regenerate} disabled={refreshing || loading}>
@@ -1807,6 +1823,7 @@ function LookupTab({ prefill, onViewTransactions }: {
                 code={code}
                 rows={productRows}
                 month={month}
+                branchesParam={branchParam(branches)}
                 selectedSupplier={selectedSupplier}
                 autoChart={productGroups.size <= 8}
                 onSelectSupplier={setSelectedSupplier}
@@ -1855,6 +1872,7 @@ function OverpricedTab({ prefill }: { prefill?: { product?: string; seq: number 
   const [product, setProduct]   = useState("")
   const [supplier, setSupplier] = useState("")
   const [groups, setGroups]     = useState<string[]>([])
+  const [branches, setBranches] = useState<Set<string>>(new Set(PB_BRANCHES))
   const [groupOptions, setGroupOptions] = useState<string[]>([])
 
   const [summary, setSummary]   = useState<OverpricedSummary | null>(null)
@@ -1902,6 +1920,8 @@ function OverpricedTab({ prefill }: { prefill?: { product?: string; seq: number 
     if (p.trim())        params.set("product_code", p.trim())
     if (supplier.trim()) params.set("supplier", supplier.trim())
     if (groups.length)   params.set("groups", groups.join(","))
+    const bp = branchParam(branches)
+    if (bp)              params.set("branches", bp)
     try {
       const res  = await fetch(`/api/price-benchmark/overpriced?${params}`, { cache: "no-store" })
       const json = await res.json()
@@ -1916,7 +1936,7 @@ function OverpricedTab({ prefill }: { prefill?: { product?: string; seq: number 
       setLoading(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [start, end, product, supplier, groups])
+  }, [start, end, product, supplier, groups, branches])
 
   // Drill-down from lookup: prefill product code and run immediately
   useEffect(() => {
@@ -1958,6 +1978,10 @@ function OverpricedTab({ prefill }: { prefill?: { product?: string; seq: number 
           <div>
             <Label>กลุ่มสินค้า</Label>
             <GroupMultiSelect options={groupOptions} selected={groups} onChange={setGroups} />
+          </div>
+          <div>
+            <Label>คลัง (สาขา)</Label>
+            <BranchFilter allBranches={PB_BRANCHES} selected={branches} onChange={setBranches} />
           </div>
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16, gap: 12, flexWrap: "wrap" }}>
@@ -2195,6 +2219,7 @@ function OverviewTab({ onDrillProduct, onDrillSupplier }: {
 }) {
   const [month, setMonth]     = useState(nowYM())
   const [groups, setGroups]   = useState<string[]>([])
+  const [branches, setBranches] = useState<Set<string>>(new Set(PB_BRANCHES))
   const [groupOptions, setGroupOptions] = useState<string[]>([])
   const [stats, setStats]     = useState<MonthStats | null>(null)
   const [trend, setTrend]     = useState<TrendPoint[]>([])
@@ -2202,6 +2227,7 @@ function OverviewTab({ onDrillProduct, onDrillSupplier }: {
   const [error, setError]     = useState("")
   const [slow, setSlow]       = useState(false)
   const loadedKey = useRef<string | null>(null)
+  const bKey = [...branches].sort().join(",")
 
   const load = useCallback(async (force = false) => {
     setLoading(true); setError(""); setSlow(false)
@@ -2218,6 +2244,8 @@ function OverviewTab({ onDrillProduct, onDrillSupplier }: {
       }
       const params = new URLSearchParams({ month })
       if (groups.length) params.set("groups", groups.join(","))
+      const bp = branchParam(branches)
+      if (bp) params.set("branches", bp)
       if (force) params.set("force", "1")
       const res  = await fetch(`/api/price-benchmark/dashboard?${params}`, { cache: "no-store" })
       const json = await res.json()
@@ -2225,7 +2253,7 @@ function OverviewTab({ onDrillProduct, onDrillSupplier }: {
       setStats(json.current)
       setTrend(json.trend)
       if (Array.isArray(json.group_options)) setGroupOptions(json.group_options)
-      loadedKey.current = `${month}|${groups.join(",")}`
+      loadedKey.current = `${month}|${groups.join(",")}|${bKey}`
     } catch (e: any) {
       setError(e.message || "โหลดข้อมูลไม่สำเร็จ")
     } finally {
@@ -2233,12 +2261,12 @@ function OverviewTab({ onDrillProduct, onDrillSupplier }: {
       setLoading(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [month, groups])
+  }, [month, groups, bKey])
 
   useEffect(() => {
-    if (loadedKey.current !== `${month}|${groups.join(",")}`) load()
+    if (loadedKey.current !== `${month}|${groups.join(",")}|${bKey}`) load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [month, groups])
+  }, [month, groups, bKey])
 
   const s = stats?.summary
   const flaggedPct = s && s.receipts_checked > 0 ? (s.flagged_count / s.receipts_checked) * 100 : 0
@@ -2254,6 +2282,10 @@ function OverviewTab({ onDrillProduct, onDrillSupplier }: {
         <div style={{ width: 240 }}>
           <Label>กลุ่มสินค้า</Label>
           <GroupMultiSelect options={groupOptions} selected={groups} onChange={setGroups} />
+        </div>
+        <div>
+          <Label>คลัง (สาขา)</Label>
+          <BranchFilter allBranches={PB_BRANCHES} selected={branches} onChange={setBranches} />
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
           {stats && (
