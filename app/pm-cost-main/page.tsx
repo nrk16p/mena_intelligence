@@ -1,7 +1,8 @@
 "use client"
 
 import React, { useEffect, useMemo, useState } from "react"
-import { Check, Copy } from "lucide-react"
+import { Check, Copy, Download } from "lucide-react"
+import * as XLSX from "xlsx"
 import {
   Bar,
   ComposedChart,
@@ -449,6 +450,30 @@ export default function PmCostMainPage() {
     })
     return Array.from(m.values()).sort((a, b) => b.sortKey.localeCompare(a.sortKey))
   }, [fRows])
+
+  function exportExcel() {
+    const data = mrRows.map((mr) => ({
+      "เลขที่ MR":   mr.request_code,
+      "ทะเบียน":     mr.plate_no,
+      "เบอร์รถ":     mr.vehicle_no,
+      "สาขา":        mr.branch,
+      "วันที่แจ้ง":   mr.reported_at?.slice(0, 10) || "",
+      "ซ่อมเสร็จ":    mr.garage_finish_at ? mr.garage_finish_at.slice(0, 10) : "",
+      "สถานะ":       mr.step,
+      "ประเภทรถ":    mr.owner_type || "",
+      "ช่าง":        mr.mechanic || "",
+      "ระยะ PM":     mr.classes.join(", "),
+      "ค่าใช้จ่าย (฿)": +mr.total.toFixed(2),
+    }))
+    const ws = XLSX.utils.json_to_sheet(data)
+    ws["!cols"] = [
+      { wch: 14 }, { wch: 12 }, { wch: 10 }, { wch: 16 }, { wch: 12 },
+      { wch: 12 }, { wch: 10 }, { wch: 14 }, { wch: 18 }, { wch: 16 }, { wch: 14 },
+    ]
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, "MR")
+    XLSX.writeFile(wb, `pm-cost-mr_${startMonth}_${endMonth}.xlsx`)
+  }
 
   const toggle = (key: string) =>
     setExpanded((prev) => {
@@ -1061,10 +1086,20 @@ export default function PmCostMainPage() {
       {/* MR full-detail table */}
       {hasSearched && (
         <div className="rounded-2xl border bg-white p-5">
-          <p className="mb-3 text-xs font-semibold text-gray-700">
-            รายละเอียดใบแจ้งซ่อม (MR) — {mrRows.length.toLocaleString()} ใบ
-            <span className="ml-2 font-normal text-gray-400">คลิกแถวเพื่อดูงานและรายการเบิก (WD)</span>
-          </p>
+          <div className="mb-3 flex items-center justify-between gap-4">
+            <p className="text-xs font-semibold text-gray-700">
+              รายละเอียดใบแจ้งซ่อม (MR) — {mrRows.length.toLocaleString()} ใบ
+              <span className="ml-2 font-normal text-gray-400">คลิกแถวเพื่อดูงานและรายการเบิก (WD)</span>
+            </p>
+            <button
+              onClick={exportExcel}
+              disabled={mrRows.length === 0}
+              className="flex shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Download size={13} />
+              Export Excel
+            </button>
+          </div>
           {mrRows.length === 0 && !loading && (
             <div className="px-5 py-10 text-center text-sm text-gray-400">ไม่พบข้อมูลในช่วงเวลาที่เลือก</div>
           )}

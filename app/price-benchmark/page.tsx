@@ -2448,6 +2448,13 @@ export default function PriceBenchmarkPage() {
     setTab("overpriced")
   }
 
+  // Deep-link จากระบบอื่น (เช่น mena-wms /pr): ?q=<รหัสสินค้า> → เปิดแท็บค้นหาราคากลางและค้นให้ทันที
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("q")?.trim()
+    if (q) drillProduct(q)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   return (
     <div style={{ fontFamily: FONT_BODY, display: "flex", flexDirection: "column", gap: 24 }}>
       {/* Header */}
