@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { getUserPermissions } from "@/lib/permissions"
 import { Providers } from "@/components/providers"
 import { AppShell } from "@/components/app-shell"
+import { Analytics } from "@vercel/analytics/next"
 
 export const metadata = {
   title: "Mena Intelligence",
@@ -35,6 +36,7 @@ export default async function RootLayout({
         <Providers>
           <AppShell allowedGroups={allowedGroups}>{children}</AppShell>
         </Providers>
+        <Analytics />
       </body>
     </html>
   )
