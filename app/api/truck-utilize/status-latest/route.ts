@@ -36,26 +36,47 @@ export async function GET(req: Request) {
     const plates = [...new Set(platesParam.split(",").map(p => p.trim()).filter(Boolean))].slice(0, 100);
     if (!plates.length) return NextResponse.json({ error: "ต้องระบุ plates" }, { status: 400 });
 
-    // ดึงย้อนหลัง 14 วัน (bounded) แล้วเอาแถวล่าสุดต่อทะเบียน
+    // ดึงย้อนหลัง 60 วัน (bounded) — แถวล่าสุด + นับจำนวนวันติดต่อกันที่อยู่กลุ่มสถานะเดิม (streak)
     const placeholders = plates.map(() => "?").join(",");
     const [rows] = await pool.query<any[]>(
       `SELECT license_plate, status, date
        FROM performance_vehicle_daily
-       WHERE license_plate IN (${placeholders}) AND date >= CURDATE() - INTERVAL 14 DAY
+       WHERE license_plate IN (${placeholders}) AND date >= CURDATE() - INTERVAL 60 DAY
        ORDER BY date DESC`,
       plates,
     );
 
-    const statuses: Record<string, { status: string; label: string; group: string; date: string }> = {};
+    // จัดกลุ่มแถวต่อทะเบียน (เรียง date DESC อยู่แล้ว)
+    const byPlate = new Map<string, { group: string; status: string; date: string }[]>();
     for (const r of rows as any[]) {
       const plate = String(r.license_plate);
-      if (statuses[plate]) continue; // เรียง date DESC แล้ว — แถวแรกคือล่าสุด
       const status = String(r.status ?? "");
+      if (!byPlate.has(plate)) byPlate.set(plate, []);
+      byPlate.get(plate)!.push({ group: groupOf(status), status, date: fmtDateBKK(r.date) });
+    }
+
+    const statuses: Record<string, { status: string; label: string; group: string; date: string; streak_days: number; streak_capped: boolean }> = {};
+    for (const [plate, list] of byPlate) {
+      const latest = list[0];
+      // นับวันติดต่อกัน (ตามวันที่จริง ห่างได้ไม่เกิน 1 วัน) ที่อยู่ "กลุ่ม" เดียวกับวันล่าสุด
+      let streak = 1;
+      let prev = new Date(latest.date);
+      for (let i = 1; i < list.length; i++) {
+        const cur = list[i];
+        if (cur.date === fmtDateBKK(prev)) continue; // แถวซ้ำวันเดียวกัน
+        const d = new Date(cur.date);
+        const gapDays = Math.round((prev.getTime() - d.getTime()) / 86400000);
+        if (gapDays > 1 || cur.group !== latest.group) break;
+        streak++;
+        prev = d;
+      }
       statuses[plate] = {
-        status,
-        label: STATUS_LABEL[status] ?? "",
-        group: groupOf(status),
-        date: fmtDateBKK(r.date),
+        status: latest.status,
+        label: STATUS_LABEL[latest.status] ?? "",
+        group: latest.group,
+        date: latest.date,
+        streak_days: streak,
+        streak_capped: streak >= 60, // ครบหน้าต่าง 60 วัน = อาจนานกว่านี้
       };
     }
 
