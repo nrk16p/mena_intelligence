@@ -61,6 +61,7 @@ export async function GET(req: Request) {
     const statuses: Record<string, {
       status: string; label: string; group: string; date: string;
       streak_days: number; streak_capped: boolean; last_bba_date: string | null;
+      back_to_work_date: string | null;
     }> = {};
 
     for (const [plate, list] of byPlate) {
@@ -84,7 +85,16 @@ export async function GET(req: Request) {
       }
 
       // วันที่เป็น B/BA ล่าสุดในหน้าต่าง 90 วัน (null = ไม่เคยเลย)
-      const lastBba = list.find((x) => isBBA(x.status))?.date ?? null;
+      const lastBbaIdx = list.findIndex((x) => isBBA(x.status));
+      const lastBba = lastBbaIdx >= 0 ? list[lastBbaIdx].date : null;
+
+      // วันที่ "ออกจากอู่กลับมาวิ่งงาน" = วันแรกที่เป็นกลุ่มทำงาน หลังวัน B/BA ล่าสุด (≈ วันซ่อมเสร็จ)
+      let backToWork: string | null = null;
+      if (lastBbaIdx > 0) {
+        for (let i = lastBbaIdx - 1; i >= 0; i--) { // ไล่จากวันถัดจาก B/BA ล่าสุด → ปัจจุบัน
+          if (list[i].group === "working") { backToWork = list[i].date; break; }
+        }
+      }
 
       statuses[plate] = {
         status: latest.status,
@@ -94,6 +104,7 @@ export async function GET(req: Request) {
         streak_days: streak,
         streak_capped: streak >= 90,
         last_bba_date: lastBba,
+        back_to_work_date: backToWork,
       };
     }
 
