@@ -95,6 +95,12 @@ interface ApiResponse {
 interface BreakdownRow {
   fleet_group_id: string; month_year: string; truck_count: number; breakdown_count: number;
 }
+// งานซ่อมอ้างอิงจากระบบอู่นอก mena-wms (repair_external)
+interface RepairJob {
+  id: string; plate?: string; fleetNo?: string; jobType?: string; symptom?: string;
+  garage?: string; status?: string; receivedDate?: string; garageInDate?: string;
+  dueDate?: string; completedDate?: string; mrNo?: string;
+}
 const PAGE_SIZES = [25,50,100] as const;
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -217,6 +223,23 @@ export default function TruckUtilizeAnalysisPage() {
   const [fleetGroupId, setFleetGroupId] = useState("");
   const [page, setPage]             = useState(1);
   const [pageSize, setPageSize]     = useState<25|50|100>(25);
+
+  // ── Repair reference (mena-wms /repair-external) ─────────────────────
+  const [repairRefs, setRepairRefs]   = useState<Record<string, RepairJob[]>>({});
+  const [expandedRowId, setExpandedRowId] = useState<number | null>(null);
+
+  // แถวกลุ่ม "ซ่อม" ในหน้านี้ → ดึงงานซ่อมจริงจาก mena-wms มาเทียบ (batch ต่อหน้า)
+  useEffect(() => {
+    setExpandedRowId(null);
+    const plates = [...new Set(
+      rows.filter(r => deriveGroup(r.status, r.group_status) === "repair").map(r => r.license_plate),
+    )];
+    if (!plates.length) { setRepairRefs({}); return; }
+    fetch(`/api/truck-utilize/repair-ref?plates=${encodeURIComponent(plates.join(","))}`)
+      .then(r => r.json())
+      .then(d => setRepairRefs(d.refs ?? {}))
+      .catch(() => setRepairRefs({}));
+  }, [rows]);
 
   const fetchData = useCallback(async (currentPage: number) => {
     setLoading(true); setError("");
@@ -834,6 +857,34 @@ export default function TruckUtilizeAnalysisPage() {
             </div>
           )}
 
+          {/* Group Status reference — รหัสสถานะที่ประกอบแต่ละกลุ่ม (คลิก code เพื่อใส่ filter Status แล้วกด Search) */}
+          <div className="bg-white dark:bg-zinc-900 rounded-xl border p-4 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-semibold">Group Status — Reference</p>
+              <a href="https://mena-wms.vercel.app/repair-external" target="_blank" rel="noreferrer"
+                className="text-xs text-blue-600 hover:underline">เปิดระบบงานซ่อมอู่นอก (mena-wms) ↗</a>
+            </div>
+            {([
+              ["working", ["A","AX","Aท","Aอ","Aอส","A75","A50","A25"]],
+              ["repair",  ["B","BA","BAQ","BY","PM"]],
+              ["idle",    ["อ","วซ","วA","วร","วล","วก","วป","วภ","X","วส","วพ","วข","วฝ"]],
+            ] as const).map(([g, codes]) => (
+              <div key={g} className="flex flex-wrap items-center gap-1.5">
+                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${GROUP_STYLE[g]} min-w-[52px] text-center`}>{GROUP_LABEL[g]}</span>
+                {codes.map(code => (
+                  <button key={code} type="button" title={`${STATUS_LABEL[code] ?? ""} — คลิกเพื่อใส่ filter Status แล้วกด Search`}
+                    onClick={() => { setStatus(code); setGroupStatus(""); }}
+                    className={`px-1.5 py-0.5 rounded border text-xs transition hover:bg-gray-100 dark:hover:bg-zinc-800 ${status === code ? "border-blue-500 text-blue-600 font-semibold" : "border-gray-200 dark:border-zinc-700 text-gray-600 dark:text-gray-300"}`}>
+                    {code}<span className="ml-1 text-gray-400 hidden xl:inline">{STATUS_LABEL[code]}</span>
+                  </button>
+                ))}
+                {g === "repair" && (
+                  <span className="text-xs text-gray-400">· แถวกลุ่มนี้กด 🔧 เพื่อดูงานซ่อมจริงจากระบบอู่นอก</span>
+                )}
+              </div>
+            ))}
+          </div>
+
           {/* Table header row */}
           <div className="flex items-center justify-between">
             <p className="text-sm text-gray-500">{loading ? "Loading..." : `${total.toLocaleString()} records`}</p>
@@ -868,32 +919,77 @@ export default function TruckUtilizeAnalysisPage() {
                   <tr><td colSpan={9} className="text-center py-12 text-gray-400">Loading...</td></tr>
                 ) : rows.length === 0 ? (
                   <tr><td colSpan={9} className="text-center py-12 text-gray-400">No records found</td></tr>
-                ) : rows.map(row => (
-                  <tr key={row.id} className="border-b last:border-0 hover:bg-gray-50 dark:hover:bg-zinc-800/50 transition">
-                    <td className="px-3 py-2 text-gray-400">{row.id}</td>
-                    <td className="px-3 py-2">{FLEET_MAP[row.fleet_group_id] ?? row.fleet_group_id}</td>
-                    <td className="px-3 py-2 font-medium">{row.license_plate}</td>
-                    <td className="px-3 py-2">{row.plant ?? "—"}</td>
-                    <td className="px-3 py-2 max-w-[200px] truncate" title={row.customer ?? ""}>{row.customer ?? "—"}</td>
-                    <td className="px-3 py-2">
-                      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700"
-                        title={STATUS_LABEL[row.status ?? ""] ?? ""}>
-                        {row.status ?? "—"}
-                      </span>
-                      {STATUS_LABEL[row.status ?? ""] && (
-                        <span className="ml-1 text-xs text-gray-400 hidden lg:inline">{STATUS_LABEL[row.status ?? ""]}</span>
+                ) : rows.map(row => {
+                  const g = deriveGroup(row.status, row.group_status);
+                  const jobs = repairRefs[row.license_plate] ?? [];
+                  const expanded = expandedRowId === row.id;
+                  return (
+                    <Fragment key={row.id}>
+                      <tr className="border-b last:border-0 hover:bg-gray-50 dark:hover:bg-zinc-800/50 transition">
+                        <td className="px-3 py-2 text-gray-400">{row.id}</td>
+                        <td className="px-3 py-2">{FLEET_MAP[row.fleet_group_id] ?? row.fleet_group_id}</td>
+                        <td className="px-3 py-2 font-medium">{row.license_plate}</td>
+                        <td className="px-3 py-2">{row.plant ?? "—"}</td>
+                        <td className="px-3 py-2 max-w-[200px] truncate" title={row.customer ?? ""}>{row.customer ?? "—"}</td>
+                        <td className="px-3 py-2">
+                          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700"
+                            title={STATUS_LABEL[row.status ?? ""] ?? ""}>
+                            {row.status ?? "—"}
+                          </span>
+                          {STATUS_LABEL[row.status ?? ""] && (
+                            <span className="ml-1 text-xs text-gray-400 hidden lg:inline">{STATUS_LABEL[row.status ?? ""]}</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${GROUP_STYLE[g]}`}>{GROUP_LABEL[g]}</span>
+                          {g === "repair" && (
+                            <button type="button" onClick={() => setExpandedRowId(expanded ? null : row.id)}
+                              title="ดูงานซ่อมจริงจากระบบอู่นอก (mena-wms)"
+                              className={`ml-1.5 px-1.5 py-0.5 rounded border text-xs transition ${expanded ? "border-red-400 bg-red-50 text-red-600 dark:bg-red-900/20" : "border-gray-200 dark:border-zinc-700 text-gray-500 hover:bg-gray-100 dark:hover:bg-zinc-800"}`}>
+                              🔧 {jobs.length}
+                            </button>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 whitespace-nowrap">{formatDateBKK(row.date)}</td>
+                        <td className="px-3 py-2">{row.month_year ?? "—"}</td>
+                      </tr>
+                      {expanded && (
+                        <tr className="border-b bg-red-50/50 dark:bg-red-900/10">
+                          <td colSpan={9} className="px-4 py-3">
+                            <p className="text-xs font-semibold text-gray-500 mb-2">
+                              งานซ่อมอู่นอก / อะไหล่ลงคัน ของ {row.license_plate} (อ้างอิง mena-wms · ล่าสุด {jobs.length} งาน)
+                            </p>
+                            {jobs.length === 0 ? (
+                              <p className="text-xs text-gray-400">ไม่พบงานซ่อมของทะเบียนนี้ในระบบอู่นอก — อาจซ่อมอู่ใน หรือทะเบียนสะกดต่างกัน</p>
+                            ) : (
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="text-left text-gray-400">
+                                    <th className="py-1 pr-3">ประเภท</th><th className="py-1 pr-3">อาการ</th><th className="py-1 pr-3">อู่/ร้าน</th>
+                                    <th className="py-1 pr-3">สถานะ</th><th className="py-1 pr-3">วันรับรถ</th><th className="py-1 pr-3">กำหนดเสร็จ</th><th className="py-1">เสร็จจริง</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {jobs.map(j => (
+                                    <tr key={j.id} className="border-t border-red-100 dark:border-red-900/30">
+                                      <td className="py-1.5 pr-3 whitespace-nowrap">{j.jobType ?? "อู่นอก"}</td>
+                                      <td className="py-1.5 pr-3 max-w-[280px] truncate" title={j.symptom ?? ""}>{j.symptom || "—"}</td>
+                                      <td className="py-1.5 pr-3">{j.garage || "—"}</td>
+                                      <td className="py-1.5 pr-3"><span className="px-1.5 py-0.5 rounded bg-white dark:bg-zinc-800 border text-gray-600 dark:text-gray-300">{j.status || "—"}</span></td>
+                                      <td className="py-1.5 pr-3 whitespace-nowrap">{j.receivedDate || "—"}</td>
+                                      <td className="py-1.5 pr-3 whitespace-nowrap">{j.dueDate || "—"}</td>
+                                      <td className="py-1.5 whitespace-nowrap">{j.completedDate || "—"}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            )}
+                          </td>
+                        </tr>
                       )}
-                    </td>
-                    <td className="px-3 py-2">
-                      {(() => {
-                        const g = deriveGroup(row.status, row.group_status);
-                        return <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${GROUP_STYLE[g]}`}>{GROUP_LABEL[g]}</span>;
-                      })()}
-                    </td>
-                    <td className="px-3 py-2 whitespace-nowrap">{formatDateBKK(row.date)}</td>
-                    <td className="px-3 py-2">{row.month_year ?? "—"}</td>
-                  </tr>
-                ))}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
