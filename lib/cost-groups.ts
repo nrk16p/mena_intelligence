@@ -3,6 +3,7 @@ export const COST_GROUP_MAP: Record<string, string> = {
   "PM น้ำมันเครื่อง":        "PM - Preventive Maintenance",
   "PM ช่วงล่าง":             "PM - Preventive Maintenance",
   "PM ความเย็น":             "PM - Preventive Maintenance",
+  "PM ความเเย็น":            "PM - Preventive Maintenance", // typo ในข้อมูลต้นทาง (เเ สองตัว) — เป็นค่าที่มีจริง
   "ค่าใช้จ่ายอื่น ๆ":        "CM - Corrective Maintenance",
   "ซ่อม":                    "CM - Corrective Maintenance",
   "อะไหล่/วัสดุสิ้นเปลือง": "CM - Corrective Maintenance",
