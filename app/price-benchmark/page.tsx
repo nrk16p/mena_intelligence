@@ -84,6 +84,7 @@ type OverpricedRow = {
   รับ: number
   ราคาทุน: number
   ยอดเงิน: number
+  year_month: string
   benchmark_price: number | null
   benchmark_count: number | null
   benchmark_records: number | null
@@ -2098,7 +2099,10 @@ function OverpricedTab({ prefill }: { prefill?: { product?: string; seq: number 
                         </td>
                         <td style={{ padding: "8px 12px", fontSize: 12, color: PV.gray, whiteSpace: "nowrap" }}>{r.คลังสินค้า}</td>
                         <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: FONT_MONO, fontSize: 13, fontWeight: 600, color: over ? PV.error : PV.ink }}>{fmt(r.ราคาทุน)}</td>
-                        <td style={{ padding: "8px 12px", textAlign: "right", fontFamily: FONT_MONO, fontSize: 13, color: noBench ? PV.gray : PV.green }}>
+                        <td
+                          title={noBench ? undefined : `ราคากลางเดือน ${fmtYM(r.year_month)} ของซัพพลายเออร์นี้ (คำนวณจาก 12 เดือนย้อนหลังสิ้นสุด ${fmtYM(r.year_month)})`}
+                          style={{ padding: "8px 12px", textAlign: "right", fontFamily: FONT_MONO, fontSize: 13, color: noBench ? PV.gray : PV.green }}
+                        >
                           {noBench ? "—" : <>{fmt(r.benchmark_price)}<span style={{ fontSize: 10, color: PV.gray }}> ({r.benchmark_count}/{r.benchmark_records})</span></>}
                         </td>
                         <td style={{ padding: "8px 12px", textAlign: "right", whiteSpace: "nowrap" }}>
@@ -2122,11 +2126,10 @@ function OverpricedTab({ prefill }: { prefill?: { product?: string; seq: number 
                   </tbody>
                 </table>
               </div>
-              {summary.no_benchmark_count > 0 && (
-                <div style={{ padding: "8px 16px", background: PV.bg, borderTop: `1px solid ${PV.border}`, fontFamily: FONT_BODY, fontSize: 12, color: PV.gray }}>
-                  หมายเหตุ: แถวสีเทา = ไม่มีราคากลางให้เทียบ (ไม่เคยซื้อคู่สินค้า×ซัพพลายเออร์นี้ใน 12 เดือน) — เทียบแพง/ถูกไม่ได้
-                </div>
-              )}
+              <div style={{ padding: "8px 16px", background: PV.bg, borderTop: `1px solid ${PV.border}`, fontFamily: FONT_BODY, fontSize: 12, color: PV.gray }}>
+                หมายเหตุ: แต่ละรายการเทียบกับราคากลางของ &ldquo;เดือนที่ซื้อ&rdquo; รายการนั้น (ซัพพลายเออร์เดียวกันคนละเดือนอาจเทียบกับราคากลางคนละค่า — hover ที่ราคากลางเพื่อดูเดือนอ้างอิง)
+                {summary.no_benchmark_count > 0 && <> · แถวสีเทา = ไม่มีราคากลางให้เทียบ (ไม่เคยซื้อคู่สินค้า×ซัพพลายเออร์นี้ใน 12 เดือน)</>}
+              </div>
             </div>
             )
           })()}
