@@ -229,6 +229,8 @@ export function receiptMatch(extra: Record<string, unknown> = {}) {
     รับ: { $gt: 0 },
     WD:  { $in: [null, ""] },
     รหัสสินค้า: { $exists: true, $nin: [null, ""] },
+    // ของแถม/เคลม (ราคาทุน 0) ไม่ใช่สัญญาณราคา — กันราคากลางกลายเป็น 0
+    ราคาทุน: { $gt: 0 },
     ...extra,
   }
 }
@@ -383,7 +385,7 @@ async function computeMonthStats(month: string, groups: string[] = [], branches:
   // Branch only narrows which receipts are counted; the benchmark $lookup below
   // stays pooled (company-wide), so flags are still against the company ราคากลาง.
   const bf = branchFilter(branches)
-  const receiptExtra: Record<string, unknown> = { year_month: month, ราคาทุน: { $ne: null }, กลุ่มสินค้า: groupFilter(groups) }
+  const receiptExtra: Record<string, unknown> = { year_month: month, กลุ่มสินค้า: groupFilter(groups) }
   if (bf) receiptExtra["คลังสินค้า"] = bf
 
   const [res] = await db.collection("stockmovement_v5").aggregate([
