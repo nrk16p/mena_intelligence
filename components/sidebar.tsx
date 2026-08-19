@@ -122,6 +122,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/repair-cost",        label: "Repair Cost",     icon: Calculator },
       { href: "/repair-analysis",    label: "Analysis",        icon: BarChart3 },
+      { href: "/repeat-repair",      label: "KPI ซ่อมซ้ำ",      icon: History },
       { href: "/cost",               label: "Cost Monitor",    icon: Warehouse },
       { href: "/pm-cost",            label: "PM Cost",         icon: Wrench },
       { href: "/pm-cost-main",       label: "PM Cost (MR)",    icon: History },
