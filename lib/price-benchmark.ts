@@ -185,12 +185,65 @@ export function escapeRegex(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
 
-/** 12-month rolling window ending at (and including) the snapshot month. */
-export function windowFor(month: string): { start: string; end: string } {
+/** Default rolling window (months) behind ราคากลาง — the official definition. */
+export const WINDOW_MONTHS = 12
+
+/** Shift a YYYY-MM by `delta` months. */
+export function shiftMonth(month: string, delta: number): string {
   const [y, m] = month.split("-").map(Number)
-  const d = new Date(Date.UTC(y, m - 1 - 11, 1))
-  const start = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`
-  return { start, end: month }
+  const d = new Date(Date.UTC(y, m - 1 + delta, 1))
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`
+}
+
+/** Every YYYY-MM from `start` to `end` inclusive (used for chart axes). */
+export function monthRange(start: string, end: string): string[] {
+  const out: string[] = []
+  for (let m = start; m <= end; m = shiftMonth(m, 1)) {
+    out.push(m)
+    if (out.length > 600) break // guard against a malformed range
+  }
+  return out
+}
+
+/** Rolling window of `months` ending at (and including) the snapshot month. */
+export function windowFor(month: string, months: number = WINDOW_MONTHS): { start: string; end: string } {
+  return { start: shiftMonth(month, -(months - 1)), end: month }
+}
+
+/**
+ * Earliest `year_month` present in stockmovement_v5 — the real floor of "ย้อนหลัง
+ * ทั้งหมด". Read once per process from the {year_month, inventory_id} index
+ * (sort+limit(1), no scan) rather than hard-coded, so a backfill of older data
+ * widens the window automatically.
+ */
+let dataStartCache: string | null = null
+export async function getDataStart(): Promise<string> {
+  if (dataStartCache) return dataStartCache
+  const client = await clientPromise
+  const first = await client.db("atms").collection("stockmovement_v5")
+    .find({ year_month: { $ne: null } }, { projection: { year_month: 1, _id: 0 } })
+    .sort({ year_month: 1 })
+    .limit(1)
+    .next()
+  dataStartCache = (first?.year_month as string) ?? "2023-01"
+  return dataStartCache
+}
+
+/**
+ * Resolve a `?months=` query value to a concrete window ending at `month`.
+ * "all" (or anything non-numeric) → everything back to getDataStart().
+ */
+export async function resolveWindow(
+  month: string,
+  months: string | null
+): Promise<{ start: string; end: string; months: number; all: boolean }> {
+  const n = Number(months)
+  if (Number.isFinite(n) && n >= 1) {
+    const w = windowFor(month, Math.floor(n))
+    return { ...w, months: Math.floor(n), all: false }
+  }
+  const start = await getDataStart()
+  return { start, end: month, months: monthRange(start, month).length, all: true }
 }
 
 export function isValidMonth(month: string | null): month is string {
@@ -235,30 +288,29 @@ export function receiptMatch(extra: Record<string, unknown> = {}) {
   }
 }
 
-// ── Snapshot generation ───────────────────────────────────────────────────────
+// ── Benchmark computation ─────────────────────────────────────────────────────
+
+type RawPricePoint = { price: number | null; count: number; qty: number; cost: number }
+
+type RawBenchmarkRow = {
+  _id: { p: string; s: string }
+  ชื่อสินค้า?:  string | null
+  กลุ่มสินค้า?: string | null
+  total_qty:   number
+  total_cost:  number
+  first_date:  string
+  last_date:   string
+  prices: RawPricePoint[]
+}
 
 /**
- * Compute the full snapshot for a month (mode over the trailing 12 months,
- * per รหัสสินค้า × ซัพพลายเออร์) and store it in `price_benchmark`.
- * Existing rows for the month are replaced.
+ * Rolls receipts up to one row per รหัสสินค้า × ซัพพลายเออร์ carrying that pair's
+ * full price distribution. Shared by snapshot generation and the long-window
+ * fallback so both produce identical numbers.
  */
-export async function generateSnapshot(month: string): Promise<{ row_count: number; ms: number }> {
-  const t0 = Date.now()
-  const client = await clientPromise
-  const db  = client.db("atms")
-  const src = db.collection("stockmovement_v5")
-  const dst = db.collection(SNAPSHOT_COLLECTION)
-
-  await dst.createIndex(
-    { snapshot_month: 1, รหัสสินค้า: 1, ซัพพลายเออร์: 1 },
-    { unique: true }
-  )
-  await dst.createIndex({ snapshot_month: 1, กลุ่มสินค้า: 1 })
-
-  const { start, end } = windowFor(month)
-
-  const pipeline = [
-    { $match: receiptMatch({ year_month: { $gte: start, $lte: end }, กลุ่มสินค้า: groupFilter() }) },
+function benchmarkPipeline(match: Record<string, unknown>) {
+  return [
+    { $match: match },
     {
       $addFields: {
         ซัพพลายเออร์: {
@@ -296,13 +348,23 @@ export async function generateSnapshot(month: string): Promise<{ row_count: numb
       },
     },
   ]
+}
 
-  const rows = await src.aggregate(pipeline, { allowDiskUse: true }).toArray()
-  const computed_at = new Date()
-
+/**
+ * Turn aggregated pair rows into benchmark docs: ราคากลาง = mode of ราคาทุน
+ * (tie → lower price), plus weighted-IQR outlier flags and trimmed min/max.
+ * Pure function — no I/O — so the snapshot and the fallback share one formula.
+ */
+export function buildBenchmarkDocs(
+  rows: RawBenchmarkRow[],
+  month: string,
+  start: string,
+  end: string,
+  computed_at: Date = new Date()
+): BenchmarkDoc[] {
   const docs: BenchmarkDoc[] = []
   for (const r of rows) {
-    const valid = (r.prices as { price: number | null; count: number; qty: number; cost: number }[])
+    const valid = r.prices
       .filter(p => p.price !== null && p.price !== undefined && Number.isFinite(p.price))
       // min → max ranking; stable base order for the mode tie-break below
       .sort((a, b) => (a.price as number) - (b.price as number))
@@ -351,6 +413,37 @@ export async function generateSnapshot(month: string): Promise<{ row_count: numb
       computed_at,
     })
   }
+  return docs
+}
+
+// ── Snapshot generation ───────────────────────────────────────────────────────
+
+/**
+ * Compute the full snapshot for a month (mode over the trailing 12 months,
+ * per รหัสสินค้า × ซัพพลายเออร์) and store it in `price_benchmark`.
+ * Existing rows for the month are replaced.
+ */
+export async function generateSnapshot(month: string): Promise<{ row_count: number; ms: number }> {
+  const t0 = Date.now()
+  const client = await clientPromise
+  const db  = client.db("atms")
+  const src = db.collection("stockmovement_v5")
+  const dst = db.collection(SNAPSHOT_COLLECTION)
+
+  await dst.createIndex(
+    { snapshot_month: 1, รหัสสินค้า: 1, ซัพพลายเออร์: 1 },
+    { unique: true }
+  )
+  await dst.createIndex({ snapshot_month: 1, กลุ่มสินค้า: 1 })
+
+  const { start, end } = windowFor(month)
+
+  const rows = await src.aggregate(
+    benchmarkPipeline(receiptMatch({ year_month: { $gte: start, $lte: end }, กลุ่มสินค้า: groupFilter() })),
+    { allowDiskUse: true }
+  ).toArray()
+
+  const docs = buildBenchmarkDocs(rows as unknown as RawBenchmarkRow[], month, start, end)
 
   await dst.deleteMany({ snapshot_month: month })
   if (docs.length > 0) {
@@ -363,6 +456,34 @@ export async function generateSnapshot(month: string): Promise<{ row_count: numb
   }
 
   return { row_count: docs.length, ms: Date.now() - t0 }
+}
+
+/**
+ * Long-window fallback ราคากลาง for ONE product code, computed live (never
+ * stored) when the 12-month snapshot has no row for it — i.e. the item exists
+ * but has not been received for over a year. Same mode/IQR formula as the
+ * snapshot, just a wider window (`start` … `month`).
+ *
+ * Scoped to a single code on purpose: an unscoped long-window aggregation over
+ * stockmovement_v5 would be unbounded.
+ */
+export async function computeBenchmarkForCode(
+  code: string,
+  month: string,
+  start: string,
+  groups: string[] = []
+): Promise<BenchmarkDoc[]> {
+  const client = await clientPromise
+  const rows = await client.db("atms").collection("stockmovement_v5").aggregate(
+    benchmarkPipeline(receiptMatch({
+      year_month: { $gte: start, $lte: month },
+      รหัสสินค้า: { $regex: escapeRegex(code), $options: "i" },
+      กลุ่มสินค้า: groupFilter(groups),
+    })),
+    { allowDiskUse: true, maxTimeMS: 45_000 }
+  ).toArray()
+
+  return buildBenchmarkDocs(rows as unknown as RawBenchmarkRow[], month, start, month)
 }
 
 /**

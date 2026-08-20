@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
-import { ensureSnapshot, escapeRegex, getContractMap, groupFilter, isValidMonth, SNAPSHOT_COLLECTION } from "@/lib/price-benchmark"
+import { computeBenchmarkForCode, ensureSnapshot, escapeRegex, getContractMap, getDataStart, groupFilter, isValidMonth, SNAPSHOT_COLLECTION, WINDOW_MONTHS, type BenchmarkDoc } from "@/lib/price-benchmark"
 
 export const maxDuration = 60
 
@@ -9,6 +9,11 @@ const MAX_PRODUCTS = 50
 /**
  * ราคากลาง lookup for the procurement team.
  * Lazily generates the month's snapshot on first call.
+ *
+ * Fallback: when a รหัสสินค้า search finds nothing in the 12-month snapshot (the
+ * item exists but has not been received for over a year), the benchmark is
+ * recomputed live over the FULL history so the user still gets a reference
+ * price instead of a dead end. Flagged `fallback: true` in the response.
  */
 export async function GET(req: Request) {
   try {
@@ -50,10 +55,36 @@ export async function GET(req: Request) {
     ]).toArray()
     const codes = topProducts.map(p => p._id)
 
-    const rows = await col
+    let rows = await col
       .find({ ...match, รหัสสินค้า: { $in: codes } }, { projection: { _id: 0 } })
       .sort({ total_cost: -1 })
       .toArray()
+
+    // ── Long-window fallback ──────────────────────────────────────────────────
+    // Only for a code search: an unscoped long-window aggregation would be
+    // unbounded. Supplier/group browsing keeps the strict 12-month semantics.
+    let fallback: { window_start: string; window_end: string; window_months: number } | null = null
+    if (rows.length === 0 && productCode) {
+      const dataStart = await getDataStart()
+      const docs = await computeBenchmarkForCode(productCode, month, dataStart, groups)
+      if (docs.length > 0) {
+        // same "top products by spend, then every supplier row for them" shape
+        const spend = new Map<string, number>()
+        for (const d of docs) spend.set(d.รหัสสินค้า, (spend.get(d.รหัสสินค้า) ?? 0) + d.total_cost)
+        const keep = new Set(
+          [...spend.entries()].sort((a, b) => b[1] - a[1]).slice(0, MAX_PRODUCTS).map(([c]) => c)
+        )
+        rows = docs
+          .filter(d => keep.has(d.รหัสสินค้า))
+          .sort((a, b) => b.total_cost - a.total_cost) as unknown as typeof rows
+        codes.push(...keep)
+        fallback = {
+          window_start: dataStart,
+          window_end:   month,
+          window_months: WINDOW_MONTHS,
+        }
+      }
+    }
 
     // Overlay negotiated contract prices in effect for this month (per สินค้า×ซัพพลายเออร์)
     const contractMap = await getContractMap(month, codes)
@@ -69,7 +100,9 @@ export async function GET(req: Request) {
         : r
     })
 
-    const totalProducts = (await col.distinct("รหัสสินค้า", match)).length
+    const totalProducts = fallback
+      ? new Set(rows.map(r => (r as unknown as BenchmarkDoc).รหัสสินค้า)).size
+      : (await col.distinct("รหัสสินค้า", match)).length
 
     return NextResponse.json({
       success: true,
@@ -77,6 +110,7 @@ export async function GET(req: Request) {
       snapshot,
       total_products: totalProducts,
       truncated: totalProducts > MAX_PRODUCTS,
+      fallback,
       data,
     })
   } catch (error: any) {

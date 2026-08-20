@@ -1,13 +1,16 @@
 import { NextResponse } from "next/server"
 import clientPromise from "@/lib/mongo"
-import { branchFilter, escapeRegex, isValidMonth, receiptMatch, weightedIQRBounds, windowFor } from "@/lib/price-benchmark"
+import { branchFilter, escapeRegex, isValidMonth, monthRange, receiptMatch, resolveWindow, weightedIQRBounds } from "@/lib/price-benchmark"
 
 export const maxDuration = 60
 
 /**
- * ราคารายเดือนของสินค้าหนึ่งตัว (ทั้ง 12 เดือนของ window ราคากลาง):
- * min / max / mode ต่อเดือน + จุดราคาซื้อจริงทุกจุด (ติดธง outlier ด้วย IQR
- * ของทั้ง window) — ใช้วาด Price Band Timeline ใน /price-benchmark
+ * ราคารายเดือนของสินค้าหนึ่งตัว: min / max / mode ต่อเดือน + จุดราคาซื้อจริงทุกจุด
+ * (ติดธง outlier ด้วย IQR ของทั้ง window) — ใช้วาด Price Band Timeline ใน
+ * /price-benchmark
+ *
+ * `months` = จำนวนเดือนย้อนหลังนับรวมเดือนที่เลือก (เช่น 12, 24) หรือ "all" =
+ * ย้อนถึงเดือนแรกสุดที่มีข้อมูลใน stockmovement_v5 (default)
  */
 export async function GET(req: Request) {
   try {
@@ -17,6 +20,8 @@ export async function GET(req: Request) {
     const supplier    = searchParams.get("supplier")?.trim()
     const branches    = (searchParams.get("branches") ?? "")
       .split(",").map(s => s.trim()).filter(Boolean)
+    // default = ย้อนหลังทั้งหมดเท่าที่มีข้อมูล
+    const monthsParam = searchParams.get("months")
 
     if (!isValidMonth(month)) {
       return NextResponse.json({ success: false, error: "month must be YYYY-MM" }, { status: 400 })
@@ -25,7 +30,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ success: false, error: "product_code is required" }, { status: 400 })
     }
 
-    const { start, end } = windowFor(month)
+    const { start, end, months: windowMonths, all } = await resolveWindow(month, monthsParam)
     const client = await clientPromise
     const col = client.db("atms").collection("stockmovement_v5")
 
@@ -76,14 +81,7 @@ export async function GET(req: Request) {
     const isOutlier = (p: number) => !!bounds && (p < bounds.lower || p > bounds.upper)
 
     // every month of the window on the axis, even empty ones
-    const monthsAxis: string[] = []
-    {
-      const [sy, sm] = start.split("-").map(Number)
-      for (let i = 0; i < 12; i++) {
-        const d = new Date(Date.UTC(sy, sm - 1 + i, 1))
-        monthsAxis.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`)
-      }
-    }
+    const monthsAxis = monthRange(start, end)
 
     const byMonth = new Map<string, { price: number; count: number; qty: number; supplier: string }[]>()
     for (const r of rows) {
@@ -119,6 +117,8 @@ export async function GET(req: Request) {
       product_code: productCode,
       window_start: start,
       window_end: end,
+      window_months: windowMonths,
+      all_time: all,
       iqr: bounds,
       suppliers,
       monthly,

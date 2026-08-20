@@ -401,6 +401,14 @@ const PriceScatter3D = dynamic(() => import("@/components/PriceScatter3D"), {
   loading: () => <Skeleton h={460} />,
 })
 
+/** ช่วงเวลาที่เลือกได้บนกราฟแนวโน้มราคา — "all" = ย้อนหลังเท่าที่มีข้อมูล */
+const TIMELINE_RANGES = [
+  { key: "12",  label: "12 เดือน" },
+  { key: "24",  label: "24 เดือน" },
+  { key: "all", label: "ทั้งหมด"  },
+] as const
+type TimelineRange = (typeof TIMELINE_RANGES)[number]["key"]
+
 function PriceTimelineChart({ code, month, supplier, benchmark, contracts = [], auto, branchesParam = "" }: {
   code: string
   month: string
@@ -415,6 +423,8 @@ function PriceTimelineChart({ code, month, supplier, benchmark, contracts = [], 
   const [loading, setLoading] = useState(false)
   const [wanted, setWanted]   = useState(auto)
   const [is3d, setIs3d]       = useState(false)
+  const [range, setRange]     = useState<TimelineRange>("all")
+  const [winInfo, setWinInfo] = useState<{ start: string; end: string; months: number } | null>(null)
 
   useEffect(() => { setWanted(auto) }, [auto])
 
@@ -424,17 +434,21 @@ function PriceTimelineChart({ code, month, supplier, benchmark, contracts = [], 
     ;(async () => {
       setLoading(true)
       try {
-        const params = new URLSearchParams({ month, product_code: code })
+        const params = new URLSearchParams({ month, product_code: code, months: range })
         if (supplier) params.set("supplier", supplier)
         if (branchesParam) params.set("branches", branchesParam)
         const res  = await fetch(`/api/price-benchmark/timeline?${params}`, { cache: "no-store" })
         const json = await res.json()
-        if (!cancelled && json.success) { setData(json.monthly); setSuppliers(json.suppliers ?? []) }
+        if (!cancelled && json.success) {
+          setData(json.monthly)
+          setSuppliers(json.suppliers ?? [])
+          setWinInfo({ start: json.window_start, end: json.window_end, months: json.window_months })
+        }
       } catch { /* keep silent — chart is supplementary */ }
       finally { if (!cancelled) setLoading(false) }
     })()
     return () => { cancelled = true }
-  }, [wanted, code, month, supplier, branchesParam])
+  }, [wanted, code, month, supplier, branchesParam, range])
 
   if (!wanted) {
     return (
@@ -444,7 +458,7 @@ function PriceTimelineChart({ code, month, supplier, benchmark, contracts = [], 
           onClick={() => setWanted(true)}
           style={{ fontFamily: FONT_BODY, fontSize: 13, fontWeight: 500, color: PV.blue, background: "none", border: "none", cursor: "pointer" }}
         >
-          แสดงกราฟแนวโน้มราคา 12 เดือน
+          แสดงกราฟแนวโน้มราคาย้อนหลัง
         </button>
       </div>
     )
@@ -485,8 +499,27 @@ function PriceTimelineChart({ code, month, supplier, benchmark, contracts = [], 
     <div style={{ border: `1px solid ${PV.border}`, borderRadius: 8, padding: "12px 8px 4px", background: PV.surface }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0 12px 6px", flexWrap: "wrap", gap: 8 }}>
         <span style={{ fontFamily: FONT_HEAD, fontSize: 14, fontWeight: 600, color: PV.ink }}>
-          แนวโน้มราคา 12 เดือน{supplier ? ` — ${supplier}` : " — ทุกซัพพลายเออร์"}
+          แนวโน้มราคา {winInfo ? `${winInfo.months} เดือน (${fmtYM(winInfo.start)} – ${fmtYM(winInfo.end)})` : ""}
+          {supplier ? ` — ${supplier}` : " — ทุกซัพพลายเออร์"}
         </span>
+        {/* ช่วงเวลาย้อนหลัง */}
+        <div style={{ display: "inline-flex", border: `1px solid ${PV.border}`, borderRadius: 8, overflow: "hidden" }}>
+          {TIMELINE_RANGES.map(r => (
+            <button
+              key={r.key}
+              type="button"
+              onClick={() => setRange(r.key)}
+              style={{
+                fontFamily: FONT_BODY, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                padding: "5px 12px", border: "none",
+                background: range === r.key ? PV.blue : PV.surface,
+                color: range === r.key ? "#fff" : PV.gray,
+              }}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
         {/* 2D / 3D toggle */}
         <div style={{ display: "inline-flex", border: `1px solid ${PV.border}`, borderRadius: 8, overflow: "hidden" }}>
           {([["2D", false], ["3D", true]] as const).map(([lab, v]) => (
@@ -774,7 +807,7 @@ function SupplierSection({ row, rank, isOverall, dimmed }: {
           <PriceRankingTable row={row} />
           <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", padding: "8px 16px", background: PV.bg, borderTop: `1px solid ${PV.border}` }}>
             <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: PV.gray }}>
-              ช่วงข้อมูล {fmtYM(row.first_date)} – {fmtYM(row.last_date)} (window 12 เดือน: {fmtYM(row.window_start)} – {fmtYM(row.window_end)})
+              ช่วงข้อมูล {fmtYM(row.first_date)} – {fmtYM(row.last_date)} (window: {fmtYM(row.window_start)} – {fmtYM(row.window_end)})
             </span>
             <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: PV.gray }}>
               {row.iqr_lower != null && row.iqr_upper != null
@@ -820,6 +853,12 @@ function RecommendationCard({ rows, onViewTransactions, code }: {
   const overpaid  = Math.max(0, totalCost - best.benchmark_price * totalQty)
   const stale     = monthsAgo(best.last_date) > 6
   const thin      = best.total_records < 3
+  // window ที่ราคากลางแถวนี้คำนวณมาจริง — ปกติ 12 เดือน แต่เป็น 44 เดือนตอน fallback
+  const winMonths = (() => {
+    const [sy, sm] = best.window_start.split("-").map(Number)
+    const [ey, em] = best.window_end.split("-").map(Number)
+    return (ey - sy) * 12 + (em - sm) + 1
+  })()
 
   return (
     <div style={{
@@ -847,7 +886,7 @@ function RecommendationCard({ rows, onViewTransactions, code }: {
       {overpaid > 0 && rows.length > 1 && (
         <div style={{ textAlign: "right" }} title="เทียบกรณีซื้อทุกชิ้นที่ราคาแนะนำ — ตัวเลขเชิงโอกาส อาจมีเหตุผลอื่น เช่น งานด่วน/ของขาด/สเปคต่าง">
           <div style={{ fontFamily: FONT_BODY, fontSize: 11, fontWeight: 700, color: PV.error, textTransform: "uppercase", letterSpacing: 0.5 }}>
-            จ่ายเกินราคาถูกสุด (12 เดือน)
+            จ่ายเกินราคาถูกสุด ({winMonths} เดือน)
           </div>
           <div style={{ fontFamily: FONT_HEAD, fontSize: 22, fontWeight: 700, color: PV.error }}>
             ฿{fmt0(overpaid)}
@@ -1629,6 +1668,8 @@ function LookupTab({ prefill, onViewTransactions }: {
   const [totalProducts, setTotalProducts] = useState(0)
   const [selectedSupplier, setSelectedSupplier] = useState<string | null>(null)
   const [lastCode, setLastCode] = useState("")
+  // set when ราคากลาง had to be computed over the full history (no receipt in 12 เดือน)
+  const [fallback, setFallback] = useState<{ window_start: string; window_end: string; window_months: number } | null>(null)
 
   // group options for the multi-select (fuel already excluded server-side)
   useEffect(() => {
@@ -1663,9 +1704,11 @@ function LookupTab({ prefill, onViewTransactions }: {
       setRows(json.data)
       setTruncated(json.truncated)
       setTotalProducts(json.total_products)
+      setFallback(json.fallback ?? null)
     } catch (e: any) {
       setError(e.message || "โหลดข้อมูลไม่สำเร็จ")
       setRows([])
+      setFallback(null)
     } finally {
       setLoading(false)
     }
@@ -1755,6 +1798,7 @@ function LookupTab({ prefill, onViewTransactions }: {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16, gap: 12, flexWrap: "wrap" }}>
           <span style={{ fontFamily: FONT_BODY, fontSize: 12, color: PV.gray }}>
             {computedAt ? <>ราคากลางคำนวณล่าสุด {fmtDate(computedAt)}</> : <>ราคากลาง = ราคาที่พบบ่อยสุดใน 12 เดือนย้อนหลัง</>}
+            {" · ถ้าไม่มีการรับเข้าใน 12 เดือน ระบบจะย้อนหาให้ไกลที่สุดเท่าที่มีข้อมูล"}
             {branchParam(branches) && <> · กราฟแสดงเฉพาะคลังที่เลือก (ราคากลางยังคำนวณจากทุกคลัง)</>}
           </span>
           <div style={{ display: "flex", gap: 12 }}>
@@ -1803,6 +1847,13 @@ function LookupTab({ prefill, onViewTransactions }: {
 
       {!loading && rows.length > 0 && (
         <>
+          {fallback && (
+            <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: PV.warn, background: `${PV.warn}10`, border: `1px solid ${PV.warn}40`, borderRadius: 8, padding: "10px 16px" }}>
+              ⚠️ ไม่มีการรับเข้าใน {fallback.window_months} เดือนล่าสุด — ราคากลางด้านล่างคำนวณจาก
+              ข้อมูลย้อนหลังทั้งหมด ({fmtYM(fallback.window_start)} – {fmtYM(fallback.window_end)})
+              จึงเป็นราคาเก่า ใช้อ้างอิงคร่าว ๆ เท่านั้น
+            </div>
+          )}
           {truncated && (
             <div style={{ fontFamily: FONT_BODY, fontSize: 13, color: PV.warn, background: `${PV.warn}10`, border: `1px solid ${PV.warn}40`, borderRadius: 8, padding: "10px 16px" }}>
               พบ {totalProducts.toLocaleString()} รหัสสินค้า — แสดง 50 รายการแรก (เรียงตามมูลค่าซื้อ) กรุณาระบุเงื่อนไขให้แคบลง
