@@ -1484,7 +1484,7 @@ export default function CostReportPage() {
             </div>
 
             {/* KPI row */}
-            <div className="mb-5 grid grid-cols-2 gap-4 lg:grid-cols-4">
+            <div className="mb-5 grid grid-cols-2 gap-4 lg:grid-cols-3">
               <div className="rounded-2xl border px-5 py-4">
                 <p className="text-xs text-gray-400">{year} Total Cost</p>
                 <p className="mt-1 text-3xl font-bold text-gray-900">{fmtShort(totalCurr)}</p>
@@ -1500,18 +1500,6 @@ export default function CostReportPage() {
                 <p className="mt-1 text-2xl font-bold"><PctBadge pct={pctOf(totalCurr, totalPrev)} size="text-2xl" /></p>
                 <p className="mt-0.5 text-xs text-gray-400">
                   {totalPrev > 0 ? `${totalCurr - totalPrev >= 0 ? "+" : "−"}฿${fmtNum(Math.abs(totalCurr - totalPrev))}` : "—"}
-                </p>
-              </div>
-              <div className="rounded-2xl border px-5 py-4">
-                <p className="text-xs text-gray-400">Fleet ({year})</p>
-                <p className="mt-1 text-3xl font-bold text-gray-900">{countsCurrLocal.plate_count}</p>
-                <p className="mt-0.5 text-xs text-gray-400">
-                  คัน{countsCurrLocal.plate_count > 0 ? ` · เฉลี่ย ฿${fmtNum(totalCurr / countsCurrLocal.plate_count)}/คัน` : ""}
-                  {countsPrevLocal.plate_count > 0 ? ` (${prevYear}: ฿${fmtNum(totalPrev / countsPrevLocal.plate_count)})` : ""}
-                </p>
-                <p className="mt-1.5 border-t pt-1.5 text-[9px] leading-snug text-gray-400">
-                  นับเฉพาะรถที่มีค่าซ่อม/เบิกอะไหล่ในช่วงที่เลือก · เฉลี่ย/คัน = ค่าใช้จ่ายรวม ÷ จำนวนคัน
-                  (ปี {prevYear} ใช้จำนวนคันของปีนั้นเอง)
                 </p>
               </div>
             </div>
@@ -1607,30 +1595,30 @@ export default function CostReportPage() {
             </div>
           </section>
 
-          {/* ══ SLIDE 2: Breakdown Rate (ML / MS) ═════════════════════════════ */}
+          {/* ══ SLIDE 2: Break Rate (ML / MS) ═════════════════════════════ */}
           {hasBd && (
             <section ref={setSlideRef("breakdown")} className="slide rounded-2xl bg-white p-8 shadow-sm print:rounded-none print:shadow-none">
               <div className="mb-4 flex items-start justify-between border-b pb-4">
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-widest text-emerald-600">Fleet Reliability</p>
-                  <h2 className="mt-1 text-2xl font-bold text-gray-900">Breakdown Rate</h2>
+                  <h2 className="mt-1 text-2xl font-bold text-gray-900">Break Rate</h2>
                   <p className="mt-0.5 text-sm text-gray-400">
                     {periodLabel} เทียบกับ {prevYear} · % = จำนวน breakdown ÷ (จำนวนรถ × วันในเดือน) · ตัวเลขเล็ก = ครั้ง/วัน
                   </p>
                 </div>
                 <div className="flex flex-col items-end gap-1.5">
                   <div className="flex items-center gap-2">
-                    <p className="text-xs text-gray-300">Slide 2 — Breakdown Rate</p>
+                    <p className="text-xs text-gray-300">Slide 2 — Break Rate</p>
                     <PngButton slideKey="breakdown" name={`mm-report-2-breakdown-${year}`} />
                   </div>
-                  <FilterTags note="* Breakdown Rate ตาม filter รถมีนา/รถร่วม — ไม่ตามคลัง (ข้อมูลรถไม่มีมิติคลัง)" />
+                  <FilterTags note="* Break Rate ตาม filter รถมีนา/รถร่วม — ไม่ตามคลัง (ข้อมูลรถไม่มีมิติคลัง)" />
                 </div>
               </div>
 
               {/* Trend chart + insights */}
               <div className="mb-5 grid gap-5 lg:grid-cols-3">
                 <div className="lg:col-span-2">
-                  <p className="mb-2 text-xs font-semibold text-gray-700">Breakdown Rate รายเดือน — {year} (เส้นทึบ) vs {prevYear} (เส้นประ)</p>
+                  <p className="mb-2 text-xs font-semibold text-gray-700">Break Rate รายเดือน — {year} (เส้นทึบ) vs {prevYear} (เส้นประ)</p>
                   <ResponsiveContainer width="100%" height={240}>
                     <ComposedChart data={bdChart} margin={{ top: 20, right: 12, left: 0, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
@@ -1700,8 +1688,7 @@ export default function CostReportPage() {
                         <tr className="border-b text-left text-[10px] text-gray-400">
                           <th className="py-1.5 pr-2 font-medium">Mo</th>
                           <th className="py-1.5 pr-2 font-medium">{String(year).slice(2)}</th>
-                          <th className="py-1.5 pr-2 font-medium">{String(prevYear).slice(2)}</th>
-                          <th className="py-1.5 font-medium">YoY</th>
+                          <th className="py-1.5 font-medium">{String(prevYear).slice(2)}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1712,14 +1699,9 @@ export default function CostReportPage() {
                               {r.pCurr !== null ? `${r.pCurr.toFixed(2)}%` : "—"}
                               {r.nCurr !== null && <div className="text-[9px] font-normal leading-tight text-gray-400">{r.nCurr.toFixed(1)}</div>}
                             </td>
-                            <td className="py-1.5 pr-2 tabular-nums text-gray-500">
+                            <td className="py-1.5 tabular-nums text-gray-500">
                               {r.pPrev !== null ? `${r.pPrev.toFixed(2)}%` : "—"}
                               {r.nPrev !== null && <div className="text-[9px] leading-tight text-gray-300">{r.nPrev.toFixed(1)}</div>}
-                            </td>
-                            <td className={`py-1.5 tabular-nums font-semibold ${
-                              r.yoy === null ? "text-gray-300" : r.yoy > 0 ? "text-red-500" : "text-emerald-700"
-                            }`}>
-                              {r.yoy !== null ? `${r.yoy > 0 ? "+" : ""}${r.yoy.toFixed(0)}%` : "—"}
                             </td>
                           </tr>
                         ))}
