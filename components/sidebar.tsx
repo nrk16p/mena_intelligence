@@ -127,6 +127,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/pm-cost",            label: "PM Cost",         icon: Wrench },
       { href: "/pm-cost-main",       label: "PM Cost (MR)",    icon: History },
       { href: "/pm-mapping",         label: "PM Mapping",      icon: Settings2 },
+      { href: "/pm-mixer",           label: "PM มิกเซอร์ LB",   icon: Truck },
       { href: "/pc-cost",            label: "PC Cost",         icon: ClipboardList },
       { href: "/transaction-detail", label: "Transactions",    icon: FileText },
       { href: "/workshop-summary",   label: "อู่ใน/อู่นอก",     icon: Wrench },
