@@ -5,7 +5,7 @@ export const maxDuration = 120
 const COLUMNS = [
   "วันแจ้งซ่อม", "เดือน", "เลขที่ใบแจ้งซ่อม", "ทะเบียน", "เลขรถ", "ประเภทงานซ่อม",
   "สาขา", "ประเภทรถ", "วันซ่อมเสร็จ/ปิด", "ซ่อมซ้ำ", "ห่างจากใบก่อน (วัน)",
-  "ใบก่อนหน้า", "ประเภทใบก่อนหน้า", "วันเสร็จใบก่อนหน้า", "รายละเอียด",
+  "ใบก่อนหน้า", "ประเภทใบก่อนหน้า", "วันเสร็จใบก่อนหน้า", "อาการรอบก่อน", "อาการรอบนี้",
 ] as const
 
 function cell(v: unknown): string {
@@ -48,7 +48,8 @@ export async function GET(req: Request) {
             [
               fmt(e.reportedAt), e.ym, e.requestCode, e.truck, e.vehicleNo, e.repairType,
               e.branch, e.ownerType, fmt(e.finishAt), e.isRepeat ? "ใช่" : "",
-              e.gapDays ?? "", e.prevCode ?? "", e.prevType ?? "", fmt(e.prevFinishAt), e.description,
+              e.gapDays ?? "", e.prevCode ?? "", e.prevType ?? "", fmt(e.prevFinishAt),
+              e.prevDescription ?? "", e.description,
             ].map(cell).join(",") + "\n"
           )
         )

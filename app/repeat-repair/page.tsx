@@ -39,6 +39,7 @@ type Ev = {
   repairType: string; branch: string; reportedAt: string; finishAt: string | null
   ym: string; gapDays: number | null; prevCode: string | null; prevFinishAt: string | null
   prevType: string | null
+  prevDescription: string | null
   description: string
 }
 type Api = {
@@ -101,7 +102,7 @@ export default function RepeatRepairPage() {
     const q = search.trim().toLowerCase()
     if (!q) return data.repeatEvents
     return data.repeatEvents.filter((e) =>
-      [e.truck, e.requestCode, e.repairType, e.branch, e.prevCode ?? "", e.description]
+      [e.truck, e.requestCode, e.repairType, e.branch, e.prevCode ?? "", e.description, e.prevDescription ?? ""]
         .join(" ").toLowerCase().includes(q)
     )
   }, [data, search])
@@ -124,7 +125,7 @@ export default function RepeatRepairPage() {
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
       ["KPI ซ่อมซ้ำ (Repeat Repair Rate)", ""],
       ["ปี", year], ["ช่วงนับซ้ำ (วัน)", windowDays],
-      ["รวมงานที่ซ้ำโดยธรรมชาติ (PM/ยาง ฯลฯ)", planned ? "รวม" : "ไม่รวม"],
+      ["รวมงานที่ซ้ำโดยธรรมชาติ (PM/ยาง/อุปกรณ์เสริม ฯลฯ)", planned ? "รวม" : "ไม่รวม"],
       [], ["งานซ่อมทั้งหมด", data.total], ["งานซ่อมซ้ำ", data.repeats], ["Rate %", Number(data.rate.toFixed(1))],
       [], ["นิยาม", "ซ่อมซ้ำ = ทะเบียนเดียวกัน + ประเภทงานซ่อมเดียวกัน + คนละใบ แจ้งใหม่ภายใน N วันนับจากวันซ่อมเสร็จของใบก่อนหน้า"],
     ]), "สรุป")
@@ -142,7 +143,7 @@ export default function RepeatRepairPage() {
         วันแจ้งซ่อม: fmtDate(e.reportedAt), เลขที่ใบ: e.requestCode, ทะเบียน: e.truck,
         ประเภทงานซ่อม: e.repairType, สาขา: e.branch, "ใบก่อนหน้า": e.prevCode,
         "ประเภทใบก่อน": e.prevType, "วันเสร็จใบก่อน": fmtDate(e.prevFinishAt),
-        "ห่าง (วัน)": e.gapDays, รายละเอียด: e.description,
+        "ห่าง (วัน)": e.gapDays, "อาการรอบก่อน": e.prevDescription, "อาการรอบนี้": e.description,
       }))
     ), "รายการซ่อมซ้ำ")
     const out = XLSX.write(wb, { bookType: "xlsx", type: "array" })
@@ -161,7 +162,7 @@ export default function RepeatRepairPage() {
             <b>ซ่อมซ้ำ</b> = ทะเบียนเดียวกัน + ประเภทงานซ่อมเดียวกัน + คนละใบ
             และแจ้งซ่อมใหม่ภายใน {windowDays} วัน นับจาก<b>วันซ่อมเสร็จ</b>ของใบก่อนหน้า
             <br />
-            ตัดทะเบียนหลอก (สบ.0000) ออก · ค่าเริ่มต้นไม่รวมงานที่ซ้ำโดยธรรมชาติ (PM/ยาง/ทำความสะอาด/วัสดุสิ้นเปลือง)
+            ตัดทะเบียนหลอก (สบ.0000) ออก · ค่าเริ่มต้นไม่รวมงานที่ซ้ำโดยธรรมชาติ (PM/ยาง/อุปกรณ์เสริม/ทำความสะอาด/วัสดุสิ้นเปลือง)
           </p>
         </header>
 
@@ -178,7 +179,7 @@ export default function RepeatRepairPage() {
                 {[7, 14, 30, 45, 60, 90].map((d) => <option key={d} value={d}>{d} วัน</option>)}
               </select>
             </Field>
-            <Field label="งานที่ซ้ำโดยธรรมชาติ (PM/ยาง ฯลฯ)">
+            <Field label="งานที่ซ้ำโดยธรรมชาติ (PM/ยาง/อุปกรณ์เสริม ฯลฯ)">
               <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, height: 36 }}>
                 <input type="checkbox" checked={planned} onChange={(e) => setPlanned(e.target.checked)} />
                 รวมในการคำนวณ
@@ -345,7 +346,8 @@ export default function RepeatRepairPage() {
                   <thead>
                     <tr>
                       {["วันแจ้งซ่อม", "เลขที่ใบ", "ทะเบียน", "ประเภทงานซ่อม", "สาขา",
-                        "ใบก่อนหน้า", "ประเภทใบก่อน", "วันเสร็จใบก่อน", "ห่าง (วัน)", "อาการ/รายละเอียด"].map((h) =>
+                        "ใบก่อนหน้า", "ประเภทใบก่อน", "วันเสร็จใบก่อน", "ห่าง (วัน)",
+                        "อาการรอบก่อน", "อาการรอบนี้"].map((h) =>
                         <th key={h} style={th(h === "ห่าง (วัน)" ? "right" : "left")}>{h}</th>)}
                     </tr>
                   </thead>
@@ -365,7 +367,9 @@ export default function RepeatRepairPage() {
                         <td style={{ ...td("right"), fontWeight: 700, color: (e.gapDays ?? 99) <= 7 ? PV.red : PV.ink }}>
                           {e.gapDays?.toFixed(1)}
                         </td>
-                        <td style={{ ...td(), maxWidth: 420, fontSize: 12.5, color: PV.sub }}>{e.description}</td>
+                        {/* วางติดกันเรียงตามเวลา ก่อน → นี้ เพื่อกวาดตาเทียบอาการได้ในแถวเดียว */}
+                        <td style={{ ...td(), maxWidth: 320, fontSize: 12.5, color: PV.sub }}>{e.prevDescription}</td>
+                        <td style={{ ...td(), maxWidth: 320, fontSize: 12.5 }}>{e.description}</td>
                       </tr>
                     ))}
                   </tbody>

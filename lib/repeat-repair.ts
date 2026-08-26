@@ -22,6 +22,10 @@ export const REPORT_FROM = "2026-01" // ธ.ค. 2025 ใช้เป็น look
  * ยาง อยู่ในลิสต์นี้ด้วยแม้ไม่ใช่งานตามแผน: รถคันเดียวเปลี่ยนยางคนละเส้น
  * คนละใบภายใน 30 วันเป็นเรื่องปกติ ไม่ใช่ซ่อมแล้วเสียซ้ำ นับรวมแล้วดัน rate
  * ขึ้นโดยไม่ได้สะท้อนคุณภาพงานซ่อม
+ *
+ * อุปกรณ์เสริม เช่นกัน: เป็นถุงรวมของจิปาถะที่ไม่เกี่ยวกันเลย (ตะขอลากจูง
+ * บังโคลน ยางรองแท่น ฯลฯ) คนละชิ้นคนละอาการก็ตกอยู่ประเภทเดียวกัน จับคู่
+ * ด้วยประเภทจึงนับเป็น "ซ้ำ" ทั้งที่เป็นคนละปัญหา
  */
 export const NATURAL_REPEAT_TYPES = [
   "PMช่างมีนา",
@@ -33,6 +37,7 @@ export const NATURAL_REPEAT_TYPES = [
   "ต่อภาษี",
   "ตรวจสภาพถังก๊าซ NGV ( ประจำปี )",
   "ยาง",
+  "อุปกรณ์เสริม",
 ]
 
 /** ทะเบียนหลอก (งานเบิกเข้าสต็อก ไม่ใช่รถจริง) */
@@ -60,6 +65,9 @@ export type RepairEvent = {
    *  ภายในกลุ่ม ทะเบียน|ประเภท) แต่เก็บค่าจริงจากใบที่แมตช์ ไม่ใช่ก๊อปมา
    *  เพื่อให้ตารางตรวจสอบกฎนี้ได้จริง ไม่ใช่แค่ยืนยันตัวเอง */
   prevType: string | null
+  /** อาการ/รายละเอียดของใบก่อนหน้า — วางคู่กับ description เพื่อดูว่า "ซ้ำ"
+   *  เป็นอาการเดิมจริง หรือแค่บังเอิญอยู่ประเภทเดียวกัน */
+  prevDescription: string | null
   description: string
 }
 
@@ -187,6 +195,7 @@ export async function buildEvents(opts: BuildOpts = {}): Promise<RepairEvent[]> 
       prevCode: null,
       prevFinishAt: null,
       prevType: null,
+      prevDescription: null,
       description: (t.description || "").trim(),
     })
   }
@@ -221,6 +230,7 @@ export async function buildEvents(opts: BuildOpts = {}): Promise<RepairEvent[]> 
       cur.prevCode = best.requestCode
       cur.prevFinishAt = best.finishAt
       cur.prevType = best.repairType
+      cur.prevDescription = best.description
     }
   }
 
