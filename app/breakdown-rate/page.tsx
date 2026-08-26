@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react"
 import {
   CartesianGrid,
   ComposedChart,
+  LabelList,
   Legend,
   Line,
   ResponsiveContainer,
@@ -48,10 +49,8 @@ type MonthCell = {
   mm: string
   pCurr: number | null
   pPrev: number | null
-  yoy:   number | null
   nCurr: number | null   // ครั้ง/วัน current year
   nPrev: number | null   // ครั้ง/วัน previous year
-  trucksCurr: number | null
 }
 
 export default function BreakdownRatePage() {
@@ -125,10 +124,8 @@ export default function BreakdownRatePage() {
         ? (Number(rp.breakdown_count) / (Number(rp.truck_count) * daysInMonth(prevYear, mm))) * 100 : null
       return {
         mm, pCurr, pPrev,
-        yoy: pCurr !== null && pPrev !== null && pPrev > 0 ? ((pCurr - pPrev) / pPrev) * 100 : null,
         nCurr: rc ? Number(rc.breakdown_count) / daysInMonth(year, mm) : null,
         nPrev: rp ? Number(rp.breakdown_count) / daysInMonth(prevYear, mm) : null,
-        trucksCurr: rc ? Number(rc.truck_count) : null,
       }
     })
     const withP = rows.filter((r) => r.pCurr !== null)
@@ -141,9 +138,6 @@ export default function BreakdownRatePage() {
       avg,
       avgPrev,
       avgYoy: avg !== null && avgPrev !== null && avgPrev > 0 ? ((avg - avgPrev) / avgPrev) * 100 : null,
-      best:  withP.length ? withP.reduce((b, r) => (r.pCurr! < b.pCurr! ? r : b)) : null,
-      worst: withP.length ? withP.reduce((w, r) => (r.pCurr! > w.pCurr! ? r : w)) : null,
-      trucks: rows.map((r) => r.trucksCurr ?? 0).reduce((m, n) => Math.max(m, n), 0) || null,
     }
   }), [curr, prev, months, year, prevYear])
 
@@ -349,7 +343,7 @@ export default function BreakdownRatePage() {
               <p className="mb-2 text-xs font-semibold text-gray-700">
                 {focusFleet
                   ? `Breakdown Rate รายเดือน — ${focusFleet} · ${year} (เส้นทึบ) vs ${prevYear} (เส้นประ)`
-                  : `Breakdown Rate รายเดือน ปี ${year} — เทียบ 6 ลูกค้า (คลิกชื่อย่อด้านบนเพื่อเทียบกับปีก่อน)`}
+                  : `Breakdown Rate รายเดือน — ${year} (เส้นทึบ) vs ${prevYear} (เส้นประ) · 6 ลูกค้า (คลิกชื่อย่อเพื่อดูทีละราย)`}
               </p>
               <ResponsiveContainer width="100%" height={260}>
                 <ComposedChart data={chartData} margin={{ top: 12, right: 12, left: 0, bottom: 0 }}>
@@ -364,14 +358,18 @@ export default function BreakdownRatePage() {
                   <Legend formatter={(v) => <span style={{ fontSize: 10, color: "#6b7280" }}>{v}</span>} />
                   {shownFleets.map((f) => (
                     <React.Fragment key={f.code}>
-                      <Line dataKey={f.code} name={`${f.code} ${year}`} type="monotone" connectNulls
+                      {/* isAnimationActive={false}: ⬇ PNG captures the DOM as it
+                          stands, so an animating chart exports half-drawn */}
+                      <Line dataKey={f.code} name={`${f.code} ${year}`} type="monotone" connectNulls isAnimationActive={false}
                         stroke={f.color} strokeWidth={2.5}
-                        dot={{ r: 3.5, fill: f.color, strokeWidth: 0 }} activeDot={{ r: 5 }} />
-                      {focusFleet && (
-                        <Line dataKey={`${f.code} ${prevYear}`} name={`${f.code} ${prevYear}`} type="monotone" connectNulls
-                          stroke={f.color} strokeWidth={1.5} strokeDasharray="5 4" strokeOpacity={0.45}
-                          dot={{ r: 2, fill: f.color, strokeWidth: 0, fillOpacity: 0.45 }} />
-                      )}
+                        dot={{ r: 3.5, fill: f.color, strokeWidth: 0 }} activeDot={{ r: 5 }}>
+                        <LabelList dataKey={f.code} position="top" offset={8}
+                          style={{ fontSize: 9, fill: f.color, fontWeight: 600 }}
+                          formatter={(v: unknown) => (v === null || v === undefined ? "" : `${Number(v).toFixed(1)}%`)} />
+                      </Line>
+                      <Line dataKey={`${f.code} ${prevYear}`} name={`${f.code} ${prevYear}`} type="monotone" connectNulls isAnimationActive={false}
+                        stroke={f.color} strokeWidth={1.5} strokeDasharray="5 4" strokeOpacity={0.45}
+                        dot={{ r: 2, fill: f.color, strokeWidth: 0, fillOpacity: 0.45 }} />
                     </React.Fragment>
                   ))}
                 </ComposedChart>
@@ -411,19 +409,12 @@ export default function BreakdownRatePage() {
                 </div>
                 <p className="truncate text-[9px] text-gray-400">{f.name}</p>
 
-                <p className="mt-1.5 mb-1 flex items-center justify-between rounded-lg bg-gray-50 px-2 py-1 text-[9px] leading-tight text-gray-500">
-                  <span>B <span className="font-bold text-emerald-700">{f.best ? `${MONTH_LABEL[f.best.mm]} ${f.best.pCurr!.toFixed(1)}%` : "—"}</span></span>
-                  <span>W <span className="font-bold text-red-500">{f.worst ? `${MONTH_LABEL[f.worst.mm]} ${f.worst.pCurr!.toFixed(1)}%` : "—"}</span></span>
-                  <span className="font-bold text-gray-700">{f.trucks ?? "—"} คัน</span>
-                </p>
-
-                <table className="w-full text-[10px]">
+                <table className="mt-2 w-full text-[10px]">
                   <thead>
                     <tr className="border-b text-left text-[9px] text-gray-400">
                       <th className="py-1 pr-1 font-medium">Mo</th>
                       <th className="py-1 pr-1 font-medium">{yy(year)}</th>
-                      <th className="py-1 pr-1 font-medium">{yy(prevYear)}</th>
-                      <th className="py-1 font-medium">YoY</th>
+                      <th className="py-1 font-medium">{yy(prevYear)}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -434,13 +425,9 @@ export default function BreakdownRatePage() {
                           {r.pCurr !== null ? `${r.pCurr.toFixed(1)}%` : "—"}
                           {r.nCurr !== null && <span className="ml-0.5 text-[8px] font-normal text-gray-400">{r.nCurr.toFixed(1)}</span>}
                         </td>
-                        <td className="py-1 pr-1 tabular-nums text-gray-500">
+                        <td className="py-1 tabular-nums text-gray-500">
                           {r.pPrev !== null ? `${r.pPrev.toFixed(1)}%` : "—"}
-                        </td>
-                        <td className={`py-1 font-semibold tabular-nums ${
-                          r.yoy === null ? "text-gray-300" : r.yoy > 0 ? "text-red-500" : "text-emerald-700"
-                        }`}>
-                          {r.yoy !== null ? `${r.yoy > 0 ? "+" : ""}${r.yoy.toFixed(0)}%` : "—"}
+                          {r.nPrev !== null && <span className="ml-0.5 text-[8px] text-gray-300">{r.nPrev.toFixed(1)}</span>}
                         </td>
                       </tr>
                     ))}
