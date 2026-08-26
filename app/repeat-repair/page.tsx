@@ -125,7 +125,7 @@ export default function RepeatRepairPage() {
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
       ["KPI ซ่อมซ้ำ (Repeat Repair Rate)", ""],
       ["ปี", year], ["ช่วงนับซ้ำ (วัน)", windowDays],
-      ["รวมงานที่ซ้ำโดยธรรมชาติ (PM/ยาง/อุปกรณ์เสริม ฯลฯ)", planned ? "รวม" : "ไม่รวม"],
+      ["รวมงานที่ไม่สะท้อนคุณภาพซ่อม (PM/ยาง/อุปกรณ์เสริม/อุบัติเหตุ ฯลฯ)", planned ? "รวม" : "ไม่รวม"],
       [], ["งานซ่อมทั้งหมด", data.total], ["งานซ่อมซ้ำ", data.repeats], ["Rate %", Number(data.rate.toFixed(1))],
       [], ["นิยาม", "ซ่อมซ้ำ = ทะเบียนเดียวกัน + ประเภทงานซ่อมเดียวกัน + คนละใบ แจ้งใหม่ภายใน N วันนับจากวันซ่อมเสร็จของใบก่อนหน้า"],
     ]), "สรุป")
@@ -162,7 +162,7 @@ export default function RepeatRepairPage() {
             <b>ซ่อมซ้ำ</b> = ทะเบียนเดียวกัน + ประเภทงานซ่อมเดียวกัน + คนละใบ
             และแจ้งซ่อมใหม่ภายใน {windowDays} วัน นับจาก<b>วันซ่อมเสร็จ</b>ของใบก่อนหน้า
             <br />
-            ตัดทะเบียนหลอก (สบ.0000) ออก · ค่าเริ่มต้นไม่รวมงานที่ซ้ำโดยธรรมชาติ (PM/ยาง/อุปกรณ์เสริม/ทำความสะอาด/วัสดุสิ้นเปลือง)
+            ตัดทะเบียนหลอก (สบ.0000) ออก · ค่าเริ่มต้นไม่รวมงานที่ไม่สะท้อนคุณภาพซ่อม (PM/ยาง/อุปกรณ์เสริม/เคสอุบัติเหตุ/ทำความสะอาด/วัสดุสิ้นเปลือง)
           </p>
         </header>
 
@@ -179,7 +179,7 @@ export default function RepeatRepairPage() {
                 {[7, 14, 30, 45, 60, 90].map((d) => <option key={d} value={d}>{d} วัน</option>)}
               </select>
             </Field>
-            <Field label="งานที่ซ้ำโดยธรรมชาติ (PM/ยาง/อุปกรณ์เสริม ฯลฯ)">
+            <Field label="งานที่ไม่สะท้อนคุณภาพซ่อม (PM/ยาง/อุบัติเหตุ ฯลฯ)">
               <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, height: 36 }}>
                 <input type="checkbox" checked={planned} onChange={(e) => setPlanned(e.target.checked)} />
                 รวมในการคำนวณ
