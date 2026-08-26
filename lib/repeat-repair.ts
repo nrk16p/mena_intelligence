@@ -15,8 +15,15 @@ export const DB = "atms"
 export const DEFAULT_WINDOW = 30
 export const REPORT_FROM = "2026-01" // ธ.ค. 2025 ใช้เป็น lookback เท่านั้น
 
-/** งานตามแผน — ซ้ำโดยธรรมชาติ ไม่ใช่ "เสียซ้ำ" (ตัดออกจาก KPI ทางการ) */
-export const PLANNED_TYPES = [
+/**
+ * งานที่ซ้ำโดยธรรมชาติ ไม่ใช่ "เสียซ้ำ" — ตัดออกจาก KPI ทางการ
+ * (checkbox "รวมในการคำนวณ" / ?planned=1 ดึงกลับเข้ามาได้)
+ *
+ * ยาง อยู่ในลิสต์นี้ด้วยแม้ไม่ใช่งานตามแผน: รถคันเดียวเปลี่ยนยางคนละเส้น
+ * คนละใบภายใน 30 วันเป็นเรื่องปกติ ไม่ใช่ซ่อมแล้วเสียซ้ำ นับรวมแล้วดัน rate
+ * ขึ้นโดยไม่ได้สะท้อนคุณภาพงานซ่อม
+ */
+export const NATURAL_REPEAT_TYPES = [
   "PMช่างมีนา",
   "PMศูนย์บริการ",
   "ระบบบำรุงรักษา",
@@ -25,6 +32,7 @@ export const PLANNED_TYPES = [
   "น้ำมันเชื้อเพลิง",
   "ต่อภาษี",
   "ตรวจสภาพถังก๊าซ NGV ( ประจำปี )",
+  "ยาง",
 ]
 
 /** ทะเบียนหลอก (งานเบิกเข้าสต็อก ไม่ใช่รถจริง) */
@@ -146,7 +154,7 @@ export async function buildEvents(opts: BuildOpts = {}): Promise<RepairEvent[]> 
     })
   }
 
-  const planned = new Set(PLANNED_TYPES)
+  const planned = new Set(NATURAL_REPEAT_TYPES)
   // 1 event ต่อ (ใบ × ประเภท) — ประเภทเดียวกันหลายบรรทัดในใบเดียวนับครั้งเดียว
   const seen = new Set<string>()
   const events: RepairEvent[] = []
