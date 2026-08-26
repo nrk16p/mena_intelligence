@@ -119,6 +119,26 @@ export default function RepeatRepairPage() {
     return m
   }, [data])
 
+  // Shared by the workbook button at the top and the ⬇ Excel next to the raw
+  // table — one definition so the two sheets cannot drift apart.
+  const rawRow = (e: Ev) => ({
+    วันแจ้งซ่อม: fmtDate(e.reportedAt), เลขที่ใบ: e.requestCode, ทะเบียน: e.truck,
+    ประเภทงานซ่อม: e.repairType, สาขา: e.branch, "ใบก่อนหน้า": e.prevCode,
+    "ประเภทใบก่อน": e.prevType, "วันเสร็จใบก่อน": fmtDate(e.prevFinishAt),
+    "ห่าง (วัน)": e.gapDays, "อาการรอบก่อน": e.prevDescription, "อาการรอบนี้": e.description,
+  })
+
+  // Exports exactly what the table is showing — the search box included, and
+  // without the display limit. "ที่เห็นอยู่" has to mean what it says.
+  const exportRawExcel = () => {
+    if (!filteredEvents.length) return
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(filteredEvents.map(rawRow)), "รายการซ่อมซ้ำ")
+    const out = XLSX.write(wb, { bookType: "xlsx", type: "array" })
+    const tag = search.trim() ? `_${search.trim().replace(/[^\p{L}\p{N}]+/gu, "-").slice(0, 30)}` : ""
+    saveAs(new Blob([out], { type: "application/octet-stream" }), `repeat_repair_${year}${tag}.xlsx`)
+  }
+
   const exportExcel = () => {
     if (!data) return
     const wb = XLSX.utils.book_new()
@@ -139,12 +159,7 @@ export default function RepeatRepairPage() {
       data.byBranch.map((b) => ({ สาขา: b.key, งานซ่อม: b.events, ซ่อมซ้ำ: b.repeats, "Rate %": Number(b.rate.toFixed(1)) }))
     ), "ตามสาขา")
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(
-      data.repeatEvents.map((e) => ({
-        วันแจ้งซ่อม: fmtDate(e.reportedAt), เลขที่ใบ: e.requestCode, ทะเบียน: e.truck,
-        ประเภทงานซ่อม: e.repairType, สาขา: e.branch, "ใบก่อนหน้า": e.prevCode,
-        "ประเภทใบก่อน": e.prevType, "วันเสร็จใบก่อน": fmtDate(e.prevFinishAt),
-        "ห่าง (วัน)": e.gapDays, "อาการรอบก่อน": e.prevDescription, "อาการรอบนี้": e.description,
-      }))
+      data.repeatEvents.map(rawRow)
     ), "รายการซ่อมซ้ำ")
     const out = XLSX.write(wb, { bookType: "xlsx", type: "array" })
     saveAs(new Blob([out], { type: "application/octet-stream" }), `KPI_repeat_repair_${year}.xlsx`)
@@ -341,36 +356,52 @@ export default function RepeatRepairPage() {
                 <input placeholder="ค้นหา ทะเบียน / เลขที่ใบ / ประเภท / อาการ…" value={search}
                        onChange={(e) => { setSearch(e.target.value); setLimit(100) }}
                        style={{ ...input(), width: 320 }} />
+                <button onClick={exportRawExcel} style={btn(PV.green)} disabled={!filteredEvents.length}>
+                  ⬇ Excel ({num(filteredEvents.length)})
+                </button>
               </div>
               <div style={{ overflowX: "auto" }}>
+                {/* 11 คอลัมน์เดิมกว้างจนต้องเลื่อนจอตลอด และ "ประเภทใบก่อน" ก็ซ้ำกับ
+                    "ประเภทงานซ่อม" เสมอ — ยุบเหลือ 6 แล้วเอาอาการทั้งสองรอบมาวาง
+                    ซ้อนกันในช่องเดียว ข้อความไทยยาว ๆ อ่านง่ายกว่าเป็นคอลัมน์แคบ */}
                 <table style={table()}>
                   <thead>
                     <tr>
-                      {["วันแจ้งซ่อม", "เลขที่ใบ", "ทะเบียน", "ประเภทงานซ่อม", "สาขา",
-                        "ใบก่อนหน้า", "ประเภทใบก่อน", "วันเสร็จใบก่อน", "ห่าง (วัน)",
-                        "อาการรอบก่อน", "อาการรอบนี้"].map((h) =>
+                      {["วันแจ้งซ่อม", "ทะเบียน", "ประเภทงานซ่อม", "สาขา", "ห่าง (วัน)",
+                        "เทียบอาการ — รอบก่อน → รอบนี้"].map((h) =>
                         <th key={h} style={th(h === "ห่าง (วัน)" ? "right" : "left")}>{h}</th>)}
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredEvents.slice(0, limit).map((e) => (
-                      <tr key={`${e.requestId}-${e.repairType}`}>
+                    {filteredEvents.slice(0, limit).map((e, i) => (
+                      <tr key={`${e.requestId}-${e.repairType}`}
+                          style={{ background: i % 2 ? PV.bg : PV.surface }}>
                         <td style={{ ...td(), whiteSpace: "nowrap" }}>{fmtDate(e.reportedAt)}</td>
-                        <td style={{ ...td(), fontFamily: "ui-monospace,monospace", fontSize: 12.5 }}>{e.requestCode}</td>
                         <td style={{ ...td(), whiteSpace: "nowrap", fontWeight: 600 }}>{e.truck}</td>
-                        <td style={td()}>{e.repairType}</td>
-                        <td style={td()}>{e.branch}</td>
-                        <td style={{ ...td(), fontFamily: "ui-monospace,monospace", fontSize: 12.5, color: PV.sub }}>{e.prevCode}</td>
-                        {/* ตรงกับคอลัมน์ "ประเภทงานซ่อม" เสมอ — นั่นคือกฎที่ตารางนี้ยืนยัน
-                            ถ้าวันไหนไม่ตรง แปลว่าตรรกะจับคู่พัง */}
-                        <td style={{ ...td(), color: PV.sub }}>{e.prevType}</td>
-                        <td style={{ ...td(), whiteSpace: "nowrap", color: PV.sub }}>{fmtDate(e.prevFinishAt)}</td>
-                        <td style={{ ...td("right"), fontWeight: 700, color: (e.gapDays ?? 99) <= 7 ? PV.red : PV.ink }}>
+                        <td style={td()}>
+                          {e.repairType}
+                          {/* ประเภทของใบก่อนหน้าเท่ากับของแถวนี้เสมอโดยโครงสร้าง จึงไม่ต้อง
+                              กินคอลัมน์ของตัวเอง — แต่ถ้าวันไหนไม่ตรง แปลว่าตรรกะจับคู่พัง
+                              และต้องเห็นทันที */}
+                          {e.prevType && e.prevType !== e.repairType && (
+                            <span title={`ใบก่อนหน้าเป็น ${e.prevType}`}
+                                  style={{ marginLeft: 6, padding: "1px 6px", borderRadius: 4, fontSize: 11,
+                                           background: "#FEF2F2", color: PV.red, fontWeight: 600 }}>
+                              ⚠ ประเภทไม่ตรง
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ ...td(), whiteSpace: "nowrap" }}>{e.branch}</td>
+                        <td style={{ ...td("right"), fontWeight: 700, whiteSpace: "nowrap",
+                                     color: (e.gapDays ?? 99) <= 7 ? PV.red : PV.ink }}>
                           {e.gapDays?.toFixed(1)}
                         </td>
-                        {/* วางติดกันเรียงตามเวลา ก่อน → นี้ เพื่อกวาดตาเทียบอาการได้ในแถวเดียว */}
-                        <td style={{ ...td(), maxWidth: 320, fontSize: 12.5, color: PV.sub }}>{e.prevDescription}</td>
-                        <td style={{ ...td(), maxWidth: 320, fontSize: 12.5 }}>{e.description}</td>
+                        <td style={{ ...td(), minWidth: 460, fontSize: 12.5 }}>
+                          <RoundLine tag="ก่อน" code={e.prevCode} date={fmtDate(e.prevFinishAt)}
+                                     dateLabel="เสร็จ" text={e.prevDescription} muted />
+                          <RoundLine tag="นี้" code={e.requestCode} date={fmtDate(e.reportedAt)}
+                                     dateLabel="แจ้ง" text={e.description} />
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -392,6 +423,29 @@ export default function RepeatRepairPage() {
 }
 
 // ── UI helpers ───────────────────────────────────────────────────────────────
+/** หนึ่งรอบของการเทียบอาการ — ป้าย + เลขที่ใบ/วันที่ + อาการ */
+function RoundLine({ tag, code, date, dateLabel, text, muted }: {
+  tag: string; code: string | null; date: string; dateLabel: string
+  text: string | null; muted?: boolean
+}) {
+  return (
+    <div style={{ display: "flex", gap: 8, alignItems: "baseline", marginBottom: muted ? 6 : 0 }}>
+      <span style={{
+        flexShrink: 0, width: 34, textAlign: "center", padding: "1px 0", borderRadius: 4,
+        fontSize: 11, fontWeight: 700,
+        background: muted ? "#F3F4F6" : "#EFF6FF", color: muted ? PV.sub : PV.blue,
+      }}>{tag}</span>
+      <span style={{ color: muted ? PV.sub : PV.ink }}>
+        <span style={{ fontFamily: "ui-monospace,monospace", fontSize: 11.5, color: PV.sub }}>
+          {code} · {dateLabel} {date}
+        </span>
+        <br />
+        {text || <span style={{ color: "#9CA3AF" }}>— ไม่มีรายละเอียด</span>}
+      </span>
+    </div>
+  )
+}
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
