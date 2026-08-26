@@ -59,6 +59,17 @@ type CountsResult = {
   record_count:  number
 }
 
+// /api/cost/repair-type rows — ประเภทการซ่อม straight off the MR, one row per
+// (ทะเบียน × เดือน × อู่ใน/อู่นอก × ประเภท). A DIFFERENT cost basis from the
+// stockmovement rows above: see the note rendered on the workshop slide.
+type RepairTypeRow = {
+  plate:       string
+  month_year:  string
+  garage:      "อู่ใน" | "อู่นอก"
+  repair_type: string
+  total:       number
+}
+
 // truck-utilize/breakdown rows — month_year format "MM-YY"
 type BDRow = {
   fleet_group_id:  string | number
@@ -146,6 +157,12 @@ const fmtShort = (v: number) => {
 const fmtNum = (v: number) =>
   Number(v || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })
 
+// อู่นอก = คัน-เดือนที่มีรายการ "ค่าแรง" (จ้างซ่อมภายนอก) — same rule as
+// /transaction-detail. The side is a property of the whole plate-month row, so
+// every line inside it inherits that side.
+const isOutsideRow = (r: PlateDetailRow) =>
+  (r.lines || []).some((l) => (l.ชื่อสินค้า || "").includes("ค่าแรง"))
+
 function getMonthsInRange(start: string, end: string): string[] {
   if (!start || !end) return []
   const [sy, sm] = start.split("-").map(Number)
@@ -198,6 +215,7 @@ export default function CostReportPage() {
   const [sumCurr, setSumCurr]       = useState<SummaryRow[]>([])
   const [detCurr, setDetCurr]       = useState<PlateDetailRow[]>([])
   const [detPrev, setDetPrev]       = useState<PlateDetailRow[]>([])
+  const [rtCurr, setRtCurr]         = useState<RepairTypeRow[]>([])
   const [bdCurr, setBdCurr]         = useState<BDRow[]>([])
   const [bdPrev, setBdPrev]         = useState<BDRow[]>([])
 
@@ -294,6 +312,10 @@ export default function CostReportPage() {
       const pBd2  = fetch(`/api/truck-utilize/breakdown?${bdParams(toBdKey(pS), toBdKey(pE))}`, { cache: "no-store" })
       const pFl1  = fetch(`/api/fleet/plate-map?start=${toBdKey(startMonth)}&end=${toBdKey(endMonth)}`, { cache: "no-store" })
       const pFl2  = fetch(`/api/fleet/plate-map?start=${toBdKey(pS)}&end=${toBdKey(pE)}`, { cache: "no-store" })
+      // MR repair types are aggregated wholly server-side and depend on neither
+      // the warehouse nor the partner_flag chips, so like the fleet bridge this
+      // is fetched here only.
+      const pRt   = fetch(`/api/cost/repair-type?start=${startMonth}&end=${endMonth}`, { cache: "no-store" })
 
       // Stage ticks hang off the SAME promises the await below consumes — the
       // requests are not re-issued and not serialised. A rejection is swallowed
@@ -301,10 +323,10 @@ export default function CostReportPage() {
       Promise.all([pSum, pDet1, pDet2]).then(() => markStage("cost")).catch(() => {})
       Promise.all([pBd1, pBd2, pFl1, pFl2]).then(() => markStage("fleet")).catch(() => {})
 
-      const [s1, d1, d2, b1, b2, f1, f2] = await Promise.all([
-        pSum, pDet1, pDet2, pBd1, pBd2, pFl1, pFl2,
+      const [s1, d1, d2, b1, b2, f1, f2, r1] = await Promise.all([
+        pSum, pDet1, pDet2, pBd1, pBd2, pFl1, pFl2, pRt,
       ])
-      const [j1, j2, j3, j4, j5, j6, j7] = await Promise.all([s1.json(), d1.json(), d2.json(), b1.json(), b2.json(), f1.json(), f2.json()])
+      const [j1, j2, j3, j4, j5, j6, j7, j8] = await Promise.all([s1.json(), d1.json(), d2.json(), b1.json(), b2.json(), f1.json(), f2.json(), r1.json()])
       if (!j1.success) throw new Error(j1.error || "summary failed")
       setSumCurr(j1.data)
       setDetCurr(j2.success ? j2.data : []); setDetPrev(j3.success ? j3.data : [])
@@ -316,6 +338,9 @@ export default function CostReportPage() {
       setFleetBridgeStatus(
         !f1.ok || !j6.success ? "failed" : bridgeCount === 0 ? "empty" : "ok",
       )
+      // A failed MR join must not take the slide down — the table renders empty
+      // and every other panel on it still has its stockmovement numbers.
+      setRtCurr(j8.success ? j8.data : [])
       setFlagMapCurr(j6.success ? (j6.flags ?? {}) : {})
       setFlagMapPrev(j7.success ? (j7.flags ?? {}) : {})
       setHasData(true)
@@ -374,11 +399,11 @@ export default function CostReportPage() {
   // the distinct wd / plate / product sets.
   type TaggedPlateRow = PlateDetailRow & { fleet: string; isAllocated?: boolean }
 
-  const tagFleet = (
-    rows: PlateDetailRow[],
+  const tagFleet = <T extends { plate: string; month_year: string }>(
+    rows: T[],
     fleetMap: Record<string, string>,
     flags: Record<string, string>,
-  ): TaggedPlateRow[] => {
+  ): (T & { fleet: string })[] => {
     // flags are keyed plate|MM-YY. A plate can be missing in one month (it drew
     // no parts that month) while present in another — without a per-plate
     // fallback those rows would newly drop to ไม่ระบุ and shift the split.
@@ -744,7 +769,6 @@ export default function CostReportPage() {
         rows,
         best:  withP.length ? withP.reduce((b, r) => (r.pCurr! < b.pCurr! ? r : b)) : null,
         worst: withP.length ? withP.reduce((w, r) => (r.pCurr! > w.pCurr! ? r : w)) : null,
-        trucks: months.map((my) => Number(find(bdCurr, toBdKey(my))?.truck_count ?? 0)).find((n) => n > 0) ?? null,
       }
     }
     return [
@@ -805,8 +829,6 @@ export default function CostReportPage() {
   type WsMonth = { nai: number; nok: number; naiPlates: number; nokPlates: number }
   type WsSide = { nai: number; nok: number; naiPlates: number; nokPlates: number; byMonth: Record<string, WsMonth> }
   const wsAgg = useMemo(() => {
-    const isOutsideRow = (r: PlateDetailRow) =>
-      (r.lines || []).some((l) => (l.ชื่อสินค้า || "").includes("ค่าแรง"))
     const agg = (rows: PlateDetailRow[], align: boolean): WsSide => {
       const byMonthSets: Record<string, { nai: number; nok: number; naiP: Set<string>; nokP: Set<string> }> = {}
       let nai = 0, nok = 0
@@ -847,19 +869,43 @@ export default function CostReportPage() {
     nokPlates: wsAgg.curr.byMonth[my]?.nokPlates ?? 0,
   })), [months, wsAgg])
 
-  const wsMonthly = useMemo(() => months.map((my) => {
-    const c = wsAgg.curr.byMonth[my] ?? { nai: 0, nok: 0, naiPlates: 0, nokPlates: 0 }
-    const p = wsAgg.prev.byMonth[my] ?? { nai: 0, nok: 0, naiPlates: 0, nokPlates: 0 }
-    const tot  = c.nai + c.nok
-    const totP = p.nai + p.nok
+  // ประเภทการซ่อม comes off the MR itself (maint_tasks.repair_type via
+  // /api/cost/repair-type), NOT from stockmovement's จุดประสงค์ — see that
+  // route for why the two cost bases do not total the same. The rows go through
+  // the same plate+month fleet bridge as every other slide so the fleet pills
+  // still apply; the warehouse and cost-group chips have no MR equivalent and
+  // deliberately do not touch this table.
+  const wsByType = useMemo(() => {
+    const tagged = tagFleet(rtCurr, fleetMapCurr, flagMapCurr)
+    const rows = selectedFleets.size === 0
+      ? tagged
+      : tagged.filter((r) => selectedFleets.has(r.fleet))
+    const m = new Map<string, { type: string; nai: number; nok: number }>()
+    rows.forEach((r) => {
+      const t = (r.repair_type || "").trim() || "ไม่ระบุประเภท"
+      let e = m.get(t)
+      if (!e) { e = { type: t, nai: 0, nok: 0 }; m.set(t, e) }
+      if (r.garage === "อู่นอก") e.nok += r.total
+      else                       e.nai += r.total
+    })
+    const all = [...m.values()]
+      .map((e) => ({ ...e, total: e.nai + e.nok }))
+      .sort((a, b) => b.total - a.total)
+    const rest = all.slice(5)
     return {
-      my,
-      label: MONTH_LABEL[my.split("-")[1]] ?? my,
-      ...c,
-      share:     tot  > 0 ? (c.nok / tot)  * 100 : null,
-      sharePrev: totP > 0 ? (p.nok / totP) * 100 : null,
+      top: all.slice(0, 5),
+      // Kept so the five rows are not mistaken for the whole MR spend.
+      rest: rest.length
+        ? {
+            count: rest.length,
+            total: rest.reduce((sum, e) => sum + e.total, 0),
+            nai:   rest.reduce((sum, e) => sum + e.nai, 0),
+            nok:   rest.reduce((sum, e) => sum + e.nok, 0),
+          }
+        : null,
+      grand: all.reduce((sum, e) => sum + e.total, 0),
     }
-  }), [months, wsAgg])
+  }, [rtCurr, fleetMapCurr, flagMapCurr, selectedFleets])
 
   const wsTakeaways = useMemo(() => {
     const out: string[] = []
@@ -1664,25 +1710,6 @@ export default function CostReportPage() {
                   <div key={f.key} className="rounded-2xl border border-emerald-100 border-l-4 border-l-emerald-500 p-5">
                     <p className="mb-3 text-sm font-bold text-emerald-700">{f.name}</p>
 
-                    <div className="mb-3 grid grid-cols-3 gap-2">
-                      <div className="rounded-xl bg-gray-50 px-3 py-2">
-                        <p className="text-[10px] text-gray-400">Best</p>
-                        <p className="mt-0.5 text-sm font-bold text-emerald-700">
-                          {f.best ? `${MONTH_LABEL[f.best.my.split("-")[1]]} — ${f.best.pCurr!.toFixed(2)}%` : "—"}
-                        </p>
-                      </div>
-                      <div className="rounded-xl bg-gray-50 px-3 py-2">
-                        <p className="text-[10px] text-gray-400">Worst</p>
-                        <p className="mt-0.5 text-sm font-bold text-red-500">
-                          {f.worst ? `${MONTH_LABEL[f.worst.my.split("-")[1]]} — ${f.worst.pCurr!.toFixed(2)}%` : "—"}
-                        </p>
-                      </div>
-                      <div className="rounded-xl bg-gray-50 px-3 py-2">
-                        <p className="text-[10px] text-gray-400">Trucks</p>
-                        <p className="mt-0.5 text-sm font-bold text-gray-800">{f.trucks ?? "—"}</p>
-                      </div>
-                    </div>
-
                     <table className="w-full text-xs">
                       <thead>
                         <tr className="border-b text-left text-[10px] text-gray-400">
@@ -1834,39 +1861,49 @@ export default function CostReportPage() {
                   </ResponsiveContainer>
                 </div>
 
-                {/* Monthly table + takeaways */}
+                {/* Repair-type table + takeaways */}
                 <div className="lg:col-span-2">
-                  <p className="mb-2 text-xs font-semibold text-gray-700">%อู่นอก รายเดือน</p>
+                  <div className="mb-2 flex items-baseline justify-between gap-2">
+                    <p className="text-xs font-semibold text-gray-700">ประเภทการซ่อม · Top 5</p>
+                    <p className="text-[10px] tabular-nums text-gray-400">รวม {fmtShort(wsByType.grand)}</p>
+                  </div>
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="border-b text-left text-[10px] text-gray-400">
-                        <th className="py-1.5 pr-1 font-medium">Mo</th>
+                        <th className="w-6 py-1.5 pr-1 font-medium">#</th>
+                        <th className="py-1.5 pr-1 font-medium">ประเภทการซ่อม</th>
+                        <th className="py-1.5 pr-1 text-right font-medium">ยอดรวม</th>
                         <th className="py-1.5 pr-1 text-right font-medium">อู่ใน</th>
-                        <th className="py-1.5 pr-1 text-right font-medium">คัน</th>
-                        <th className="py-1.5 pr-1 text-right font-medium">อู่นอก</th>
-                        <th className="py-1.5 pr-1 text-right font-medium">คัน</th>
-                        <th className="py-1.5 pr-1 text-right font-medium">%นอก</th>
-                        <th className="py-1.5 text-right font-medium">%นอก {String(prevYear).slice(2)}</th>
+                        <th className="py-1.5 text-right font-medium">อู่นอก</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {wsMonthly.map((m) => (
-                        <tr key={m.my} className="border-b last:border-b-0">
-                          <td className="py-1.5 pr-1 text-gray-600">{m.label}</td>
-                          <td className="py-1.5 pr-1 text-right tabular-nums text-sky-700">{m.nai > 0 ? fmtShort(m.nai) : "—"}</td>
-                          <td className="py-1.5 pr-1 text-right tabular-nums text-gray-500">{m.naiPlates > 0 ? m.naiPlates : "—"}</td>
-                          <td className="py-1.5 pr-1 text-right tabular-nums text-orange-600">{m.nok > 0 ? fmtShort(m.nok) : "—"}</td>
-                          <td className="py-1.5 pr-1 text-right tabular-nums text-gray-500">{m.nokPlates > 0 ? m.nokPlates : "—"}</td>
-                          <td className="py-1.5 pr-1 text-right tabular-nums font-semibold text-gray-800">
-                            {m.share !== null ? `${m.share.toFixed(0)}%` : "—"}
-                          </td>
-                          <td className="py-1.5 text-right tabular-nums text-gray-400">
-                            {m.sharePrev !== null ? `${m.sharePrev.toFixed(0)}%` : "—"}
-                          </td>
+                      {wsByType.top.map((t, i) => (
+                        <tr key={t.type} className="border-b last:border-b-0">
+                          <td className="py-1.5 pr-1 tabular-nums text-gray-400">{i + 1}</td>
+                          <td className="py-1.5 pr-1 text-gray-600">{t.type}</td>
+                          <td className="py-1.5 pr-1 text-right tabular-nums font-semibold text-gray-800">{fmtShort(t.total)}</td>
+                          <td className="py-1.5 pr-1 text-right tabular-nums text-sky-700">{t.nai > 0 ? fmtShort(t.nai) : "—"}</td>
+                          <td className="py-1.5 text-right tabular-nums text-orange-600">{t.nok > 0 ? fmtShort(t.nok) : "—"}</td>
                         </tr>
                       ))}
+                      {wsByType.rest && (
+                        <tr className="border-b text-gray-400 last:border-b-0">
+                          <td className="py-1.5 pr-1" />
+                          <td className="py-1.5 pr-1">อื่นๆ ({wsByType.rest.count} ประเภท)</td>
+                          <td className="py-1.5 pr-1 text-right tabular-nums">{fmtShort(wsByType.rest.total)}</td>
+                          <td className="py-1.5 pr-1 text-right tabular-nums">{wsByType.rest.nai > 0 ? fmtShort(wsByType.rest.nai) : "—"}</td>
+                          <td className="py-1.5 text-right tabular-nums">{wsByType.rest.nok > 0 ? fmtShort(wsByType.rest.nok) : "—"}</td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
+
+                  <p className="mt-2 text-[10px] leading-snug text-gray-400">
+                    * ตารางนี้มาจาก<strong className="font-semibold text-gray-500">ใบแจ้งซ่อม (MR)</strong> คนละฐานกับการ์ดด้านบนที่มาจากการเบิกของจากคลัง
+                    — MR รวมค่าแรงอู่นอกและอะไหล่ศูนย์ที่ไม่ผ่านคลัง แต่ไม่รวมการเบิกที่ไม่ผูกใบแจ้งซ่อม (เครื่องมือช่าง วัสดุสิ้นเปลือง)
+                    · นับตามวันแจ้งซ่อม · กรองตามฟลีทได้ แต่ไม่ตามคลังสินค้า/กลุ่มต้นทุน
+                  </p>
 
                   <div className="mt-4 rounded-xl bg-gray-50 p-3">
                     <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-gray-500">Key Takeaways</p>
