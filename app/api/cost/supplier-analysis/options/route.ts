@@ -1,4 +1,5 @@
 import clientPromise from "@/lib/mongo"
+import { LEGACY_WAREHOUSES } from "@/lib/warehouses"
 import { NextResponse } from "next/server"
 
 export async function GET() {
@@ -6,10 +7,12 @@ export async function GET() {
     const client = await clientPromise
     const col    = client.db("atms").collection("stockmovement_v5")
 
-    const [suppliers, warehouses] = await Promise.all([
-      col.distinct("ซัพพลายเออร์", { รับ: { $gt: 0 }, WD: { $in: [null, ""] } }),
-      col.distinct("คลังสินค้า",   { รับ: { $gt: 0 }, WD: { $in: [null, ""] } }),
-    ])
+    const suppliers = await col.distinct("ซัพพลายเออร์", {
+      รับ: { $gt: 0 },
+      WD: { $in: [null, ""] },
+      คลังสินค้า: { $in: LEGACY_WAREHOUSES },
+    })
+    const warehouses: (string | null)[] = LEGACY_WAREHOUSES
 
     const cleanSuppliers = (suppliers as (string | null)[])
       .filter((s): s is string => !!s && s.trim() !== "")

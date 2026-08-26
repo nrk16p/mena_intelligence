@@ -1,4 +1,5 @@
 import clientPromise from "@/lib/mongo"
+import { LEGACY_WAREHOUSES } from "@/lib/warehouses"
 import { NextResponse } from "next/server"
 
 export async function GET(req: Request) {
@@ -26,11 +27,12 @@ export async function GET(req: Request) {
     if (supplier)    match["ซัพพลายเออร์"] = supplier
     if (productCode) match["รหัสสินค้า"]   = { $regex: productCode.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" }
 
-    if (warehouse) {
-      const whs = warehouse.split(",").map((w) => w.trim()).filter(Boolean)
-      if (whs.length === 1) match["คลังสินค้า"] = whs[0]
-      else if (whs.length > 1) match["คลังสินค้า"] = { $in: whs }
-    }
+    const whs = (warehouse ?? "").split(",").map((w) => w.trim()).filter(Boolean)
+    // Pinned to the legacy four for the same reason as supplier-analysis: the
+    // other 28 warehouses arrived in 2026-08 and would restate this report.
+    if (whs.length === 1) match["คลังสินค้า"] = whs[0]
+    else if (whs.length > 1) match["คลังสินค้า"] = { $in: whs }
+    else match["คลังสินค้า"] = { $in: LEGACY_WAREHOUSES }
 
     if (!match["รหัสสินค้า"]) match["รหัสสินค้า"] = { $exists: true, $nin: [null, ""] }
 

@@ -1,4 +1,5 @@
 import clientPromise from "@/lib/mongo"
+import { WAREHOUSE_NAMES } from "@/lib/warehouses"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -76,10 +77,12 @@ export function groupKey(groups?: string[] | null): string | null {
 }
 
 /**
- * Physical warehouses (คลังสินค้า) in stockmovement_v5. Fixed + stable, so the
- * branch filter uses this constant rather than scanning the 435k collection.
+ * Physical warehouses (คลังสินค้า) in stockmovement_v5 — all 32 of them since
+ * the 2026-08-26 backfill, not just the four spare-parts ones the extractor
+ * used to pull. Read from a constant rather than scanned out of the 520k
+ * collection, and shared with the client filter via lib/warehouses.
  */
-export const BRANCHES = ["คลังลาดกระบัง", "คลังสระบุรี", "คลัง DIST", "คลังขอนแก่น"]
+export const BRANCHES = WAREHOUSE_NAMES
 
 /** Clean a branches arg to known warehouses only. */
 function normBranches(branches?: string[] | null): string[] {

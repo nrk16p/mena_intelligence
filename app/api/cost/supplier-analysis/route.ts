@@ -1,4 +1,5 @@
 import clientPromise from "@/lib/mongo"
+import { LEGACY_WAREHOUSES } from "@/lib/warehouses"
 import { NextResponse } from "next/server"
 
 export async function GET(req: Request) {
@@ -23,7 +24,10 @@ export async function GET(req: Request) {
       const list = supplier.split(",").map(s => s.trim()).filter(Boolean)
       match["ซัพพลายเออร์"] = list.length === 1 ? list[0] : { $in: list }
     }
-    if (warehouse) match["คลังสินค้า"]   = warehouse
+    // stockmovement_v5 carries all 32 warehouses since the 2026-08-26 backfill,
+    // but this report's history was built on the four spare-parts ones — pooling
+    // HR/จป./ทรัพย์สิน purchases into it would silently restate every past total.
+    match["คลังสินค้า"] = warehouse ? warehouse : { $in: LEGACY_WAREHOUSES }
 
     const pipeline = [
       { $match: match },
