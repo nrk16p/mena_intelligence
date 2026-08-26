@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import * as XLSX from "xlsx"
 import { saveAs } from "file-saver"
 import {
@@ -197,8 +197,9 @@ export default function RepeatRepairPage() {
 
           <ChipRow label="สาขา" all={data?.options.branches ?? []} sel={branches}
                    onToggle={(v) => toggle(branches, v, setBranches)} onClear={() => setBranches(new Set())} />
-          <ChipRow label="ประเภทงานซ่อม" all={data?.options.types ?? []} sel={types}
-                   onToggle={(v) => toggle(types, v, setTypes)} onClear={() => setTypes(new Set())} />
+          <SearchSelect label="ประเภทงานซ่อม" all={data?.options.types ?? []} sel={types}
+                        placeholder="พิมพ์เพื่อค้นหาประเภท เช่น เบรค, อู่นอก, PM…"
+                        onToggle={(v) => toggle(types, v, setTypes)} onClear={() => setTypes(new Set())} />
         </section>
 
         {err && <div style={{ ...card(), color: PV.red }}>เกิดข้อผิดพลาด: {err}</div>}
@@ -406,6 +407,128 @@ function Stat({ label, value, sub, color }: { label: string; value: string; sub?
       <div style={{ fontSize: 13, color: PV.sub }}>{label}</div>
       <div style={{ fontSize: 30, fontWeight: 700, color: color ?? PV.ink, lineHeight: 1.25 }}>{value}</div>
       {sub && <div style={{ fontSize: 12, color: PV.sub }}>{sub}</div>}
+    </div>
+  )
+}
+
+/**
+ * Multi-select with a type-ahead filter. Same (all / sel / onToggle / onClear)
+ * contract as ChipRow so the two are interchangeable — reach for this one once
+ * the option list is too long to scan.
+ */
+function SearchSelect({ label, all, sel, onToggle, onClear, placeholder }: {
+  label: string; all: string[]; sel: Set<string>
+  onToggle: (v: string) => void; onClear: () => void; placeholder?: string
+}) {
+  const [q, setQ] = useState("")
+  const [open, setOpen] = useState(false)
+  const [hi, setHi] = useState(0)
+  const boxRef = useRef<HTMLDivElement | null>(null)
+
+  const matches = useMemo(() => {
+    const needle = q.trim().toLowerCase()
+    if (!needle) return all
+    return all.filter((v) => v.toLowerCase().includes(needle))
+  }, [all, q])
+
+  // clicking anywhere else closes the list; without this it stays open behind
+  // the rest of the filters and swallows clicks
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener("mousedown", onDown)
+    return () => document.removeEventListener("mousedown", onDown)
+  }, [open])
+
+  if (!all.length) return null
+
+  const pick = (v: string) => {
+    onToggle(v)
+    setQ("")          // ready for the next term; the list stays open for multi-select
+    setHi(0)
+    setOpen(true)
+  }
+
+  const onKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Escape") { setOpen(false); return }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault()
+      if (!open) { setOpen(true); return }
+      setHi((i) => {
+        const n = matches.length
+        if (!n) return 0
+        return e.key === "ArrowDown" ? (i + 1) % n : (i - 1 + n) % n
+      })
+      return
+    }
+    if (e.key === "Enter" && open && matches[hi]) { e.preventDefault(); pick(matches[hi]) }
+  }
+
+  return (
+    <div style={{ marginTop: 14 }} ref={boxRef}>
+      <div style={{ fontSize: 12, color: PV.sub, marginBottom: 6 }}>
+        {label} {sel.size > 0 ? (
+          <button onClick={onClear} style={{ ...btn(PV.sub), padding: "1px 8px", fontSize: 11, marginLeft: 6 }}>
+            ล้าง ({sel.size})
+          </button>
+        ) : <span style={{ color: "#9CA3AF" }}>— ทั้งหมด ({all.length} ประเภท)</span>}
+      </div>
+
+      {/* selected values stay visible as removable chips */}
+      {sel.size > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
+          {[...sel].map((v) => (
+            <button key={v} onClick={() => onToggle(v)} title="คลิกเพื่อเอาออก"
+              style={{
+                padding: "4px 10px", borderRadius: 999, fontSize: 12.5, cursor: "pointer",
+                border: `1px solid ${PV.blue}`, background: "#EFF6FF", color: PV.blue, fontWeight: 600,
+              }}>
+              {v} <span style={{ opacity: 0.6 }}>×</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div style={{ position: "relative", maxWidth: 460 }}>
+        <input
+          value={q}
+          onChange={(e) => { setQ(e.target.value); setHi(0); setOpen(true) }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={onKey}
+          placeholder={placeholder ?? "พิมพ์เพื่อค้นหา…"}
+          style={{ ...input(), width: "100%" }}
+        />
+        {open && (
+          <div style={{
+            position: "absolute", zIndex: 20, top: 40, left: 0, right: 0,
+            maxHeight: 260, overflowY: "auto", background: PV.surface,
+            border: `1px solid ${PV.border}`, borderRadius: 8,
+            boxShadow: "0 8px 24px rgba(0,0,0,.08)",
+          }}>
+            {matches.length === 0 && (
+              <div style={{ padding: "10px 12px", fontSize: 13, color: PV.sub }}>ไม่พบประเภทที่ตรงกับ “{q}”</div>
+            )}
+            {matches.map((v, i) => {
+              const on = sel.has(v)
+              return (
+                <div key={v}
+                  onMouseEnter={() => setHi(i)}
+                  onMouseDown={(e) => { e.preventDefault(); pick(v) }}
+                  style={{
+                    padding: "7px 12px", fontSize: 13.5, cursor: "pointer",
+                    display: "flex", alignItems: "center", gap: 8,
+                    background: i === hi ? "#F3F4F6" : "transparent",
+                    color: on ? PV.blue : PV.ink, fontWeight: on ? 600 : 400,
+                  }}>
+                  <span style={{ width: 12 }}>{on ? "✓" : ""}</span>{v}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
