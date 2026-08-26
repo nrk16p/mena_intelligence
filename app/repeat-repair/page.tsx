@@ -362,14 +362,18 @@ export default function RepeatRepairPage() {
               </div>
               <div style={{ overflowX: "auto" }}>
                 {/* 11 คอลัมน์เดิมกว้างจนต้องเลื่อนจอตลอด และ "ประเภทใบก่อน" ก็ซ้ำกับ
-                    "ประเภทงานซ่อม" เสมอ — ยุบเหลือ 6 แล้วเอาอาการทั้งสองรอบมาวาง
-                    ซ้อนกันในช่องเดียว ข้อความไทยยาว ๆ อ่านง่ายกว่าเป็นคอลัมน์แคบ */}
+                    "ประเภทงานซ่อม" เสมอ — ยุบเหลือ 7 โดยอาการสองรอบวางคู่กันเป็น
+                    คอลัมน์ท้าย กว้างเท่ากัน อ่านซ้าย → ขวาตามลำดับเวลา */}
                 <table style={table()}>
                   <thead>
                     <tr>
                       {["วันแจ้งซ่อม", "ทะเบียน", "ประเภทงานซ่อม", "สาขา", "ห่าง (วัน)",
-                        "เทียบอาการ — รอบก่อน → รอบนี้"].map((h) =>
-                        <th key={h} style={th(h === "ห่าง (วัน)" ? "right" : "left")}>{h}</th>)}
+                        "รอบก่อน", "รอบนี้"].map((h) =>
+                        <th key={h}
+                            style={{ ...th(h === "ห่าง (วัน)" ? "right" : "left"),
+                                     ...(h === "รอบก่อน" || h === "รอบนี้" ? { width: "30%" } : {}) }}>
+                          {h}
+                        </th>)}
                     </tr>
                   </thead>
                   <tbody>
@@ -396,11 +400,14 @@ export default function RepeatRepairPage() {
                                      color: (e.gapDays ?? 99) <= 7 ? PV.red : PV.ink }}>
                           {e.gapDays?.toFixed(1)}
                         </td>
-                        <td style={{ ...td(), minWidth: 460, fontSize: 12.5 }}>
-                          <RoundLine tag="ก่อน" code={e.prevCode} date={fmtDate(e.prevFinishAt)}
-                                     dateLabel="เสร็จ" text={e.prevDescription} muted />
-                          <RoundLine tag="นี้" code={e.requestCode} date={fmtDate(e.reportedAt)}
-                                     dateLabel="แจ้ง" text={e.description} />
+                        {/* วันแจ้งของรอบนี้อยู่คอลัมน์แรกแล้ว จึงไม่ซ้ำอีก — ส่วนรอบก่อน
+                            ต้องมี "วันเสร็จ" ติดไว้ เพราะเป็นจุดที่นับ "ห่าง" มาจาก */}
+                        <td style={{ ...td(), minWidth: 260, fontSize: 12.5 }}>
+                          <RoundCell code={e.prevCode} meta={`เสร็จ ${fmtDate(e.prevFinishAt)}`}
+                                     text={e.prevDescription} muted />
+                        </td>
+                        <td style={{ ...td(), minWidth: 260, fontSize: 12.5 }}>
+                          <RoundCell code={e.requestCode} text={e.description} />
                         </td>
                       </tr>
                     ))}
@@ -423,25 +430,17 @@ export default function RepeatRepairPage() {
 }
 
 // ── UI helpers ───────────────────────────────────────────────────────────────
-/** หนึ่งรอบของการเทียบอาการ — ป้าย + เลขที่ใบ/วันที่ + อาการ */
-function RoundLine({ tag, code, date, dateLabel, text, muted }: {
-  tag: string; code: string | null; date: string; dateLabel: string
-  text: string | null; muted?: boolean
+/** หนึ่งรอบของการเทียบอาการ — เลขที่ใบ/วันที่ บรรทัดบน อาการบรรทัดล่าง
+ *  รอบก่อนใช้ muted ให้สายตาจับได้ทันทีว่าคอลัมน์ไหนคือของเก่า */
+function RoundCell({ code, meta, text, muted }: {
+  code: string | null; meta?: string; text: string | null; muted?: boolean
 }) {
   return (
-    <div style={{ display: "flex", gap: 8, alignItems: "baseline", marginBottom: muted ? 6 : 0 }}>
-      <span style={{
-        flexShrink: 0, width: 34, textAlign: "center", padding: "1px 0", borderRadius: 4,
-        fontSize: 11, fontWeight: 700,
-        background: muted ? "#F3F4F6" : "#EFF6FF", color: muted ? PV.sub : PV.blue,
-      }}>{tag}</span>
-      <span style={{ color: muted ? PV.sub : PV.ink }}>
-        <span style={{ fontFamily: "ui-monospace,monospace", fontSize: 11.5, color: PV.sub }}>
-          {code} · {dateLabel} {date}
-        </span>
-        <br />
-        {text || <span style={{ color: "#9CA3AF" }}>— ไม่มีรายละเอียด</span>}
-      </span>
+    <div style={{ color: muted ? PV.sub : PV.ink }}>
+      <div style={{ fontFamily: "ui-monospace,monospace", fontSize: 11.5, color: PV.sub, marginBottom: 2 }}>
+        {code}{meta ? ` · ${meta}` : ""}
+      </div>
+      {text || <span style={{ color: "#9CA3AF" }}>— ไม่มีรายละเอียด</span>}
     </div>
   )
 }
