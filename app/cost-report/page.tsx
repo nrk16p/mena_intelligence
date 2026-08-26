@@ -144,6 +144,21 @@ const MONTH_TH: Record<string, string> = {
 }
 const monthTh = (my: string) => MONTH_TH[my.split("-")[1]] ?? my
 
+// MR repair_type values that are NOT repair work. ATMS raises ใบแจ้งซ่อม for
+// these too, and left in they distort a slide titled ค่าซ่อม — น้ำมันเชื้อเพลิง
+// alone was ฿10.26M, second-largest of 32 types over Jan–Jul 2026.
+// PM and วัสดุสิ้นเปลือง deliberately stay: both are real maintenance spend and
+// the stockmovement side counts them too.
+// Compared with whitespace collapsed — the NGV value ships with padded brackets.
+const NON_REPAIR_TYPES = new Set([
+  "น้ำมันเชื้อเพลิง",
+  "ทำความสะอาด",
+  "ต่อภาษี",
+  "ตรวจสภาพถังก๊าซ NGV ( ประจำปี )",
+].map((t) => t.replace(/\s+/g, " ").trim()))
+
+const isNonRepairType = (t: string) => NON_REPAIR_TYPES.has(t.replace(/\s+/g, " ").trim())
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const fmtShort = (v: number) => {
@@ -883,6 +898,7 @@ export default function CostReportPage() {
     const m = new Map<string, { type: string; nai: number; nok: number }>()
     rows.forEach((r) => {
       const t = (r.repair_type || "").trim() || "ไม่ระบุประเภท"
+      if (isNonRepairType(t)) return
       let e = m.get(t)
       if (!e) { e = { type: t, nai: 0, nok: 0 }; m.set(t, e) }
       if (r.garage === "อู่นอก") e.nok += r.total
@@ -1902,7 +1918,8 @@ export default function CostReportPage() {
                   <p className="mt-2 text-[10px] leading-snug text-gray-400">
                     * ตารางนี้มาจาก<strong className="font-semibold text-gray-500">ใบแจ้งซ่อม (MR)</strong> คนละฐานกับการ์ดด้านบนที่มาจากการเบิกของจากคลัง
                     — MR รวมค่าแรงอู่นอกและอะไหล่ศูนย์ที่ไม่ผ่านคลัง แต่ไม่รวมการเบิกที่ไม่ผูกใบแจ้งซ่อม (เครื่องมือช่าง วัสดุสิ้นเปลือง)
-                    · นับตามวันแจ้งซ่อม · กรองตามฟลีทได้ แต่ไม่ตามคลังสินค้า/กลุ่มต้นทุน
+                    · นับตามวันแจ้งซ่อม · ไม่รวมงานที่ไม่ใช่การซ่อม (น้ำมันเชื้อเพลิง ทำความสะอาด ต่อภาษี ตรวจ NGV)
+                    · กรองตามฟลีทได้ แต่ไม่ตามคลังสินค้า/กลุ่มต้นทุน
                   </p>
 
                   <div className="mt-4 rounded-xl bg-gray-50 p-3">

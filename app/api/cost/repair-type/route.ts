@@ -51,6 +51,14 @@ export type RepairTypeRow = {
 type FacetRow = { plate: string; month_year: string; garage: string; total: number }
 type TypeRow  = FacetRow & { repair_type: string }
 
+// The three maint_* collections are rewritten once a night by the api-ncac
+// maintenance pipeline (02:00), so a short TTL costs nothing in freshness and
+// takes the ~9s aggregation off every repeat load of /cost-report. The result
+// depends only on the range — nothing user-specific — so one process-wide Map
+// is safe. On serverless this is per-instance and best-effort by nature.
+const TTL_MS = 10 * 60 * 1000
+const cache = new Map<string, { at: number; data: RepairTypeRow[] }>()
+
 export async function GET(req: Request) {
   try {
     const session = await getServerSession(authOptions)
@@ -66,6 +74,12 @@ export async function GET(req: Request) {
     const end   = searchParams.get("end")   // YYYY-MM
     if (!start || !end) {
       return NextResponse.json({ success: false, error: "start and end are required (YYYY-MM)" }, { status: 400 })
+    }
+
+    const cacheKey = `${start}|${end}`
+    const hit = cache.get(cacheKey)
+    if (hit && Date.now() - hit.at < TTL_MS) {
+      return NextResponse.json({ success: true, count: hit.data.length, cached: true, data: hit.data })
     }
 
     const db = (await clientPromise).db("atms")
@@ -129,6 +143,26 @@ export async function GET(req: Request) {
           foreignField: "request_id",
           as:           "tasks",
           pipeline:     [{ $project: { _id: 0, task_id: 1, repair_type: 1 } }],
+        },
+      },
+      {
+        // maint_tasks occasionally carries the same task_id twice within one ใบ.
+        // Unwound as-is that task's parts bill is charged once per copy — the
+        // measured overcount was 0.10% of the range. Keep the first of each id.
+        $addFields: {
+          tasks: {
+            $reduce: {
+              input:        "$tasks",
+              initialValue: [],
+              in: {
+                $cond: [
+                  { $in: ["$$this.task_id", "$$value.task_id"] },
+                  "$$value",
+                  { $concatArrays: ["$$value", ["$$this"]] },
+                ],
+              },
+            },
+          },
         },
       },
       {
@@ -236,7 +270,8 @@ export async function GET(req: Request) {
       })
     }
 
-    return NextResponse.json({ success: true, count: out.length, data: out })
+    cache.set(cacheKey, { at: Date.now(), data: out })
+    return NextResponse.json({ success: true, count: out.length, cached: false, data: out })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Internal Server Error"
     console.error("cost/repair-type API error:", msg)
