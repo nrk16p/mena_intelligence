@@ -38,6 +38,7 @@ type Ev = {
   requestId: number; requestCode: string; truck: string; vehicleNo: string
   repairType: string; branch: string; reportedAt: string; finishAt: string | null
   ym: string; gapDays: number | null; prevCode: string | null; prevFinishAt: string | null
+  prevType: string | null
   description: string
 }
 type Api = {
@@ -140,7 +141,8 @@ export default function RepeatRepairPage() {
       data.repeatEvents.map((e) => ({
         วันแจ้งซ่อม: fmtDate(e.reportedAt), เลขที่ใบ: e.requestCode, ทะเบียน: e.truck,
         ประเภทงานซ่อม: e.repairType, สาขา: e.branch, "ใบก่อนหน้า": e.prevCode,
-        "วันเสร็จใบก่อน": fmtDate(e.prevFinishAt), "ห่าง (วัน)": e.gapDays, รายละเอียด: e.description,
+        "ประเภทใบก่อน": e.prevType, "วันเสร็จใบก่อน": fmtDate(e.prevFinishAt),
+        "ห่าง (วัน)": e.gapDays, รายละเอียด: e.description,
       }))
     ), "รายการซ่อมซ้ำ")
     const out = XLSX.write(wb, { bookType: "xlsx", type: "array" })
@@ -343,8 +345,8 @@ export default function RepeatRepairPage() {
                   <thead>
                     <tr>
                       {["วันแจ้งซ่อม", "เลขที่ใบ", "ทะเบียน", "ประเภทงานซ่อม", "สาขา",
-                        "ใบก่อนหน้า", "วันเสร็จใบก่อน", "ห่าง (วัน)", "อาการ/รายละเอียด"].map((h, i) =>
-                        <th key={h} style={th(i === 7 ? "right" : "left")}>{h}</th>)}
+                        "ใบก่อนหน้า", "ประเภทใบก่อน", "วันเสร็จใบก่อน", "ห่าง (วัน)", "อาการ/รายละเอียด"].map((h) =>
+                        <th key={h} style={th(h === "ห่าง (วัน)" ? "right" : "left")}>{h}</th>)}
                     </tr>
                   </thead>
                   <tbody>
@@ -356,6 +358,9 @@ export default function RepeatRepairPage() {
                         <td style={td()}>{e.repairType}</td>
                         <td style={td()}>{e.branch}</td>
                         <td style={{ ...td(), fontFamily: "ui-monospace,monospace", fontSize: 12.5, color: PV.sub }}>{e.prevCode}</td>
+                        {/* ตรงกับคอลัมน์ "ประเภทงานซ่อม" เสมอ — นั่นคือกฎที่ตารางนี้ยืนยัน
+                            ถ้าวันไหนไม่ตรง แปลว่าตรรกะจับคู่พัง */}
+                        <td style={{ ...td(), color: PV.sub }}>{e.prevType}</td>
                         <td style={{ ...td(), whiteSpace: "nowrap", color: PV.sub }}>{fmtDate(e.prevFinishAt)}</td>
                         <td style={{ ...td("right"), fontWeight: 700, color: (e.gapDays ?? 99) <= 7 ? PV.red : PV.ink }}>
                           {e.gapDays?.toFixed(1)}

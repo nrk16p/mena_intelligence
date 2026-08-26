@@ -56,6 +56,10 @@ export type RepairEvent = {
   gapDays: number | null
   prevCode: string | null
   prevFinishAt: string | null
+  /** ประเภทงานซ่อมของใบก่อนหน้า — เท่ากับ repairType เสมอโดยโครงสร้าง (จับคู่
+   *  ภายในกลุ่ม ทะเบียน|ประเภท) แต่เก็บค่าจริงจากใบที่แมตช์ ไม่ใช่ก๊อปมา
+   *  เพื่อให้ตารางตรวจสอบกฎนี้ได้จริง ไม่ใช่แค่ยืนยันตัวเอง */
+  prevType: string | null
   description: string
 }
 
@@ -182,6 +186,7 @@ export async function buildEvents(opts: BuildOpts = {}): Promise<RepairEvent[]> 
       gapDays: null,
       prevCode: null,
       prevFinishAt: null,
+      prevType: null,
       description: (t.description || "").trim(),
     })
   }
@@ -215,6 +220,7 @@ export async function buildEvents(opts: BuildOpts = {}): Promise<RepairEvent[]> 
       cur.gapDays = Math.round(gap * 10) / 10
       cur.prevCode = best.requestCode
       cur.prevFinishAt = best.finishAt
+      cur.prevType = best.repairType
     }
   }
 
