@@ -153,8 +153,12 @@ const monthTh = (my: string) => MONTH_TH[my.split("-")[1]] ?? my
 //   reported on their own elsewhere — ยาง and อุปกรณ์เสริม are large enough to
 //   crowd out the actual repair systems, and ยาง already has its own cost group
 //
-// PM and วัสดุสิ้นเปลือง deliberately stay: both are real maintenance spend and
-// the stockmovement side counts them too.
+// PMช่างมีนา (งาน PM ที่ช่างในอู่ทำเอง) ตัดออก — เป็นงานตามแผน ไม่ใช่ซ่อม และ
+// มีสไลด์กลุ่มต้นทุน PM ของตัวเองอยู่แล้ว พร้อมชื่อชุดใหม่ที่หมายถึงงานเดียวกัน
+// (อู่ใน-PM-*) ตามนโยบายเติมชื่อให้ครบ
+// PMศูนย์บริการ / อู่นอก-PM-* ยังอยู่: เป็น PM ที่จ้างศูนย์ทำ ซึ่งเป็นค่าใช้จ่าย
+// ที่ต้องเห็นในตารางอู่ใน-vs-อู่นอก
+// วัสดุสิ้นเปลือง ยังอยู่เช่นกัน — เป็นค่าบำรุงรักษาจริงและฝั่ง stockmovement ก็นับ
 // Compared with whitespace collapsed — the NGV value ships with padded brackets.
 const EXCLUDED_TYPES = new Set([
   "น้ำมันเชื้อเพลิง",
@@ -177,6 +181,11 @@ const EXCLUDED_TYPES = new Set([
   "อู่นอก-OTH-อุปกรณ์เสริม",
   "อู่ใน-ทำความสะอาด",
   "อู่นอก-ทำความสะอาด",
+  "PMช่างมีนา",
+  "อู่ใน-PM-1",
+  "อู่ใน-PM-3",
+  "อู่ใน-PM-ช่วงล่าง",
+  "อู่ใน-PM-ลิฟต์ท้าย",
 ].map((t) => t.replace(/\s+/g, " ").trim()))
 
 const isExcludedType = (t: string) => EXCLUDED_TYPES.has(t.replace(/\s+/g, " ").trim())
@@ -1940,7 +1949,7 @@ export default function CostReportPage() {
                   <p className="mt-2 text-[10px] leading-snug text-gray-400">
                     * ตารางนี้มาจาก<strong className="font-semibold text-gray-500">ใบแจ้งซ่อม (MR)</strong> คนละฐานกับการ์ดด้านบนที่มาจากการเบิกของจากคลัง
                     — MR รวมค่าแรงอู่นอกและอะไหล่ศูนย์ที่ไม่ผ่านคลัง แต่ไม่รวมการเบิกที่ไม่ผูกใบแจ้งซ่อม (เครื่องมือช่าง วัสดุสิ้นเปลือง)
-                    · นับตามวันแจ้งซ่อม · ไม่รวมยาง อุปกรณ์เสริม และงานที่ไม่ใช่การซ่อม (น้ำมันเชื้อเพลิง ทำความสะอาด ต่อภาษี ตรวจ NGV)
+                    · นับตามวันแจ้งซ่อม · ไม่รวมยาง อุปกรณ์เสริม PM ช่างมีนา และงานที่ไม่ใช่การซ่อม (น้ำมันเชื้อเพลิง ทำความสะอาด ต่อภาษี ตรวจ NGV)
                     · กรองตามฟลีทได้ แต่ไม่ตามคลังสินค้า/กลุ่มต้นทุน
                   </p>
 
