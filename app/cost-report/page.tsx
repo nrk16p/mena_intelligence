@@ -1327,16 +1327,15 @@ export default function CostReportPage() {
       const w = el.offsetWidth
       const h = el.offsetHeight
       if (!w || !h) throw new Error("slide has no size to capture")
-      // Cover the 16:9 frame: scale so the slide fills it on both axes and let
-      // the overflow fall outside. Rendering at that scale (rather than
+      // Fit the whole slide inside the 16:9 frame — nothing may be cropped, the
+      // ML/MS break-rate tables sit at the very bottom of their slide and have
+      // to survive the export. Rendering at the fitted scale (rather than
       // capturing 1:1 and resizing the bitmap afterwards) keeps text sharp,
       // because html-to-image rasterises from SVG at whatever pixelRatio it is
-      // given. A slide taller than the frame is captured only down to the cut —
-      // no point rasterising rows that get cropped away.
-      const fit = Math.max(PNG_FRAME_W / w, PNG_FRAME_H / h)
+      // given.
+      const fit = Math.min(PNG_FRAME_W / w, PNG_FRAME_H / h)
       const opts = {
         pixelRatio: PNG_SCALE * fit,
-        height: Math.min(h, PNG_FRAME_H / fit),
         backgroundColor: "#ffffff",
         // slides use system fonts — skip web-font embedding, which throws a
         // CORS SecurityError on the Google Fonts stylesheet and slows capture
@@ -1349,9 +1348,8 @@ export default function CostReportPage() {
       const shot = await toBlob(el, opts)
       if (!shot) throw new Error("capture returned empty image")
 
-      // Compose onto the 16:9 canvas. The capture already matches the frame
-      // height; a slide wider than 16:9 is centred so it loses the same sliver
-      // off each edge, while a tall one keeps its header and loses the tail.
+      // Compose onto the 16:9 canvas, centred, with the leftover on either the
+      // sides or the top and bottom left white — the slide's own background.
       const img = await loadImage(shot)
       const canvas = document.createElement("canvas")
       canvas.width = PNG_FRAME_W * PNG_SCALE
@@ -1361,12 +1359,12 @@ export default function CostReportPage() {
       ctx.fillStyle = "#ffffff"
       ctx.fillRect(0, 0, canvas.width, canvas.height)
       // re-derive the scale from the bitmap actually produced: html-to-image
-      // floors its canvas dimensions, and clamps them at 16384px, so the capture
-      // can land a pixel or two short of covering the frame
-      const cover = Math.max(canvas.width / img.width, canvas.height / img.height)
-      const dw = img.width * cover
-      const dh = img.height * cover
-      ctx.drawImage(img, Math.round((canvas.width - dw) / 2), 0, dw, dh)
+      // floors its canvas dimensions, so the capture can land a pixel or two
+      // over the frame it was sized to fit
+      const contain = Math.min(canvas.width / img.width, canvas.height / img.height)
+      const dw = img.width * contain
+      const dh = img.height * contain
+      ctx.drawImage(img, Math.round((canvas.width - dw) / 2), Math.round((canvas.height - dh) / 2), dw, dh)
       URL.revokeObjectURL(img.src)
 
       const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"))
