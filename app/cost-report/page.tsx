@@ -783,28 +783,6 @@ export default function CostReportPage() {
     return out
   }, [ffCurr, ffPrev])
 
-  // ── Auto takeaways (overview) ───────────────────────────────────────────────
-  const takeaways = useMemo(() => {
-    const out: string[] = []
-    const yoy = pctOf(totalCurr, totalPrev)
-    if (yoy !== null) {
-      out.push(`ค่าใช้จ่ายรวม ${fmtShort(totalCurr)} บาท ${yoy > 0 ? "เพิ่มขึ้น" : "ลดลง"} ${Math.abs(yoy).toFixed(1)}% เทียบปี ${prevYear} (${yoy > 0 ? "+" : "−"}${fmtShort(Math.abs(totalCurr - totalPrev))})`)
-    }
-    const withPct = groupAggs
-      .map((g) => ({ ...g, pct: pctOf(g.curr, g.prev) }))
-      .filter((g) => g.pct !== null && g.prev > 50_000)
-    const worst = [...withPct].sort((a, b) => (b.pct! - a.pct!))[0]
-    const best  = [...withPct].sort((a, b) => (a.pct! - b.pct!))[0]
-    if (worst && worst.pct! > 0)
-      out.push(`${worst.group} เพิ่มขึ้นมากที่สุด ${worst.pct!.toFixed(1)}% (${fmtShort(worst.prev)} → ${fmtShort(worst.curr)})`)
-    if (best && best.pct! < 0)
-      out.push(`${best.group} ลดลงมากที่สุด ${Math.abs(best.pct!).toFixed(1)}% (${fmtShort(best.prev)} → ${fmtShort(best.curr)})`)
-    const top = groupAggs[0]
-    if (top && totalCurr > 0)
-      out.push(`${top.group} เป็นสัดส่วนใหญ่ที่สุด ${(top.curr / totalCurr * 100).toFixed(0)}% ของค่าใช้จ่ายทั้งหมด`)
-    return out
-  }, [groupAggs, totalCurr, totalPrev, prevYear])
-
   // ── Breakdown rate (ML / MS fleets, same math as /fleet-report) ─────────────
   type BdMonthRow = { my: string; pCurr: number | null; pPrev: number | null; yoy: number | null; nCurr: number | null; nPrev: number | null }
   const bdFleets = useMemo(() => {
@@ -854,37 +832,6 @@ export default function CostReportPage() {
     })
     return row
   }), [months, bdFleets, prevYear])
-
-  const bdInsights = useMemo(() => {
-    const out: string[] = []
-    const avgOf = (vals: (number | null)[]) => {
-      const v = vals.filter((x): x is number => x !== null)
-      return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null
-    }
-    bdFleets.forEach((f) => {
-      const withP = f.rows.filter((r) => r.pCurr !== null)
-      if (!withP.length) return
-      const avgCurr = avgOf(withP.map((r) => r.pCurr))!
-      const avgYoy  = avgOf(withP.map((r) => r.yoy))
-      let line = `${f.key} เฉลี่ย ${avgCurr.toFixed(2)}%`
-      if (avgYoy !== null) line += ` — ${avgYoy > 0 ? "แย่กว่า" : "ดีกว่า"}ปีก่อนเฉลี่ย ${avgYoy > 0 ? "+" : ""}${avgYoy.toFixed(0)}%`
-      const worseMonths = withP.filter((r) => r.yoy !== null && r.yoy > 0).length
-      const yoyMonths   = withP.filter((r) => r.yoy !== null).length
-      if (yoyMonths > 0 && worseMonths === yoyMonths) line += ` (แย่กว่าปีก่อนทุกเดือน)`
-      out.push(line)
-      if (f.best && f.worst && f.best.my !== f.worst.my) {
-        out.push(`${f.key}: แย่สุด ${MONTH_LABEL[f.worst.my.split("-")[1]]} ${f.worst.pCurr!.toFixed(2)}% · ดีสุด ${MONTH_LABEL[f.best.my.split("-")[1]]} ${f.best.pCurr!.toFixed(2)}%`)
-      }
-      const first = withP[0], last = withP[withP.length - 1]
-      if (withP.length >= 3 && first.my !== last.my) {
-        const trendPct = ((last.pCurr! - first.pCurr!) / first.pCurr!) * 100
-        if (Math.abs(trendPct) >= 10) {
-          out.push(`${f.key}: แนวโน้ม${trendPct < 0 ? "ดีขึ้น" : "แย่ลง"}จากต้นช่วง ${MONTH_LABEL[first.my.split("-")[1]]} ${first.pCurr!.toFixed(2)}% → ${MONTH_LABEL[last.my.split("-")[1]]} ${last.pCurr!.toFixed(2)}%`)
-        }
-      }
-    })
-    return out
-  }, [bdFleets])
 
   // ── Workshop split: อู่ใน vs อู่นอก (from /api/cost/detail rows) ────────────
   // อู่นอก = คัน-เดือนที่มีรายการ "ค่าแรง" (จ้างซ่อมภายนอก) — same rule as /transaction-detail
@@ -969,28 +916,6 @@ export default function CostReportPage() {
       grand: all.reduce((sum, e) => sum + e.total, 0),
     }
   }, [rtCurr, fleetMapCurr, flagMapCurr, selectedFleets])
-
-  const wsTakeaways = useMemo(() => {
-    const out: string[] = []
-    const { curr, prev } = wsAgg
-    if (wsTotal > 0)
-      out.push(`อู่นอกคิดเป็น ${wsShare.toFixed(0)}% ของค่าซ่อมทั้งหมด${wsSharePrev !== null ? ` (ปี ${prevYear}: ${wsSharePrev.toFixed(0)}%)` : ""}`)
-    if (wsNaiAvg > 0 && wsNokAvg > 0)
-      out.push(`เฉลี่ยต่อคัน: อู่นอก ฿${fmtNum(wsNokAvg)} vs อู่ใน ฿${fmtNum(wsNaiAvg)} (${wsNokAvg >= wsNaiAvg ? "แพงกว่า +" : "ถูกกว่า −"}${Math.abs(((wsNokAvg - wsNaiAvg) / wsNaiAvg) * 100).toFixed(0)}%)`)
-    const yoyNok = pctOf(curr.nok, prev.nok)
-    if (yoyNok !== null)
-      out.push(`ค่าซ่อมอู่นอก ${yoyNok > 0 ? "เพิ่มขึ้น" : "ลดลง"} ${Math.abs(yoyNok).toFixed(1)}% เทียบปี ${prevYear} (${fmtShort(prev.nok)} → ${fmtShort(curr.nok)})`)
-    const yoyNai = pctOf(curr.nai, prev.nai)
-    if (yoyNai !== null)
-      out.push(`ค่าซ่อมอู่ใน ${yoyNai > 0 ? "เพิ่มขึ้น" : "ลดลง"} ${Math.abs(yoyNai).toFixed(1)}% เทียบปี ${prevYear} (${fmtShort(prev.nai)} → ${fmtShort(curr.nai)})`)
-    const peak = months
-      .map((my) => ({ my, v: curr.byMonth[my]?.nok ?? 0 }))
-      .sort((a, b) => b.v - a.v)[0]
-    if (peak && peak.v > 0)
-      out.push(`อู่นอกสูงสุดเดือน ${MONTH_LABEL[peak.my.split("-")[1]]} (${fmtShort(peak.v)})`)
-    return out
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wsAgg, months, prevYear])
 
   // ── Fleet × Month pivot ─────────────────────────────────────────────────────
   // Aggregation only. Office (รถสำนักงาน) cost has ALREADY been split across the
@@ -1415,19 +1340,19 @@ export default function CostReportPage() {
         {/* a full selection shows the same data as an empty one, so it is not a
             filter — rendering 12 chips for it just crowds the box. */}
         {selectedFleets.size < FLEET_PILLS.length && [...selectedFleets].map((g) => (
-          <span key={g} className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">{fleetLabel(g)}</span>
+          <span key={g} className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[15px] font-medium text-emerald-700">{fleetLabel(g)}</span>
         ))}
         {/* likewise: all six groups selected is the same view as none */}
         {selectedGroups.size < GROUP_ORDER.length && [...selectedGroups].map((g) => (
-          <span key={g} className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-700">{GROUP_THAI[g] ?? g}</span>
+          <span key={g} className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[15px] font-medium text-violet-700">{GROUP_THAI[g] ?? g}</span>
         ))}
         {[...selectedWh].map((w) => (
-          <span key={w} className="rounded-full border border-gray-200 bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600">{w}</span>
+          <span key={w} className="rounded-full border border-gray-200 bg-gray-100 px-2 py-0.5 text-[15px] font-medium text-gray-600">{w}</span>
         ))}
         {[...selectedFlag].map((f) => (
-          <span key={f} className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">{f}</span>
+          <span key={f} className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[15px] font-medium text-amber-700">{f}</span>
         ))}
-        {note && <p className="w-full text-right text-[9px] text-amber-500">{note}</p>}
+        {note && <p className="w-full text-right text-[14px] text-amber-500">{note}</p>}
       </div>
     )
   }
@@ -1611,13 +1536,13 @@ export default function CostReportPage() {
           <section ref={setSlideRef("overview")} className="slide rounded-2xl bg-white p-8 shadow-sm print:rounded-none print:shadow-none">
             <div className="mb-4 flex items-start justify-between border-b pb-4">
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-widest text-emerald-600">Mena Transport — Manager Meeting</p>
-                <h2 className="mt-1 text-2xl font-bold text-gray-900">MM Report — Maintenance Cost by Cost Group</h2>
-                <p className="mt-0.5 text-sm text-gray-400">{periodLabel} เทียบกับ {prevYear}</p>
+                <p className="text-[16px] font-semibold uppercase tracking-widest text-emerald-600">Mena Transport — Manager Meeting</p>
+                <h2 className="mt-1 text-[36px] font-bold text-gray-900">MM Report — Maintenance Cost by Cost Group</h2>
+                <p className="mt-0.5 text-[21px] text-gray-400">{periodLabel} เทียบกับ {prevYear}</p>
               </div>
               <div className="flex flex-col items-end gap-1.5">
                 <div className="flex items-center gap-2">
-                  <p className="text-xs text-gray-300">Slide 1 — Executive Overview</p>
+                  <p className="text-[18px] text-gray-300">Slide 1 — Executive Overview</p>
                   <PngButton slideKey="overview" name={`mm-report-1-overview-${year}`} />
                 </div>
                 <FilterTags />
@@ -1627,19 +1552,19 @@ export default function CostReportPage() {
             {/* KPI row */}
             <div className="mb-5 grid grid-cols-2 gap-4 lg:grid-cols-3">
               <div className="rounded-2xl border px-5 py-4">
-                <p className="text-xs text-gray-400">{year} Total Cost</p>
-                <p className="mt-1 text-3xl font-bold text-gray-900">{fmtShort(totalCurr)}</p>
-                <p className="mt-0.5 text-xs text-gray-400">฿{fmtNum(totalCurr)}</p>
+                <p className="text-[18px] text-gray-400">{year} Total Cost</p>
+                <p className="mt-1 text-[45px] font-bold text-gray-900">{fmtShort(totalCurr)}</p>
+                <p className="mt-0.5 text-[18px] text-gray-400">฿{fmtNum(totalCurr)}</p>
               </div>
               <div className="rounded-2xl border px-5 py-4">
-                <p className="text-xs text-gray-400">{prevYear} Total Cost</p>
-                <p className="mt-1 text-3xl font-bold text-gray-400">{fmtShort(totalPrev)}</p>
-                <p className="mt-0.5 text-xs text-gray-400">฿{fmtNum(totalPrev)}</p>
+                <p className="text-[18px] text-gray-400">{prevYear} Total Cost</p>
+                <p className="mt-1 text-[45px] font-bold text-gray-400">{fmtShort(totalPrev)}</p>
+                <p className="mt-0.5 text-[18px] text-gray-400">฿{fmtNum(totalPrev)}</p>
               </div>
               <div className="rounded-2xl border px-5 py-4">
-                <p className="text-xs text-gray-400">YoY Change</p>
-                <p className="mt-1 text-2xl font-bold"><PctBadge pct={pctOf(totalCurr, totalPrev)} size="text-2xl" /></p>
-                <p className="mt-0.5 text-xs text-gray-400">
+                <p className="text-[18px] text-gray-400">YoY Change</p>
+                <p className="mt-1 text-[36px] font-bold"><PctBadge pct={pctOf(totalCurr, totalPrev)} size="text-[36px]" /></p>
+                <p className="mt-0.5 text-[18px] text-gray-400">
                   {totalPrev > 0 ? `${totalCurr - totalPrev >= 0 ? "+" : "−"}฿${fmtNum(Math.abs(totalCurr - totalPrev))}` : "—"}
                 </p>
               </div>
@@ -1648,21 +1573,21 @@ export default function CostReportPage() {
             <div className="grid gap-5 lg:grid-cols-5">
               {/* Monthly stacked chart — top 3 groups + อื่นๆ, total labeled on top */}
               <div className="lg:col-span-3">
-                <p className="mb-2 text-xs font-semibold text-gray-700">
+                <p className="mb-2 text-[18px] font-semibold text-gray-700">
                   ค่าใช้จ่ายรายเดือน แยกตาม Cost Group
                   <span className="ml-2 font-normal text-gray-400">ตัวเลขบนแท่ง = รวมทั้งเดือน · เส้นประ = รวม {prevYear}</span>
                 </p>
                 <ResponsiveContainer width="100%" height={300}>
                   <ComposedChart data={overviewChart} barCategoryGap="28%" margin={{ top: 22, right: 12, left: 4, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-                    <XAxis dataKey="month" tick={{ fontSize: 12, fill: "#6b7280" }} axisLine={false} tickLine={false} />
-                    <YAxis tickFormatter={fmtLabel} tick={{ fontSize: 10, fill: "#9ca3af" }} axisLine={false} tickLine={false} width={46} />
+                    <XAxis dataKey="month" tick={{ fontSize: 18, fill: "#6b7280" }} axisLine={false} tickLine={false} />
+                    <YAxis tickFormatter={fmtLabel} tick={{ fontSize: 15, fill: "#9ca3af" }} axisLine={false} tickLine={false} width={46} />
                     <Tooltip
                       formatter={(v: any, n: any) => [`฿${fmtNum(Number(v))}`, n]}
                       labelStyle={{ fontWeight: 600, fontSize: 12 }}
                       contentStyle={{ borderRadius: 12, fontSize: 11, border: "1px solid #e5e7eb" }}
                     />
-                    <Legend formatter={(v) => <span style={{ fontSize: 11, color: "#6b7280" }}>{v}</span>} />
+                    <Legend formatter={(v) => <span style={{ fontSize: 16, color: "#6b7280" }}>{v}</span>} />
                     {chartSeries.top.map((g, i) => {
                       const isLast = !chartSeries.restLabel && i === chartSeries.top.length - 1
                       return (
@@ -1670,7 +1595,7 @@ export default function CostReportPage() {
                           fill={GROUP_COLOR[g.group]} radius={isLast ? [4, 4, 0, 0] : 0}>
                           {isLast && (
                             <LabelList dataKey="total" position="top"
-                              style={{ fontSize: 11, fill: "#111827", fontWeight: 700 }} formatter={fmtLabel} />
+                              style={{ fontSize: 16, fill: "#111827", fontWeight: 700 }} formatter={fmtLabel} />
                           )}
                         </Bar>
                       )
@@ -1678,7 +1603,7 @@ export default function CostReportPage() {
                     {chartSeries.restLabel && (
                       <Bar dataKey={chartSeries.restLabel} stackId="cg" fill="#cbd5e1" radius={[4, 4, 0, 0]} isAnimationActive={false}>
                         <LabelList dataKey="total" position="top"
-                          style={{ fontSize: 11, fill: "#111827", fontWeight: 700 }} formatter={fmtLabel} />
+                          style={{ fontSize: 16, fill: "#111827", fontWeight: 700 }} formatter={fmtLabel} />
                       </Bar>
                     )}
                     <Line dataKey={`รวม ${prevYear}`} type="monotone" stroke="#111827" strokeWidth={2} isAnimationActive={false}
@@ -1686,16 +1611,16 @@ export default function CostReportPage() {
                   </ComposedChart>
                 </ResponsiveContainer>
                 {chartSeries.restNote && (
-                  <p className="mt-1 text-[10px] text-gray-400">อื่นๆ = {chartSeries.restNote} (ดูรายละเอียดครบทุกกลุ่มในตารางขวา)</p>
+                  <p className="mt-1 text-[15px] text-gray-400">อื่นๆ = {chartSeries.restNote} (ดูรายละเอียดครบทุกกลุ่มในตารางขวา)</p>
                 )}
               </div>
 
-              {/* Comparison table + takeaways */}
+              {/* Comparison table */}
               <div className="lg:col-span-2">
-                <p className="mb-2 text-xs font-semibold text-gray-700">Cost Group — YoY</p>
-                <table className="w-full text-xs">
+                <p className="mb-2 text-[18px] font-semibold text-gray-700">Cost Group — YoY</p>
+                <table className="w-full text-[18px]">
                   <thead>
-                    <tr className="border-b text-left text-[10px] text-gray-400">
+                    <tr className="border-b text-left text-[15px] text-gray-400">
                       <th className="py-1.5 pr-1 font-medium">Group</th>
                       <th className="py-1.5 pr-1 text-right font-medium">{year}</th>
                       <th className="py-1.5 pr-1 text-right font-medium">{prevYear}</th>
@@ -1709,11 +1634,11 @@ export default function CostReportPage() {
                         <td className="py-1.5 pr-1">
                           <span className="mr-1 inline-block h-2 w-2 rounded-full" style={{ background: GROUP_COLOR[g.group] }} />
                           <span className="font-medium text-gray-700">{g.group.split(" - ")[0]}</span>
-                          <span className="ml-1 text-[9px] text-gray-400">{GROUP_THAI[g.group]}</span>
+                          <span className="ml-1 text-[14px] text-gray-400">{GROUP_THAI[g.group]}</span>
                         </td>
                         <td className="py-1.5 pr-1 text-right tabular-nums font-semibold text-gray-800">{fmtShort(g.curr)}</td>
                         <td className="py-1.5 pr-1 text-right tabular-nums text-gray-400">{fmtShort(g.prev)}</td>
-                        <td className="py-1.5 pr-1 text-right"><PctBadge pct={pctOf(g.curr, g.prev)} size="text-[10px]" /></td>
+                        <td className="py-1.5 pr-1 text-right"><PctBadge pct={pctOf(g.curr, g.prev)} size="text-[15px]" /></td>
                         <td className="py-1.5 text-right tabular-nums text-gray-500">
                           {totalCurr > 0 ? `${(g.curr / totalCurr * 100).toFixed(0)}%` : "—"}
                         </td>
@@ -1721,17 +1646,6 @@ export default function CostReportPage() {
                     ))}
                   </tbody>
                 </table>
-
-                <div className="mt-4 rounded-xl bg-gray-50 p-3">
-                  <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-gray-500">Key Takeaways</p>
-                  <ul className="space-y-1">
-                    {takeaways.map((t, i) => (
-                      <li key={i} className="flex gap-1.5 text-[11px] leading-snug text-gray-600">
-                        <span className="text-emerald-500">•</span>{t}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
               </div>
             </div>
           </section>
@@ -1741,43 +1655,43 @@ export default function CostReportPage() {
             <section ref={setSlideRef("breakdown")} className="slide rounded-2xl bg-white p-8 shadow-sm print:rounded-none print:shadow-none">
               <div className="mb-4 flex items-start justify-between border-b pb-4">
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-widest text-emerald-600">Fleet Reliability</p>
-                  <h2 className="mt-1 text-2xl font-bold text-gray-900">Break Rate</h2>
-                  <p className="mt-0.5 text-sm text-gray-400">
+                  <p className="text-[16px] font-semibold uppercase tracking-widest text-emerald-600">Fleet Reliability</p>
+                  <h2 className="mt-1 text-[36px] font-bold text-gray-900">Break Rate</h2>
+                  <p className="mt-0.5 text-[21px] text-gray-400">
                     {periodLabel} เทียบกับ {prevYear} · % = จำนวน breakdown ÷ (จำนวนรถ × วันในเดือน) · ตัวเลขเล็ก = ครั้ง/วัน
                   </p>
                 </div>
                 <div className="flex flex-col items-end gap-1.5">
                   <div className="flex items-center gap-2">
-                    <p className="text-xs text-gray-300">Slide 2 — Break Rate</p>
+                    <p className="text-[18px] text-gray-300">Slide 2 — Break Rate</p>
                     <PngButton slideKey="breakdown" name={`mm-report-2-breakdown-${year}`} />
                   </div>
                   <FilterTags note="* Break Rate ตาม filter รถมีนา/รถร่วม — ไม่ตามคลัง (ข้อมูลรถไม่มีมิติคลัง)" />
                 </div>
               </div>
 
-              {/* Trend chart + insights */}
-              <div className="mb-5 grid gap-5 lg:grid-cols-3">
-                <div className="lg:col-span-2">
-                  <p className="mb-2 text-xs font-semibold text-gray-700">Break Rate รายเดือน — {year} (เส้นทึบ) vs {prevYear} (เส้นประ)</p>
+              {/* Trend chart — full width now that the insights box is gone */}
+              <div className="mb-5">
+                <div>
+                  <p className="mb-2 text-[18px] font-semibold text-gray-700">Break Rate รายเดือน — {year} (เส้นทึบ) vs {prevYear} (เส้นประ)</p>
                   <ResponsiveContainer width="100%" height={240}>
                     <ComposedChart data={bdChart} margin={{ top: 20, right: 12, left: 0, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-                      <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-                      <YAxis tickFormatter={(v) => `${v}%`} tick={{ fontSize: 10, fill: "#9ca3af" }} axisLine={false} tickLine={false} width={40} />
+                      <XAxis dataKey="month" tick={{ fontSize: 16, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
+                      <YAxis tickFormatter={(v) => `${v}%`} tick={{ fontSize: 15, fill: "#9ca3af" }} axisLine={false} tickLine={false} width={40} />
                       <Tooltip
                         formatter={(v: any, n: any) => [v !== null ? `${Number(v).toFixed(2)}%` : "—", n]}
                         labelStyle={{ fontWeight: 600, fontSize: 12 }}
                         contentStyle={{ borderRadius: 12, fontSize: 11, border: "1px solid #e5e7eb" }}
                       />
-                      <Legend formatter={(v) => <span style={{ fontSize: 10, color: "#6b7280" }}>{v}</span>} />
+                      <Legend formatter={(v) => <span style={{ fontSize: 15, color: "#6b7280" }}>{v}</span>} />
                       {bdFleets.map((f) => (
                         <React.Fragment key={f.key}>
                           <Line dataKey={f.key} name={`${f.key} ${year}`} type="monotone" connectNulls isAnimationActive={false}
                             stroke={BD_FLEET_COLOR[f.key]} strokeWidth={2.5}
                             dot={{ r: 3.5, fill: BD_FLEET_COLOR[f.key], strokeWidth: 0 }} activeDot={{ r: 5 }}>
                             <LabelList dataKey={f.key} position="top" offset={8}
-                              style={{ fontSize: 9, fill: BD_FLEET_COLOR[f.key], fontWeight: 600 }}
+                              style={{ fontSize: 14, fill: BD_FLEET_COLOR[f.key], fontWeight: 600 }}
                               formatter={(v: any) => (v === null || v === undefined ? "" : `${Number(v).toFixed(1)}%`)} />
                           </Line>
                           <Line dataKey={`${f.key} ${prevYear}`} name={`${f.key} ${prevYear}`} type="monotone" connectNulls isAnimationActive={false}
@@ -1788,26 +1702,16 @@ export default function CostReportPage() {
                     </ComposedChart>
                   </ResponsiveContainer>
                 </div>
-                <div className="rounded-xl bg-gray-50 p-4">
-                  <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-gray-500">Key Takeaways</p>
-                  <ul className="space-y-1.5">
-                    {bdInsights.map((t, i) => (
-                      <li key={i} className="flex gap-1.5 text-[11px] leading-snug text-gray-600">
-                        <span className="text-emerald-500">•</span>{t}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
               </div>
 
               <div className="grid gap-5 lg:grid-cols-2">
                 {bdFleets.map((f) => (
                   <div key={f.key} className="rounded-2xl border border-emerald-100 border-l-4 border-l-emerald-500 p-5">
-                    <p className="mb-3 text-sm font-bold text-emerald-700">{f.name}</p>
+                    <p className="mb-3 text-[21px] font-bold text-emerald-700">{f.name}</p>
 
-                    <table className="w-full text-xs">
+                    <table className="w-full text-[18px]">
                       <thead>
-                        <tr className="border-b text-left text-[10px] text-gray-400">
+                        <tr className="border-b text-left text-[15px] text-gray-400">
                           <th className="py-1.5 pr-2 font-medium">Mo</th>
                           <th className="py-1.5 pr-2 font-medium">{String(year).slice(2)}</th>
                           <th className="py-1.5 font-medium">{String(prevYear).slice(2)}</th>
@@ -1819,11 +1723,11 @@ export default function CostReportPage() {
                             <td className="py-1.5 pr-2 text-gray-600">{MONTH_LABEL[r.my.split("-")[1]]}</td>
                             <td className={`py-1.5 pr-2 tabular-nums font-semibold ${bdPctColor(r.pCurr)}`}>
                               {r.pCurr !== null ? `${r.pCurr.toFixed(2)}%` : "—"}
-                              {r.nCurr !== null && <div className="text-[9px] font-normal leading-tight text-gray-400">{r.nCurr.toFixed(1)}</div>}
+                              {r.nCurr !== null && <div className="text-[14px] font-normal leading-normal text-gray-400">{r.nCurr.toFixed(1)}</div>}
                             </td>
                             <td className="py-1.5 tabular-nums text-gray-500">
                               {r.pPrev !== null ? `${r.pPrev.toFixed(2)}%` : "—"}
-                              {r.nPrev !== null && <div className="text-[9px] leading-tight text-gray-300">{r.nPrev.toFixed(1)}</div>}
+                              {r.nPrev !== null && <div className="text-[14px] leading-normal text-gray-300">{r.nPrev.toFixed(1)}</div>}
                             </td>
                           </tr>
                         ))}
@@ -1840,15 +1744,15 @@ export default function CostReportPage() {
             <section ref={setSlideRef("workshop")} className="slide rounded-2xl bg-white p-8 shadow-sm print:rounded-none print:shadow-none">
               <div className="mb-4 flex items-start justify-between border-b pb-4">
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-widest text-sky-600">Workshop Split</p>
-                  <h2 className="mt-1 text-2xl font-bold text-gray-900">ค่าซ่อม อู่ใน vs อู่นอก</h2>
-                  <p className="mt-0.5 text-sm text-gray-400">
+                  <p className="text-[16px] font-semibold uppercase tracking-widest text-sky-600">Workshop Split</p>
+                  <h2 className="mt-1 text-[36px] font-bold text-gray-900">ค่าซ่อม อู่ใน vs อู่นอก</h2>
+                  <p className="mt-0.5 text-[21px] text-gray-400">
                     {periodLabel} เทียบกับ {prevYear} · <span className="font-semibold text-sky-500">อู่ใน</span> = ซ่อมภายใน (ไม่มีค่าแรง) · <span className="font-semibold text-orange-500">อู่นอก</span> = จ้างซ่อมภายนอก (มีรายการค่าแรง)
                   </p>
                 </div>
                 <div className="flex flex-col items-end gap-1.5">
                   <div className="flex items-center gap-2">
-                    <p className="text-xs text-gray-300">Slide {hasBd ? 3 : 2} — อู่ใน vs อู่นอก</p>
+                    <p className="text-[18px] text-gray-300">Slide {hasBd ? 3 : 2} — อู่ใน vs อู่นอก</p>
                     <PngButton slideKey="workshop" name={`mm-report-${hasBd ? 3 : 2}-workshop-${year}`} />
                   </div>
                   <FilterTags />
@@ -1858,57 +1762,57 @@ export default function CostReportPage() {
               {/* KPI row */}
               <div className="mb-5 grid grid-cols-2 gap-4 lg:grid-cols-4">
                 <div className="rounded-2xl border border-sky-100 px-5 py-4">
-                  <p className="text-xs text-gray-400"><span className="rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-bold text-sky-600">อู่ใน</span> {year}</p>
-                  <p className="mt-1 text-3xl font-bold text-sky-700">{fmtShort(wsAgg.curr.nai)}</p>
-                  <p className="mt-0.5 text-xs text-gray-400">
-                    {wsAgg.curr.naiPlates} คัน · {prevYear}: {fmtShort(wsAgg.prev.nai)} <PctBadge pct={pctOf(wsAgg.curr.nai, wsAgg.prev.nai)} size="text-[10px]" />
+                  <p className="text-[18px] text-gray-400"><span className="rounded bg-sky-100 px-1.5 py-0.5 text-[15px] font-bold text-sky-600">อู่ใน</span> {year}</p>
+                  <p className="mt-1 text-[45px] font-bold text-sky-700">{fmtShort(wsAgg.curr.nai)}</p>
+                  <p className="mt-0.5 text-[18px] text-gray-400">
+                    {wsAgg.curr.naiPlates} คัน · {prevYear}: {fmtShort(wsAgg.prev.nai)} <PctBadge pct={pctOf(wsAgg.curr.nai, wsAgg.prev.nai)} size="text-[15px]" />
                   </p>
                 </div>
                 <div className="rounded-2xl border border-orange-100 px-5 py-4">
-                  <p className="text-xs text-gray-400"><span className="rounded bg-orange-100 px-1.5 py-0.5 text-[10px] font-bold text-orange-600">อู่นอก</span> {year}</p>
-                  <p className="mt-1 text-3xl font-bold text-orange-600">{fmtShort(wsAgg.curr.nok)}</p>
-                  <p className="mt-0.5 text-xs text-gray-400">
-                    {wsAgg.curr.nokPlates} คัน · {prevYear}: {fmtShort(wsAgg.prev.nok)} <PctBadge pct={pctOf(wsAgg.curr.nok, wsAgg.prev.nok)} size="text-[10px]" />
+                  <p className="text-[18px] text-gray-400"><span className="rounded bg-orange-100 px-1.5 py-0.5 text-[15px] font-bold text-orange-600">อู่นอก</span> {year}</p>
+                  <p className="mt-1 text-[45px] font-bold text-orange-600">{fmtShort(wsAgg.curr.nok)}</p>
+                  <p className="mt-0.5 text-[18px] text-gray-400">
+                    {wsAgg.curr.nokPlates} คัน · {prevYear}: {fmtShort(wsAgg.prev.nok)} <PctBadge pct={pctOf(wsAgg.curr.nok, wsAgg.prev.nok)} size="text-[15px]" />
                   </p>
                 </div>
                 <div className="rounded-2xl border px-5 py-4">
-                  <p className="text-xs text-gray-400">เฉลี่ย / คัน</p>
-                  <p className="mt-1 text-xl font-bold">
+                  <p className="text-[18px] text-gray-400">เฉลี่ย / คัน</p>
+                  <p className="mt-1 text-[30px] font-bold">
                     <span className="text-sky-700">{wsNaiAvg > 0 ? fmtShort(wsNaiAvg) : "—"}</span>
-                    <span className="mx-1.5 text-sm font-normal text-gray-300">vs</span>
+                    <span className="mx-1.5 text-[21px] font-normal text-gray-300">vs</span>
                     <span className="text-orange-600">{wsNokAvg > 0 ? fmtShort(wsNokAvg) : "—"}</span>
                   </p>
-                  <p className="mt-0.5 text-xs text-gray-400">
+                  <p className="mt-0.5 text-[18px] text-gray-400">
                     {wsNaiAvg > 0 && wsNokAvg > 0
                       ? `อู่นอก${wsNokAvg >= wsNaiAvg ? "แพงกว่า +" : "ถูกกว่า −"}${Math.abs(((wsNokAvg - wsNaiAvg) / wsNaiAvg) * 100).toFixed(0)}% ต่อคัน`
                       : "—"}
                   </p>
                 </div>
                 <div className="rounded-2xl border px-5 py-4">
-                  <p className="text-xs text-gray-400">สัดส่วนอู่นอก</p>
-                  <p className="mt-1 text-3xl font-bold text-gray-900">{wsShare.toFixed(0)}%</p>
+                  <p className="text-[18px] text-gray-400">สัดส่วนอู่นอก</p>
+                  <p className="mt-1 text-[45px] font-bold text-gray-900">{wsShare.toFixed(0)}%</p>
                   <div className="mt-1.5 flex h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
                     <div className="bg-sky-400" style={{ width: `${100 - wsShare}%` }} />
                     <div className="bg-orange-400" style={{ width: `${wsShare}%` }} />
                   </div>
-                  <p className="mt-1 text-xs text-gray-400">{wsSharePrev !== null ? `ปี ${prevYear}: ${wsSharePrev.toFixed(0)}%` : "—"}</p>
+                  <p className="mt-1 text-[18px] text-gray-400">{wsSharePrev !== null ? `ปี ${prevYear}: ${wsSharePrev.toFixed(0)}%` : "—"}</p>
                 </div>
               </div>
 
               <div className="grid gap-5 lg:grid-cols-5">
                 {/* Monthly chart */}
                 <div className="lg:col-span-3">
-                  <p className="mb-2 text-xs font-semibold text-gray-700">
+                  <p className="mb-2 text-[18px] font-semibold text-gray-700">
                     รายเดือน {year}
                     <span className="ml-2 font-normal text-gray-400">แท่ง = {year} · เส้นประ = {prevYear}</span>
                   </p>
                   <ResponsiveContainer width="100%" height={300}>
                     <ComposedChart data={wsChart} barCategoryGap="28%" barGap={4} margin={{ top: 20, right: 12, left: 4, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-                      <XAxis dataKey="month" tick={{ fontSize: 12, fill: "#6b7280" }} axisLine={false} tickLine={false} />
-                      <YAxis yAxisId="cost" tickFormatter={fmtLabel} tick={{ fontSize: 10, fill: "#9ca3af" }} axisLine={false} tickLine={false} width={46} />
+                      <XAxis dataKey="month" tick={{ fontSize: 18, fill: "#6b7280" }} axisLine={false} tickLine={false} />
+                      <YAxis yAxisId="cost" tickFormatter={fmtLabel} tick={{ fontSize: 15, fill: "#9ca3af" }} axisLine={false} tickLine={false} width={46} />
                       <YAxis yAxisId="plates" orientation="right" allowDecimals={false}
-                        tick={{ fontSize: 10, fill: "#a78bfa" }} axisLine={false} tickLine={false} width={34} />
+                        tick={{ fontSize: 15, fill: "#a78bfa" }} axisLine={false} tickLine={false} width={34} />
                       <Tooltip
                         formatter={(v: any, n: any) => {
                           if (n === "naiPlates") return [`${v} คัน`, `อู่ใน (คัน)`]
@@ -1929,14 +1833,14 @@ export default function CostReportPage() {
                             prevNai: `อู่ใน ${prevYear}`, prevNok: `อู่นอก ${prevYear}`,
                             naiPlates: "อู่ใน (คัน)", nokPlates: "อู่นอก (คัน)",
                           }
-                          return <span style={{ fontSize: 11, color: "#6b7280" }}>{map[v] ?? v}</span>
+                          return <span style={{ fontSize: 16, color: "#6b7280" }}>{map[v] ?? v}</span>
                         }}
                       />
                       <Bar yAxisId="cost" dataKey="auNai" name="auNai" fill="#0ea5e9" radius={[4, 4, 0, 0]} isAnimationActive={false}>
-                        <LabelList dataKey="auNai" position="top" style={{ fontSize: 9, fill: "#0284c7", fontWeight: 600 }} formatter={fmtLabel} />
+                        <LabelList dataKey="auNai" position="top" style={{ fontSize: 14, fill: "#0284c7", fontWeight: 600 }} formatter={fmtLabel} />
                       </Bar>
                       <Bar yAxisId="cost" dataKey="auNok" name="auNok" fill="#f97316" radius={[4, 4, 0, 0]} isAnimationActive={false}>
-                        <LabelList dataKey="auNok" position="top" style={{ fontSize: 9, fill: "#ea580c", fontWeight: 600 }} formatter={fmtLabel} />
+                        <LabelList dataKey="auNok" position="top" style={{ fontSize: 14, fill: "#ea580c", fontWeight: 600 }} formatter={fmtLabel} />
                       </Bar>
                       <Line yAxisId="cost" dataKey="prevNai" name="prevNai" type="monotone" stroke="#0ea5e9" strokeWidth={1.5} isAnimationActive={false}
                         strokeDasharray="5 4" strokeOpacity={0.45} dot={{ r: 2, fill: "#0ea5e9", strokeWidth: 0, fillOpacity: 0.45 }} />
@@ -1945,26 +1849,26 @@ export default function CostReportPage() {
                       <Line yAxisId="plates" dataKey="naiPlates" name="naiPlates" type="monotone" stroke="#0369a1" isAnimationActive={false}
                         strokeWidth={2} dot={{ r: 3, fill: "#0369a1", strokeWidth: 0 }} activeDot={{ r: 5 }}>
                         <LabelList dataKey="naiPlates" position="top" offset={8}
-                          style={{ fontSize: 9, fill: "#0369a1", fontWeight: 700 }} formatter={(v: any) => (Number(v) > 0 ? v : "")} />
+                          style={{ fontSize: 14, fill: "#0369a1", fontWeight: 700 }} formatter={(v: any) => (Number(v) > 0 ? v : "")} />
                       </Line>
                       <Line yAxisId="plates" dataKey="nokPlates" name="nokPlates" type="monotone" stroke="#9a3412" isAnimationActive={false}
                         strokeWidth={2} dot={{ r: 3, fill: "#9a3412", strokeWidth: 0 }} activeDot={{ r: 5 }}>
                         <LabelList dataKey="nokPlates" position="bottom" offset={8}
-                          style={{ fontSize: 9, fill: "#9a3412", fontWeight: 700 }} formatter={(v: any) => (Number(v) > 0 ? v : "")} />
+                          style={{ fontSize: 14, fill: "#9a3412", fontWeight: 700 }} formatter={(v: any) => (Number(v) > 0 ? v : "")} />
                       </Line>
                     </ComposedChart>
                   </ResponsiveContainer>
                 </div>
 
-                {/* Repair-type table + takeaways */}
+                {/* Repair-type table */}
                 <div className="lg:col-span-2">
                   <div className="mb-2 flex items-baseline justify-between gap-2">
-                    <p className="text-xs font-semibold text-gray-700">ประเภทการซ่อม · Top 5</p>
-                    <p className="text-[10px] tabular-nums text-gray-400">รวม {fmtShort(wsByType.grand)}</p>
+                    <p className="text-[18px] font-semibold text-gray-700">ประเภทการซ่อม · Top 5</p>
+                    <p className="text-[15px] tabular-nums text-gray-400">รวม {fmtShort(wsByType.grand)}</p>
                   </div>
-                  <table className="w-full text-xs">
+                  <table className="w-full text-[18px]">
                     <thead>
-                      <tr className="border-b text-left text-[10px] text-gray-400">
+                      <tr className="border-b text-left text-[15px] text-gray-400">
                         <th className="w-6 py-1.5 pr-1 font-medium">#</th>
                         <th className="py-1.5 pr-1 font-medium">ประเภทการซ่อม</th>
                         <th className="py-1.5 pr-1 text-right font-medium">ยอดรวม</th>
@@ -1994,23 +1898,12 @@ export default function CostReportPage() {
                     </tbody>
                   </table>
 
-                  <p className="mt-2 text-[10px] leading-snug text-gray-400">
+                  <p className="mt-2 text-[15px] leading-normal text-gray-400">
                     * ตารางนี้มาจาก<strong className="font-semibold text-gray-500">ใบแจ้งซ่อม (MR)</strong> คนละฐานกับการ์ดด้านบนที่มาจากการเบิกของจากคลัง
                     — MR รวมค่าแรงอู่นอกและอะไหล่ศูนย์ที่ไม่ผ่านคลัง แต่ไม่รวมการเบิกที่ไม่ผูกใบแจ้งซ่อม (เครื่องมือช่าง วัสดุสิ้นเปลือง)
                     · นับตามวันแจ้งซ่อม · ไม่รวมยาง อุปกรณ์เสริม PM ช่างมีนา และงานที่ไม่ใช่การซ่อม (น้ำมันเชื้อเพลิง ทำความสะอาด ต่อภาษี ตรวจ NGV)
                     · กรองตามฟลีทได้ แต่ไม่ตามคลังสินค้า/กลุ่มต้นทุน
                   </p>
-
-                  <div className="mt-4 rounded-xl bg-gray-50 p-3">
-                    <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-gray-500">Key Takeaways</p>
-                    <ul className="space-y-1">
-                      {wsTakeaways.map((t, i) => (
-                        <li key={i} className="flex gap-1.5 text-[11px] leading-snug text-gray-600">
-                          <span className="text-sky-500">•</span>{t}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
                 </div>
               </div>
             </section>
@@ -2021,15 +1914,15 @@ export default function CostReportPage() {
             <section ref={setSlideRef("fleetPivot")} className="slide rounded-2xl bg-white p-8 shadow-sm print:rounded-none print:shadow-none">
               <div className="mb-4 flex items-start justify-between border-b pb-4">
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-widest text-indigo-600">Fleet × Month</p>
-                  <h2 className="mt-1 text-2xl font-bold text-gray-900">ต้นทุนรายฟลีท แยกตามเดือน</h2>
-                  <p className="mt-0.5 text-sm text-gray-400">
+                  <p className="text-[16px] font-semibold uppercase tracking-widest text-indigo-600">Fleet × Month</p>
+                  <h2 className="mt-1 text-[36px] font-bold text-gray-900">ต้นทุนรายฟลีท แยกตามเดือน</h2>
+                  <p className="mt-0.5 text-[21px] text-gray-400">
                     {periodLabel} เทียบกับ {prevYear} · ค่าใช้จ่ายรถสำนักงานถูกเฉลี่ยเข้าแต่ละฟลีทตามจำนวนรถแล้ว
                   </p>
                 </div>
                 <div className="flex flex-col items-end gap-1.5">
                   <div className="flex items-center gap-2">
-                    <p className="text-xs text-gray-300">Slide {2 + (hasBd ? 1 : 0) + (hasWs ? 1 : 0)} — Fleet × Month</p>
+                    <p className="text-[18px] text-gray-300">Slide {2 + (hasBd ? 1 : 0) + (hasWs ? 1 : 0)} — Fleet × Month</p>
                     <PngButton slideKey="fleetPivot" name={`mm-report-${2 + (hasBd ? 1 : 0) + (hasWs ? 1 : 0)}-fleet-pivot-${year}`} />
                   </div>
                   <FilterTags />
@@ -2040,7 +1933,7 @@ export default function CostReportPage() {
               <div className="mb-3 flex items-center gap-1.5">
                 {([["total", "ต้นทุนรวม"], ["perTruck", "ต้นทุนต่อคัน"]] as const).map(([m, label]) => (
                   <button key={m} onClick={() => setPivotMetric(m)}
-                    className={`rounded-full border px-3 py-1 text-[11px] font-semibold transition ${
+                    className={`rounded-full border px-3 py-1 text-[16px] font-semibold transition ${
                       pivotMetric === m
                         ? "border-indigo-500 bg-indigo-500 text-white"
                         : "border-gray-200 bg-white text-gray-500 hover:bg-gray-50"
@@ -2048,24 +1941,24 @@ export default function CostReportPage() {
                     {label}
                   </button>
                 ))}
-                <span className="ml-2 text-[11px] text-gray-400">
-                  {pivotMetric === "perTruck" ? "หารด้วยจำนวนรถของฟลีทในเดือนนั้น · กลุ่มที่ไม่มีจำนวนรถแสดง —" : "บาท"}
+                <span className="ml-2 text-[16px] text-gray-400">
+                  {pivotMetric === "perTruck" ? "หารด้วยจำนวนรถของฟลีทในเดือนนั้น · กลุ่มที่ไม่มีจำนวนรถแสดง —" : "หน่วย: บาท (M = ล้าน, K = พัน)"}
                 </span>
               </div>
 
               {/* a 12-month range is wider than the slide — scroll the table, not the page */}
               <div className="overflow-x-auto rounded-xl border">
-                <table className="w-full border-separate border-spacing-0 text-xs">
+                <table className="w-full border-separate border-spacing-0 text-[18px]">
                   <thead>
                     <tr className="bg-gray-50">
-                      <th className="sticky left-0 min-w-[150px] border-b border-r bg-gray-50 px-3 py-2 text-left font-semibold uppercase tracking-wide text-gray-500">Fleet</th>
+                      <th className="sticky left-0 min-w-[190px] border-b border-r bg-gray-50 px-3 py-2 text-left font-semibold uppercase tracking-wide text-gray-500">Fleet</th>
                       <th className="border-b border-r px-2 py-2 text-center font-semibold uppercase tracking-wide text-gray-500">ปี</th>
                       {months.map((my) => (
-                        <th key={my} className="min-w-[62px] border-b px-2 py-2 text-right font-semibold text-gray-400">
+                        <th key={my} className="min-w-[78px] border-b px-2 py-2 text-right font-semibold text-gray-400">
                           {MONTH_LABEL[my.split("-")[1]] ?? my}
                         </th>
                       ))}
-                      <th className="min-w-[72px] border-b border-l px-2 py-2 text-right font-semibold uppercase tracking-wide text-gray-500">รวม</th>
+                      <th className="min-w-[96px] border-b border-l px-2 py-2 text-right font-semibold uppercase tracking-wide text-gray-500">รวม</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2080,7 +1973,7 @@ export default function CostReportPage() {
                           // v !== 0, not v > 0: a credit/adjustment makes a month
                           // negative, and hiding it as "—" while it still counts
                           // in the รวม makes the row visibly not add up.
-                          : <span className={extra}>{v !== 0 ? fmtNum(v) : "—"}</span>
+                          : <span className={extra}>{v !== 0 ? fmtShort(v) : "—"}</span>
                       return (
                         <React.Fragment key={r.key}>
                           <tr className={startsBuckets ? "border-t-4 border-t-gray-300" : undefined}>
@@ -2090,13 +1983,13 @@ export default function CostReportPage() {
                                 {r.isFleet && (
                                   <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: r.color }} />
                                 )}
-                                <span className={`text-[12px] ${r.isFleet ? "font-bold text-gray-800" : "font-medium text-gray-400"}`}>
+                                <span className={`text-[18px] ${r.isFleet ? "font-bold text-gray-800" : "font-medium text-gray-400"}`}>
                                   {r.label}
                                 </span>
                               </div>
                             </td>
                             <td className={`border-r px-2 py-1.5 text-center ${startsBuckets ? "border-t-4 border-t-gray-300" : ""}`}>
-                              <span className="inline-block rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-600">{year + 543}</span>
+                              <span className="inline-block rounded bg-blue-50 px-1.5 py-0.5 text-[15px] font-semibold text-blue-600">{year + 543}</span>
                             </td>
                             {months.map((my) => (
                               <td key={my} className={`px-2 py-1.5 text-right tabular-nums ${startsBuckets ? "border-t-4 border-t-gray-300" : ""} ${muted || "text-gray-800"}`}>
@@ -2109,7 +2002,7 @@ export default function CostReportPage() {
                           </tr>
                           <tr className="border-b-2">
                             <td className="border-b-2 border-r px-2 py-1.5 text-center">
-                              <span className="inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">{prevYear + 543}</span>
+                              <span className="inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[15px] font-medium text-slate-500">{prevYear + 543}</span>
                             </td>
                             {months.map((my) => (
                               <td key={my} className="border-b-2 px-2 py-1.5 text-right tabular-nums text-gray-400">
@@ -2126,41 +2019,41 @@ export default function CostReportPage() {
                   </tbody>
                   <tfoot>
                     <tr className="bg-gray-50">
-                      <td rowSpan={2} className="sticky left-0 border-r border-t-2 bg-gray-50 px-3 align-middle text-[12px] font-bold text-gray-900">รวม</td>
+                      <td rowSpan={2} className="sticky left-0 border-r border-t-2 bg-gray-50 px-3 align-middle text-[18px] font-bold text-gray-900">รวม</td>
                       <td className="border-r border-t-2 px-2 py-1.5 text-center">
-                        <span className="inline-block rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-600">{year + 543}</span>
+                        <span className="inline-block rounded bg-blue-50 px-1.5 py-0.5 text-[15px] font-semibold text-blue-600">{year + 543}</span>
                       </td>
                       {months.map((my) => (
                         <td key={my} className="border-t-2 px-2 py-1.5 text-right font-bold tabular-nums text-gray-900">
                           {(() => {
                             const v = pivotCell(fleetPivot.totals.curr[my] || 0, fleetPivot.totals.trucks[my] || 0, true)
-                            return v === null || v <= 0 ? <span className="text-gray-300">—</span> : fmtNum(v)
+                            return v === null || v <= 0 ? <span className="text-gray-300">—</span> : fmtShort(v)
                           })()}
                         </td>
                       ))}
                       <td className="border-l border-t-2 px-2 py-1.5 text-right font-bold tabular-nums text-gray-900">
                         {(() => {
                           const v = pivotRowTotal(fleetPivot.totals.currTotal, fleetPivot.totals.trucks, true)
-                          return v === null || v <= 0 ? <span className="text-gray-300">—</span> : fmtNum(v)
+                          return v === null || v <= 0 ? <span className="text-gray-300">—</span> : fmtShort(v)
                         })()}
                       </td>
                     </tr>
                     <tr className="bg-gray-50">
                       <td className="border-r px-2 py-1.5 text-center">
-                        <span className="inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">{prevYear + 543}</span>
+                        <span className="inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[15px] font-medium text-slate-500">{prevYear + 543}</span>
                       </td>
                       {months.map((my) => (
                         <td key={my} className="px-2 py-1.5 text-right font-semibold tabular-nums text-gray-500">
                           {(() => {
                             const v = pivotCell(fleetPivot.totals.prev[my] || 0, fleetPivot.totals.trucksPrev[my] || 0, true)
-                            return v === null || v <= 0 ? <span className="text-gray-300">—</span> : fmtNum(v)
+                            return v === null || v <= 0 ? <span className="text-gray-300">—</span> : fmtShort(v)
                           })()}
                         </td>
                       ))}
                       <td className="border-l px-2 py-1.5 text-right font-semibold tabular-nums text-gray-500">
                         {(() => {
                           const v = pivotRowTotal(fleetPivot.totals.prevTotal, fleetPivot.totals.trucksPrev, true)
-                          return v === null || v <= 0 ? <span className="text-gray-300">—</span> : fmtNum(v)
+                          return v === null || v <= 0 ? <span className="text-gray-300">—</span> : fmtShort(v)
                         })()}
                       </td>
                     </tr>
@@ -2198,24 +2091,24 @@ export default function CostReportPage() {
                 }`}>
                 <div className="mb-4 flex items-start justify-between border-b pb-4">
                   <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: GROUP_COLOR[g.group] }}>
+                    <p className="text-[16px] font-semibold uppercase tracking-widest" style={{ color: GROUP_COLOR[g.group] }}>
                       Cost Group Breakdown
                     </p>
-                    <h2 className="mt-1 flex items-center gap-2 text-2xl font-bold text-gray-900">
+                    <h2 className="mt-1 flex items-center gap-2 text-[36px] font-bold text-gray-900">
                       <span className="inline-block h-3.5 w-3.5 rounded-full" style={{ background: GROUP_COLOR[g.group] }} />
                       {g.group}
-                      <span className="text-base font-medium text-gray-400">{GROUP_THAI[g.group]}</span>
+                      <span className="text-[24px] font-medium text-gray-400">{GROUP_THAI[g.group]}</span>
                       {!picked && (
-                        <span className="rounded-full border border-gray-300 bg-gray-100 px-2.5 py-1 text-[11px] font-semibold text-gray-500">
+                        <span className="rounded-full border border-gray-300 bg-gray-100 px-2.5 py-1 text-[16px] font-semibold text-gray-500">
                           ไม่ได้เลือกในตัวกรอง
                         </span>
                       )}
                     </h2>
-                    <p className="mt-0.5 text-sm text-gray-400">{periodLabel} เทียบกับ {prevYear}</p>
+                    <p className="mt-0.5 text-[21px] text-gray-400">{periodLabel} เทียบกับ {prevYear}</p>
                   </div>
                   <div className="flex flex-col items-end gap-1.5">
                     <div className="flex items-center gap-2">
-                      <p className="text-xs text-gray-300">Slide {idx + 2 + (hasBd ? 1 : 0) + (hasWs ? 1 : 0) + (hasPivot ? 1 : 0)}</p>
+                      <p className="text-[18px] text-gray-300">Slide {idx + 2 + (hasBd ? 1 : 0) + (hasWs ? 1 : 0) + (hasPivot ? 1 : 0)}</p>
                       <PngButton
                         slideKey={`cg-${g.group}`}
                         name={`mm-report-${idx + 2 + (hasBd ? 1 : 0) + (hasWs ? 1 : 0) + (hasPivot ? 1 : 0)}-${g.group.split(" - ")[0].replace(/\s+/g, "").toLowerCase()}-${year}`}
@@ -2228,25 +2121,25 @@ export default function CostReportPage() {
                 {/* group KPIs */}
                 <div className="mb-5 grid grid-cols-2 gap-4 lg:grid-cols-4">
                   <div className="rounded-2xl border px-5 py-3.5">
-                    <p className="text-xs text-gray-400">{year} Cost</p>
-                    <p className="mt-1 text-2xl font-bold text-gray-900">{fmtShort(g.curr)}</p>
-                    <p className="mt-0.5 text-[11px] text-gray-400">฿{fmtNum(g.curr)}</p>
+                    <p className="text-[18px] text-gray-400">{year} Cost</p>
+                    <p className="mt-1 text-[36px] font-bold text-gray-900">{fmtShort(g.curr)}</p>
+                    <p className="mt-0.5 text-[16px] text-gray-400">฿{fmtNum(g.curr)}</p>
                   </div>
                   <div className="rounded-2xl border px-5 py-3.5">
-                    <p className="text-xs text-gray-400">{prevYear} Cost</p>
-                    <p className="mt-1 text-2xl font-bold text-gray-400">{fmtShort(g.prev)}</p>
-                    <p className="mt-0.5 text-[11px] text-gray-400">฿{fmtNum(g.prev)}</p>
+                    <p className="text-[18px] text-gray-400">{prevYear} Cost</p>
+                    <p className="mt-1 text-[36px] font-bold text-gray-400">{fmtShort(g.prev)}</p>
+                    <p className="mt-0.5 text-[16px] text-gray-400">฿{fmtNum(g.prev)}</p>
                   </div>
                   <div className="rounded-2xl border px-5 py-3.5">
-                    <p className="text-xs text-gray-400">YoY</p>
-                    <p className="mt-1"><PctBadge pct={pctOf(g.curr, g.prev)} size="text-2xl" /></p>
-                    <p className="mt-0.5 text-[11px] text-gray-400">
+                    <p className="text-[18px] text-gray-400">YoY</p>
+                    <p className="mt-1"><PctBadge pct={pctOf(g.curr, g.prev)} size="text-[36px]" /></p>
+                    <p className="mt-0.5 text-[16px] text-gray-400">
                       {g.prev > 0 ? `${g.curr - g.prev >= 0 ? "+" : "−"}฿${fmtNum(Math.abs(g.curr - g.prev))}` : "—"}
                     </p>
                   </div>
                   <div className="rounded-2xl border px-5 py-3.5">
-                    <p className="text-xs text-gray-400">สัดส่วนของทั้งหมด</p>
-                    <p className="mt-1 text-2xl font-bold text-gray-900">{share.toFixed(1)}%</p>
+                    <p className="text-[18px] text-gray-400">สัดส่วนของทั้งหมด</p>
+                    <p className="mt-1 text-[36px] font-bold text-gray-900">{share.toFixed(1)}%</p>
                     <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
                       <div className="h-full rounded-full" style={{ width: `${Math.min(share, 100)}%`, background: GROUP_COLOR[g.group] }} />
                     </div>
@@ -2256,23 +2149,23 @@ export default function CostReportPage() {
                 <div className="grid gap-5 lg:grid-cols-2">
                   {/* monthly trend */}
                   <div>
-                    <p className="mb-2 text-xs font-semibold text-gray-700">รายเดือน {year} vs {prevYear}</p>
+                    <p className="mb-2 text-[18px] font-semibold text-gray-700">รายเดือน {year} vs {prevYear}</p>
                     <ResponsiveContainer width="100%" height={230}>
                       <ComposedChart data={monthly} barCategoryGap="30%" margin={{ top: 18, right: 8, left: 4, bottom: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-                        <XAxis dataKey="month" tick={{ fontSize: 10, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-                        <YAxis tickFormatter={fmtLabel} tick={{ fontSize: 10, fill: "#9ca3af" }} axisLine={false} tickLine={false} width={44} />
+                        <XAxis dataKey="month" tick={{ fontSize: 15, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
+                        <YAxis tickFormatter={fmtLabel} tick={{ fontSize: 15, fill: "#9ca3af" }} axisLine={false} tickLine={false} width={44} />
                         <Tooltip formatter={(v: any, n: any) => [`฿${fmtNum(Number(v))}`, n === "curr" ? `${year}` : `${prevYear}`]}
                           contentStyle={{ borderRadius: 12, fontSize: 11, border: "1px solid #e5e7eb" }} />
                         <Bar dataKey="curr" fill={GROUP_COLOR[g.group]} radius={[4, 4, 0, 0]} isAnimationActive={false}>
-                          <LabelList dataKey="curr" position="top" style={{ fontSize: 9, fill: "#6b7280", fontWeight: 600 }} formatter={fmtLabel} />
+                          <LabelList dataKey="curr" position="top" style={{ fontSize: 14, fill: "#6b7280", fontWeight: 600 }} formatter={fmtLabel} />
                         </Bar>
                         <Line dataKey="prev" type="monotone" stroke="#111827" strokeWidth={2} isAnimationActive={false}
                           strokeDasharray="4 3" dot={{ r: 2.5, fill: "#111827", strokeWidth: 0 }} />
                       </ComposedChart>
                     </ResponsiveContainer>
                     {mover && (
-                      <div className="mt-2 rounded-xl bg-gray-50 px-3 py-2 text-[11px] leading-snug text-gray-600">
+                      <div className="mt-2 rounded-xl bg-gray-50 px-3 py-2 text-[16px] leading-normal text-gray-600">
                         <span className="font-semibold text-gray-700">Insight: </span>
                         ตัวขับเคลื่อนหลัก{mover.curr - mover.prev >= 0 ? "ที่เพิ่มขึ้น" : "ที่ลดลง"}: {mover.name}
                         {" "}({fmtShort(mover.prev)} → {fmtShort(mover.curr)}, {mover.curr - mover.prev >= 0 ? "+" : "−"}฿{fmtNum(Math.abs(mover.curr - mover.prev))})
@@ -2282,10 +2175,10 @@ export default function CostReportPage() {
 
                   {/* top product groups */}
                   <div>
-                    <p className="mb-2 text-xs font-semibold text-gray-700">Top กลุ่มสินค้า</p>
-                    <table className="w-full text-xs">
+                    <p className="mb-2 text-[18px] font-semibold text-gray-700">Top กลุ่มสินค้า</p>
+                    <table className="w-full text-[18px]">
                       <thead>
-                        <tr className="border-b text-left text-[10px] text-gray-400">
+                        <tr className="border-b text-left text-[15px] text-gray-400">
                           <th className="py-1.5 pr-1 font-medium">กลุ่มสินค้า</th>
                           <th className="py-1.5 pr-1 text-right font-medium">{year}</th>
                           <th className="py-1.5 pr-1 text-right font-medium">{prevYear}</th>
@@ -2301,7 +2194,7 @@ export default function CostReportPage() {
                               <td className="max-w-[180px] truncate py-1.5 pr-1 text-gray-700" title={p.pg}>{p.pg}</td>
                               <td className="py-1.5 pr-1 text-right tabular-nums font-semibold text-gray-800">{fmtShort(p.curr)}</td>
                               <td className="py-1.5 pr-1 text-right tabular-nums text-gray-400">{fmtShort(p.prev)}</td>
-                              <td className="py-1.5 pr-1 text-right"><PctBadge pct={pctOf(p.curr, p.prev)} size="text-[10px]" /></td>
+                              <td className="py-1.5 pr-1 text-right"><PctBadge pct={pctOf(p.curr, p.prev)} size="text-[15px]" /></td>
                               <td className="py-1.5">
                                 <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
                                   <div className="h-full rounded-full" style={{ width: `${Math.min(w, 100)}%`, background: GROUP_COLOR[g.group] }} />
@@ -2321,10 +2214,10 @@ export default function CostReportPage() {
                 {/* top items */}
                 {det && det.items.length > 0 && (
                   <div className="mt-5">
-                    <p className="mb-2 text-xs font-semibold text-gray-700">Top 10 รายการ (รหัสสินค้า)</p>
-                    <table className="w-full text-xs">
+                    <p className="mb-2 text-[18px] font-semibold text-gray-700">Top 10 รายการ (รหัสสินค้า)</p>
+                    <table className="w-full text-[18px]">
                       <thead>
-                        <tr className="border-b text-left text-[10px] text-gray-400">
+                        <tr className="border-b text-left text-[15px] text-gray-400">
                           <th className="py-1.5 pr-2 font-medium">รหัส</th>
                           <th className="py-1.5 pr-2 font-medium">ชื่อสินค้า</th>
                           <th className="py-1.5 pr-2 font-medium">กลุ่มสินค้า</th>
@@ -2337,13 +2230,13 @@ export default function CostReportPage() {
                       <tbody>
                         {det.items.slice(0, 10).map((it) => (
                           <tr key={`${it.pg}|${it.code}`} className="border-b last:border-b-0">
-                            <td className="py-1.5 pr-2 font-mono text-[10px] text-gray-500">{it.code}</td>
+                            <td className="py-1.5 pr-2 font-mono text-[15px] text-gray-500">{it.code}</td>
                             <td className="max-w-[280px] truncate py-1.5 pr-2 text-gray-700" title={it.name}>{it.name}</td>
                             <td className="max-w-[140px] truncate py-1.5 pr-2 text-gray-400">{it.pg}</td>
                             <td className="py-1.5 pr-2 text-right tabular-nums text-gray-500">{fmtNum(it.qty)}</td>
                             <td className="py-1.5 pr-2 text-right tabular-nums font-semibold text-gray-800">{fmtShort(it.curr)}</td>
                             <td className="py-1.5 pr-2 text-right tabular-nums text-gray-400">{fmtShort(it.prev)}</td>
-                            <td className="py-1.5 text-right"><PctBadge pct={pctOf(it.curr, it.prev)} size="text-[10px]" /></td>
+                            <td className="py-1.5 text-right"><PctBadge pct={pctOf(it.curr, it.prev)} size="text-[15px]" /></td>
                           </tr>
                         ))}
                       </tbody>
