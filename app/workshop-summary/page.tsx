@@ -13,6 +13,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts"
+import { getCostGroup } from "@/lib/cost-groups"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -37,22 +38,6 @@ type PlateDetailRow = {
 
 // ── Cost Group mapping (same as transaction-detail) ──────────────────────────
 
-const COST_GROUP_MAP: Record<string, string> = {
-  "PM น้ำมันเครื่อง":        "PM - Preventive Maintenance",
-  "PM ช่วงล่าง":             "PM - Preventive Maintenance",
-  "PM ความเย็น":             "PM - Preventive Maintenance",
-  "ค่าใช้จ่ายอื่น ๆ":        "CM - Corrective Maintenance",
-  "ซ่อม":                    "CM - Corrective Maintenance",
-  "อะไหล่/วัสดุสิ้นเปลือง": "CM - Corrective Maintenance",
-  "เครื่องมือส่วนตัวช่าง":   "Tools & Equipment",
-  "เบิกประจำตัวช่าง":        "Tools & Equipment",
-  "ยาง":                     "T - Tire",
-  "ซ่อมเคสอุบัติเหตุ":       "AC - Accident Repair",
-}
-
-function getCostGroup(จุดประสงค์: string): string {
-  return COST_GROUP_MAP[จุดประสงค์?.trim()] ?? "Other"
-}
 
 const CG_ORDER = ["CM", "PM", "AC", "T -", "Tools", "Other"]
 const cgSort = (a: string, b: string) => {

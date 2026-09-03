@@ -21,6 +21,7 @@ import {
 // normPlate lives in lib/plate-partner (dependency-free). Never import
 // lib/plate-partner-server here — it pulls in Mongo and breaks the client build.
 import { normPlate } from "@/lib/plate-partner"
+import { getCostGroup } from "@/lib/cost-groups"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -88,21 +89,6 @@ const FLEET_PILLS = [...FLEET_ORDER, BUCKET_PARTNER, BUCKET_NEW, BUCKET_UNKNOWN,
 
 // ── Cost Group mapping (same as /cost, incl. the เเย็น double-sara-e variant) ──
 
-const COST_GROUP_MAP: Record<string, string> = {
-  "PM น้ำมันเครื่อง":        "PM - Preventive Maintenance",
-  "PM ช่วงล่าง":             "PM - Preventive Maintenance",
-  "PM ความเย็น":             "PM - Preventive Maintenance",
-  "PM ความเเย็น":            "PM - Preventive Maintenance",
-  "ค่าใช้จ่ายอื่น ๆ":        "CM - Corrective Maintenance",
-  "ซ่อม":                    "CM - Corrective Maintenance",
-  "อะไหล่/วัสดุสิ้นเปลือง": "CM - Corrective Maintenance",
-  "เครื่องมือส่วนตัวช่าง":   "Tools & Equipment",
-  "เบิกประจำตัวช่าง":        "Tools & Equipment",
-  "ยาง":                     "T - Tire",
-  "ซ่อมเคสอุบัติเหตุ":       "AC - Accident Repair",
-}
-
-const getCostGroup = (p: string) => COST_GROUP_MAP[p?.trim()] ?? "Other"
 
 const GROUP_ORDER = [
   "CM - Corrective Maintenance",
@@ -2248,7 +2234,6 @@ export default function CostReportPage() {
           })}
         </div>
       )}
-
 
       {/* print styles (same pattern as /fleet-report) */}
       <style>{`
