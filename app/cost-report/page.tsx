@@ -244,6 +244,22 @@ const PctBadge = ({ pct, size = "text-xs" }: { pct: number | null; size?: string
   )
 }
 
+// ── PNG export frame ──────────────────────────────────────────────────────────
+// Slides get pasted straight into the MM deck, so every exported PNG has to come
+// out 16:9 whatever height the tables happened to run to on screen. 1920×1080 at
+// 2x = a 3840×2160 file.
+const PNG_FRAME_W = 1920
+const PNG_FRAME_H = 1080
+const PNG_SCALE = 2
+
+const loadImage = (blob: Blob) =>
+  new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error("could not decode the captured slide"))
+    img.src = URL.createObjectURL(blob)
+  })
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function CostReportPage() {
@@ -1297,7 +1313,7 @@ export default function CostReportPage() {
     saveAs(blob, `mm-report_${startMonth}_${endMonth}.xlsx`)
   }
 
-  // ── Save slide as PNG (full slide, 2x resolution) ───────────────────────────
+  // ── Save slide as PNG (16:9 frame, 2x resolution) ───────────────────────────
   const slideRefs = useRef<Record<string, HTMLElement | null>>({})
   const setSlideRef = (key: string) => (el: HTMLElement | null) => { slideRefs.current[key] = el }
   const [savingPng, setSavingPng] = useState<string | null>(null)
@@ -1308,8 +1324,19 @@ export default function CostReportPage() {
     setSavingPng(key)
     try {
       const { toBlob } = await import("html-to-image")
+      const w = el.offsetWidth
+      const h = el.offsetHeight
+      if (!w || !h) throw new Error("slide has no size to capture")
+      // Cover the 16:9 frame: scale so the slide fills it on both axes and let
+      // the overflow fall outside. Rendering at that scale (rather than
+      // capturing 1:1 and resizing the bitmap afterwards) keeps text sharp,
+      // because html-to-image rasterises from SVG at whatever pixelRatio it is
+      // given. A slide taller than the frame is captured only down to the cut —
+      // no point rasterising rows that get cropped away.
+      const fit = Math.max(PNG_FRAME_W / w, PNG_FRAME_H / h)
       const opts = {
-        pixelRatio: 2,
+        pixelRatio: PNG_SCALE * fit,
+        height: Math.min(h, PNG_FRAME_H / fit),
         backgroundColor: "#ffffff",
         // slides use system fonts — skip web-font embedding, which throws a
         // CORS SecurityError on the Google Fonts stylesheet and slows capture
@@ -1319,8 +1346,31 @@ export default function CostReportPage() {
       }
       // WebKit/Safari: first capture can come back blank — warm up, then capture
       await toBlob(el, opts)
-      const blob = await toBlob(el, opts)
-      if (!blob) throw new Error("capture returned empty image")
+      const shot = await toBlob(el, opts)
+      if (!shot) throw new Error("capture returned empty image")
+
+      // Compose onto the 16:9 canvas. The capture already matches the frame
+      // height; a slide wider than 16:9 is centred so it loses the same sliver
+      // off each edge, while a tall one keeps its header and loses the tail.
+      const img = await loadImage(shot)
+      const canvas = document.createElement("canvas")
+      canvas.width = PNG_FRAME_W * PNG_SCALE
+      canvas.height = PNG_FRAME_H * PNG_SCALE
+      const ctx = canvas.getContext("2d")
+      if (!ctx) throw new Error("could not open a 2d canvas")
+      ctx.fillStyle = "#ffffff"
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      // re-derive the scale from the bitmap actually produced: html-to-image
+      // floors its canvas dimensions, and clamps them at 16384px, so the capture
+      // can land a pixel or two short of covering the frame
+      const cover = Math.max(canvas.width / img.width, canvas.height / img.height)
+      const dw = img.width * cover
+      const dh = img.height * cover
+      ctx.drawImage(img, Math.round((canvas.width - dw) / 2), 0, dw, dh)
+      URL.revokeObjectURL(img.src)
+
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"))
+      if (!blob) throw new Error("could not encode the 16:9 frame")
       // blob + object URL downloads reliably across Chrome/Safari/Firefox
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
