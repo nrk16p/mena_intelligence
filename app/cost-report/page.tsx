@@ -245,9 +245,11 @@ const PctBadge = ({ pct, size = "text-xs" }: { pct: number | null; size?: string
 }
 
 // ── PNG export frame ──────────────────────────────────────────────────────────
-// Slides get pasted straight into the MM deck, so every exported PNG has to come
-// out 16:9 whatever height the tables happened to run to on screen. 1920×1080 at
-// 2x = a 3840×2160 file.
+// Slides get pasted straight into the MM deck, so every exported PNG is 16:9.
+// 1920×1080 at 2x = a 3840×2160 file. SlideFrame pins each slide to 1440×810,
+// which is the same ratio, so the fit below lands on exactly 4/3 and the frame
+// comes out full-bleed — the letterbox path only runs if a slide is ever
+// unpinned from that size.
 const PNG_FRAME_W = 1920
 const PNG_FRAME_H = 1080
 const PNG_SCALE = 2
@@ -259,6 +261,64 @@ const loadImage = (blob: Blob) =>
     img.onerror = () => reject(new Error("could not decode the captured slide"))
     img.src = URL.createObjectURL(blob)
   })
+
+// ── Slide frame ───────────────────────────────────────────────────────────────
+// Every slide is pinned to exactly 1440×810 — 16:9 — so savePng's fit lands on
+// 1920/1440 = 1080/810 = 4/3 on the nose. Two things follow: exported PNGs have
+// no letterbox bars, and one type scale reads the same on every slide. Before
+// this the slide was min(1400, viewport − 48) wide, so the same slide exported
+// at a different apparent type size from a 1366px laptop than from a 1920px one.
+function SlideFrame({
+  slideRef, accent, eyebrow, title, meta, right, children, muted = false,
+}: {
+  slideRef: (el: HTMLElement | null) => void
+  accent: string
+  eyebrow: string
+  title: React.ReactNode
+  meta: React.ReactNode
+  right: React.ReactNode
+  children: React.ReactNode
+  muted?: boolean
+}) {
+  const el = useRef<HTMLElement | null>(null)
+  const [over, setOver] = useState(false)
+  const attach = (node: HTMLElement | null) => { el.current = node; slideRef(node) }
+
+  // the fixed height clips silently, so say so on screen while there is still a
+  // chance to fix it. Runs on every render — the data behind a slide changes its
+  // height without changing this component's props.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate: a slide's
+  // height changes with its data, not with this component's props, so it has to
+  // re-measure every render. setOver returns the previous value when nothing
+  // moved, so React bails out and this settles rather than looping.
+  useEffect(() => {
+    const node = el.current
+    if (!node) return
+    const spilling = node.scrollHeight > node.clientHeight + 1
+    setOver((prev) => (prev === spilling ? prev : spilling))
+  })
+
+  return (
+    <section ref={attach}
+      className={`slide relative flex h-[810px] w-[1440px] shrink-0 flex-col overflow-hidden bg-white p-8 ${muted ? "opacity-70" : ""}`}>
+      {over && (
+        <div data-no-export
+          className="absolute right-3 top-3 z-50 rounded-md bg-red-600 px-2.5 py-1 text-[14px] font-bold text-white shadow">
+          เนื้อหาเกินกรอบสไลด์ — ตัดออกในไฟล์ PNG
+        </div>
+      )}
+      <header className="mb-5 flex shrink-0 items-start justify-between gap-8 border-b-2 border-gray-900 pb-4">
+        <div className="min-w-0">
+          <p className="text-[18px] font-bold uppercase leading-[24px] tracking-[0.16em]" style={{ color: accent }}>{eyebrow}</p>
+          <h2 className="mt-1 text-[40px] font-bold leading-[46px] text-gray-900">{title}</h2>
+          <p className="mt-1.5 text-[20px] leading-[27px] text-gray-500">{meta}</p>
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-2">{right}</div>
+      </header>
+      <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+    </section>
+  )
+}
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
@@ -783,28 +843,6 @@ export default function CostReportPage() {
     return out
   }, [ffCurr, ffPrev])
 
-  // ── Auto takeaways (overview) ───────────────────────────────────────────────
-  const takeaways = useMemo(() => {
-    const out: string[] = []
-    const yoy = pctOf(totalCurr, totalPrev)
-    if (yoy !== null) {
-      out.push(`ค่าใช้จ่ายรวม ${fmtShort(totalCurr)} บาท ${yoy > 0 ? "เพิ่มขึ้น" : "ลดลง"} ${Math.abs(yoy).toFixed(1)}% เทียบปี ${prevYear} (${yoy > 0 ? "+" : "−"}${fmtShort(Math.abs(totalCurr - totalPrev))})`)
-    }
-    const withPct = groupAggs
-      .map((g) => ({ ...g, pct: pctOf(g.curr, g.prev) }))
-      .filter((g) => g.pct !== null && g.prev > 50_000)
-    const worst = [...withPct].sort((a, b) => (b.pct! - a.pct!))[0]
-    const best  = [...withPct].sort((a, b) => (a.pct! - b.pct!))[0]
-    if (worst && worst.pct! > 0)
-      out.push(`${worst.group} เพิ่มขึ้นมากที่สุด ${worst.pct!.toFixed(1)}% (${fmtShort(worst.prev)} → ${fmtShort(worst.curr)})`)
-    if (best && best.pct! < 0)
-      out.push(`${best.group} ลดลงมากที่สุด ${Math.abs(best.pct!).toFixed(1)}% (${fmtShort(best.prev)} → ${fmtShort(best.curr)})`)
-    const top = groupAggs[0]
-    if (top && totalCurr > 0)
-      out.push(`${top.group} เป็นสัดส่วนใหญ่ที่สุด ${(top.curr / totalCurr * 100).toFixed(0)}% ของค่าใช้จ่ายทั้งหมด`)
-    return out
-  }, [groupAggs, totalCurr, totalPrev, prevYear])
-
   // ── Breakdown rate (ML / MS fleets, same math as /fleet-report) ─────────────
   type BdMonthRow = { my: string; pCurr: number | null; pPrev: number | null; yoy: number | null; nCurr: number | null; nPrev: number | null }
   const bdFleets = useMemo(() => {
@@ -827,15 +865,37 @@ export default function CostReportPage() {
         }
       })
       const withP = rows.filter((r) => r.pCurr !== null)
+      // Period figures for the matrix's two summary columns. The average is
+      // weighted (Σ breakdowns ÷ Σ truck-days), not a mean of the monthly rates —
+      // months differ in fleet size and length, so the naive mean is wrong.
+      const period = (which: "curr" | "prev") => {
+        let bd = 0, truckDays = 0, trucks = 0, n = 0
+        for (const my of months) {
+          const key = which === "curr" ? my : shiftYear(my, -1)
+          const r = find(which === "curr" ? bdCurr : bdPrev, toBdKey(key))
+          if (!r) continue
+          const tc = Number(r.truck_count)
+          bd += Number(r.breakdown_count)
+          truckDays += tc * daysInMonth(key)
+          if (tc > 0) { trucks += tc; n += 1 }
+        }
+        return {
+          breakdowns: bd,
+          rate: truckDays > 0 ? (bd / truckDays) * 100 : null,
+          trucks: n > 0 ? Math.round(trucks / n) : null,
+        }
+      }
       return {
         rows,
+        curr: period("curr"),
+        prev: period("prev"),
         best:  withP.length ? withP.reduce((b, r) => (r.pCurr! < b.pCurr! ? r : b)) : null,
         worst: withP.length ? withP.reduce((w, r) => (r.pCurr! > w.pCurr! ? r : w)) : null,
       }
     }
     return [
-      { key: FLEET_MAP["1"], name: `${FLEET_MAP["1"]} · Mixer Large`, ...calc("1") },
-      { key: FLEET_MAP["2"], name: `${FLEET_MAP["2"]} · Mixer Small`, ...calc("2") },
+      { key: FLEET_MAP["1"], name: FLEET_MAP["1"], thai: "โม่ใหญ่", ...calc("1") },
+      { key: FLEET_MAP["2"], name: FLEET_MAP["2"], thai: "โม่เล็ก", ...calc("2") },
     ]
   }, [bdCurr, bdPrev, months])
 
@@ -854,37 +914,6 @@ export default function CostReportPage() {
     })
     return row
   }), [months, bdFleets, prevYear])
-
-  const bdInsights = useMemo(() => {
-    const out: string[] = []
-    const avgOf = (vals: (number | null)[]) => {
-      const v = vals.filter((x): x is number => x !== null)
-      return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null
-    }
-    bdFleets.forEach((f) => {
-      const withP = f.rows.filter((r) => r.pCurr !== null)
-      if (!withP.length) return
-      const avgCurr = avgOf(withP.map((r) => r.pCurr))!
-      const avgYoy  = avgOf(withP.map((r) => r.yoy))
-      let line = `${f.key} เฉลี่ย ${avgCurr.toFixed(2)}%`
-      if (avgYoy !== null) line += ` — ${avgYoy > 0 ? "แย่กว่า" : "ดีกว่า"}ปีก่อนเฉลี่ย ${avgYoy > 0 ? "+" : ""}${avgYoy.toFixed(0)}%`
-      const worseMonths = withP.filter((r) => r.yoy !== null && r.yoy > 0).length
-      const yoyMonths   = withP.filter((r) => r.yoy !== null).length
-      if (yoyMonths > 0 && worseMonths === yoyMonths) line += ` (แย่กว่าปีก่อนทุกเดือน)`
-      out.push(line)
-      if (f.best && f.worst && f.best.my !== f.worst.my) {
-        out.push(`${f.key}: แย่สุด ${MONTH_LABEL[f.worst.my.split("-")[1]]} ${f.worst.pCurr!.toFixed(2)}% · ดีสุด ${MONTH_LABEL[f.best.my.split("-")[1]]} ${f.best.pCurr!.toFixed(2)}%`)
-      }
-      const first = withP[0], last = withP[withP.length - 1]
-      if (withP.length >= 3 && first.my !== last.my) {
-        const trendPct = ((last.pCurr! - first.pCurr!) / first.pCurr!) * 100
-        if (Math.abs(trendPct) >= 10) {
-          out.push(`${f.key}: แนวโน้ม${trendPct < 0 ? "ดีขึ้น" : "แย่ลง"}จากต้นช่วง ${MONTH_LABEL[first.my.split("-")[1]]} ${first.pCurr!.toFixed(2)}% → ${MONTH_LABEL[last.my.split("-")[1]]} ${last.pCurr!.toFixed(2)}%`)
-        }
-      }
-    })
-    return out
-  }, [bdFleets])
 
   // ── Workshop split: อู่ใน vs อู่นอก (from /api/cost/detail rows) ────────────
   // อู่นอก = คัน-เดือนที่มีรายการ "ค่าแรง" (จ้างซ่อมภายนอก) — same rule as /transaction-detail
@@ -969,28 +998,6 @@ export default function CostReportPage() {
       grand: all.reduce((sum, e) => sum + e.total, 0),
     }
   }, [rtCurr, fleetMapCurr, flagMapCurr, selectedFleets])
-
-  const wsTakeaways = useMemo(() => {
-    const out: string[] = []
-    const { curr, prev } = wsAgg
-    if (wsTotal > 0)
-      out.push(`อู่นอกคิดเป็น ${wsShare.toFixed(0)}% ของค่าซ่อมทั้งหมด${wsSharePrev !== null ? ` (ปี ${prevYear}: ${wsSharePrev.toFixed(0)}%)` : ""}`)
-    if (wsNaiAvg > 0 && wsNokAvg > 0)
-      out.push(`เฉลี่ยต่อคัน: อู่นอก ฿${fmtNum(wsNokAvg)} vs อู่ใน ฿${fmtNum(wsNaiAvg)} (${wsNokAvg >= wsNaiAvg ? "แพงกว่า +" : "ถูกกว่า −"}${Math.abs(((wsNokAvg - wsNaiAvg) / wsNaiAvg) * 100).toFixed(0)}%)`)
-    const yoyNok = pctOf(curr.nok, prev.nok)
-    if (yoyNok !== null)
-      out.push(`ค่าซ่อมอู่นอก ${yoyNok > 0 ? "เพิ่มขึ้น" : "ลดลง"} ${Math.abs(yoyNok).toFixed(1)}% เทียบปี ${prevYear} (${fmtShort(prev.nok)} → ${fmtShort(curr.nok)})`)
-    const yoyNai = pctOf(curr.nai, prev.nai)
-    if (yoyNai !== null)
-      out.push(`ค่าซ่อมอู่ใน ${yoyNai > 0 ? "เพิ่มขึ้น" : "ลดลง"} ${Math.abs(yoyNai).toFixed(1)}% เทียบปี ${prevYear} (${fmtShort(prev.nai)} → ${fmtShort(curr.nai)})`)
-    const peak = months
-      .map((my) => ({ my, v: curr.byMonth[my]?.nok ?? 0 }))
-      .sort((a, b) => b.v - a.v)[0]
-    if (peak && peak.v > 0)
-      out.push(`อู่นอกสูงสุดเดือน ${MONTH_LABEL[peak.my.split("-")[1]]} (${fmtShort(peak.v)})`)
-    return out
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wsAgg, months, prevYear])
 
   // ── Fleet × Month pivot ─────────────────────────────────────────────────────
   // Aggregation only. Office (รถสำนักงาน) cost has ALREADY been split across the
@@ -1109,7 +1116,29 @@ export default function CostReportPage() {
 
   const hasPivot = fleetPivot.rows.length > 0
 
-  const periodLabel = `${MONTH_LABEL[startMonth.split("-")[1]]} – ${MONTH_LABEL[endMonth.split("-")[1]]} ${year}`
+  // Fastest-growing cost group — used to be the second line of the overview's
+  // Key Takeaways box. As a KPI tile it is the same fact at five times the size.
+  const topMover = useMemo(() => {
+    const withPct = groupAggs
+      .map((g) => ({ ...g, pct: pctOf(g.curr, g.prev) }))
+      .filter((g) => g.pct !== null && g.prev > 50_000)
+    const worst = [...withPct].sort((a, b) => b.pct! - a.pct!)[0]
+    return worst && worst.pct! > 0 ? worst : null
+  }, [groupAggs])
+
+  // Slides speak Thai, so they date in Buddhist era. The pivot slide already did
+  // (year + 543) while every other slide printed 2026 — two calendars in one deck
+  // is a guaranteed interruption.
+  const yBE = year + 543
+  const pBE = prevYear + 543
+  const periodTh = `${monthTh(startMonth)}–${monthTh(endMonth)} ${yBE}`
+  const unitNote = "หน่วย: บาท (M = ล้าน, K = พัน)"
+  const MAX_MONTH_COLS = 12
+  const visMonths = months.length > MAX_MONTH_COLS ? months.slice(-MAX_MONTH_COLS) : months
+  const trimNote = months.length > MAX_MONTH_COLS
+    ? ` · แสดง ${MAX_MONTH_COLS} เดือนล่าสุดจาก ${months.length} เดือน (ยอดรวมเป็นของทั้งช่วง)`
+    : ""
+  const deltaNote = "▲ แดง = สูงขึ้น · ▼ เขียว = ลดลง"
   const toggleSet = (set: Set<string>, setter: (s: Set<string>) => void, v: string) => {
     const next = new Set(set)
     if (next.has(v)) next.delete(v)
@@ -1322,8 +1351,16 @@ export default function CostReportPage() {
     const el = slideRefs.current[key]
     if (!el) return
     setSavingPng(key)
+    let darkRestore = false
     try {
       const { toBlob } = await import("html-to-image")
+      // globals.css forces `.dark .bg-white` to a dark grey with !important, so a
+      // slide captured in dark mode exports as a dark card sitting in the white
+      // frame below. Drop the class for the duration of the capture rather than
+      // fighting every overridden utility in CSS.
+      const root = document.documentElement
+      const wasDark = root.classList.contains("dark")
+      if (wasDark) { root.classList.remove("dark"); darkRestore = true }
       const w = el.offsetWidth
       const h = el.offsetHeight
       if (!w || !h) throw new Error("slide has no size to capture")
@@ -1381,6 +1418,7 @@ export default function CostReportPage() {
     } catch (e) {
       console.error("save png failed", e)
     } finally {
+      if (darkRestore) document.documentElement.classList.add("dark")
       setSavingPng(null)
     }
   }
@@ -1409,25 +1447,32 @@ export default function CostReportPage() {
   const hasFilters =
     selectedWh.size > 0 || selectedFlag.size > 0 || selectedFleets.size > 0 || selectedGroups.size > 0
   const FilterTags = ({ note }: { note?: string }) => {
-    if (!hasFilters) return null
+    // Rendering nothing for "no filter" is ambiguous: a full-company slide and a
+    // filtered one look identical, and someone always asks which they are seeing.
+    if (!hasFilters) return (
+      <span className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-[16px] font-medium text-gray-500">
+        ทั้งบริษัท (ไม่กรอง)
+      </span>
+    )
     return (
-      <div className="flex max-w-[260px] flex-wrap justify-end gap-1">
+      <div className="flex max-w-[380px] flex-wrap items-center justify-end gap-1.5">
+        <span className="text-[16px] font-semibold text-gray-400">กรอง:</span>
         {/* a full selection shows the same data as an empty one, so it is not a
             filter — rendering 12 chips for it just crowds the box. */}
         {selectedFleets.size < FLEET_PILLS.length && [...selectedFleets].map((g) => (
-          <span key={g} className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">{fleetLabel(g)}</span>
+          <span key={g} className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-[16px] font-medium text-emerald-700">{fleetLabel(g)}</span>
         ))}
         {/* likewise: all six groups selected is the same view as none */}
         {selectedGroups.size < GROUP_ORDER.length && [...selectedGroups].map((g) => (
-          <span key={g} className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-700">{GROUP_THAI[g] ?? g}</span>
+          <span key={g} className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-0.5 text-[16px] font-medium text-violet-700">{GROUP_THAI[g] ?? g}</span>
         ))}
         {[...selectedWh].map((w) => (
-          <span key={w} className="rounded-full border border-gray-200 bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600">{w}</span>
+          <span key={w} className="rounded-full border border-gray-200 bg-gray-100 px-2.5 py-0.5 text-[16px] font-medium text-gray-600">{w}</span>
         ))}
         {[...selectedFlag].map((f) => (
-          <span key={f} className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">{f}</span>
+          <span key={f} className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-[16px] font-medium text-amber-700">{f}</span>
         ))}
-        {note && <p className="w-full text-right text-[9px] text-amber-500">{note}</p>}
+        {note && <p className="w-full text-right text-[15px] leading-[21px] text-amber-500">{note}</p>}
       </div>
     )
   }
@@ -1605,64 +1650,81 @@ export default function CostReportPage() {
       )}
 
       {hasData && (
-        <div className="mx-auto max-w-[1400px] space-y-6">
+        <div className="mx-auto flex w-[1440px] flex-col gap-6">
 
           {/* ══ SLIDE 1: Executive Overview ══════════════════════════════════ */}
-          <section ref={setSlideRef("overview")} className="slide rounded-2xl bg-white p-8 shadow-sm print:rounded-none print:shadow-none">
-            <div className="mb-4 flex items-start justify-between border-b pb-4">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-widest text-emerald-600">Mena Transport — Manager Meeting</p>
-                <h2 className="mt-1 text-2xl font-bold text-gray-900">MM Report — Maintenance Cost by Cost Group</h2>
-                <p className="mt-0.5 text-sm text-gray-400">{periodLabel} เทียบกับ {prevYear}</p>
+          <SlideFrame
+            slideRef={setSlideRef("overview")}
+            accent="#059669"
+            eyebrow="MM Report · Executive Overview"
+            title="ต้นทุนงานซ่อมบำรุง แยกตามกลุ่มต้นทุน"
+            meta={`${periodTh} เทียบช่วงเดือนเดียวกันของ ${pBE} · ${unitNote} · ที่มา: ใบเบิกอะไหล่จากคลัง (ATMS)`}
+            right={<>
+              <div className="flex items-center gap-2">
+                <p className="text-[18px] leading-[24px] text-gray-300">Slide 1</p>
+                <PngButton slideKey="overview" name={`mm-report-1-overview-${year}`} />
               </div>
-              <div className="flex flex-col items-end gap-1.5">
-                <div className="flex items-center gap-2">
-                  <p className="text-xs text-gray-300">Slide 1 — Executive Overview</p>
-                  <PngButton slideKey="overview" name={`mm-report-1-overview-${year}`} />
-                </div>
-                <FilterTags />
-              </div>
-            </div>
-
+              <FilterTags />
+            </>}
+          >
             {/* KPI row */}
-            <div className="mb-5 grid grid-cols-2 gap-4 lg:grid-cols-3">
-              <div className="rounded-2xl border px-5 py-4">
-                <p className="text-xs text-gray-400">{year} Total Cost</p>
-                <p className="mt-1 text-3xl font-bold text-gray-900">{fmtShort(totalCurr)}</p>
-                <p className="mt-0.5 text-xs text-gray-400">฿{fmtNum(totalCurr)}</p>
+            <div className="mb-5 grid h-[144px] shrink-0 grid-cols-4 gap-5">
+              <div className="rounded-2xl border-2 border-gray-200 px-5 py-4">
+                <p className="text-[20px] leading-[26px] text-gray-500">ต้นทุนรวม {yBE}</p>
+                <p className="mt-0.5 text-[56px] font-bold leading-[60px] text-gray-900">{fmtShort(totalCurr)}</p>
+                <p className="text-[18px] leading-[24px] text-gray-400">฿{fmtNum(totalCurr)}</p>
               </div>
-              <div className="rounded-2xl border px-5 py-4">
-                <p className="text-xs text-gray-400">{prevYear} Total Cost</p>
-                <p className="mt-1 text-3xl font-bold text-gray-400">{fmtShort(totalPrev)}</p>
-                <p className="mt-0.5 text-xs text-gray-400">฿{fmtNum(totalPrev)}</p>
+              <div className="rounded-2xl border-2 border-gray-200 px-5 py-4">
+                <p className="text-[20px] leading-[26px] text-gray-500">ต้นทุนรวม {pBE}</p>
+                <p className="mt-0.5 text-[56px] font-bold leading-[60px] text-gray-400">{fmtShort(totalPrev)}</p>
+                <p className="text-[18px] leading-[24px] text-gray-400">฿{fmtNum(totalPrev)}</p>
               </div>
-              <div className="rounded-2xl border px-5 py-4">
-                <p className="text-xs text-gray-400">YoY Change</p>
-                <p className="mt-1 text-2xl font-bold"><PctBadge pct={pctOf(totalCurr, totalPrev)} size="text-2xl" /></p>
-                <p className="mt-0.5 text-xs text-gray-400">
+              <div className="rounded-2xl border-2 border-gray-200 px-5 py-4">
+                <p className="text-[20px] leading-[26px] text-gray-500">เทียบปีก่อน (ช่วงเดือนเดียวกัน)</p>
+                <p className="mt-0.5 leading-[60px]"><PctBadge pct={pctOf(totalCurr, totalPrev)} size="text-[56px]" /></p>
+                <p className="text-[18px] leading-[24px] text-gray-400">
                   {totalPrev > 0 ? `${totalCurr - totalPrev >= 0 ? "+" : "−"}฿${fmtNum(Math.abs(totalCurr - totalPrev))}` : "—"}
                 </p>
               </div>
+              <div className="rounded-2xl border-2 border-gray-200 px-5 py-4">
+                <p className="text-[20px] leading-[26px] text-gray-500">กลุ่มที่โตเร็วที่สุด</p>
+                {topMover ? (
+                  <>
+                    <p className="mt-0.5 leading-[60px]"><PctBadge pct={topMover.pct} size="text-[56px]" /></p>
+                    <p className="truncate text-[18px] leading-[24px] text-gray-500">
+                      {GROUP_THAI[topMover.group] ?? topMover.group} · {fmtShort(topMover.prev)} → {fmtShort(topMover.curr)}
+                    </p>
+                  </>
+                ) : (
+                  <p className="mt-0.5 text-[56px] font-bold leading-[60px] text-gray-300">—</p>
+                )}
+              </div>
             </div>
 
-            <div className="grid gap-5 lg:grid-cols-5">
+            <div className="grid min-h-0 flex-1 grid-cols-12 gap-5">
               {/* Monthly stacked chart — top 3 groups + อื่นๆ, total labeled on top */}
-              <div className="lg:col-span-3">
-                <p className="mb-2 text-xs font-semibold text-gray-700">
-                  ค่าใช้จ่ายรายเดือน แยกตาม Cost Group
-                  <span className="ml-2 font-normal text-gray-400">ตัวเลขบนแท่ง = รวมทั้งเดือน · เส้นประ = รวม {prevYear}</span>
+              <div className="col-span-7 flex min-h-0 flex-col">
+                <p className="text-[22px] font-semibold leading-[30px] text-gray-800">ค่าใช้จ่ายรายเดือน แยกตามกลุ่มต้นทุน</p>
+                <p className="mb-2 text-[18px] leading-[24px] text-gray-500">
+                  แท่ง = ต้นทุนแต่ละกลุ่ม (ซ้อนกัน) · ตัวเลขบนแท่ง = รวมทั้งเดือน · เส้นประ = ยอดรวมปี {pBE}
                 </p>
-                <ResponsiveContainer width="100%" height={300}>
-                  <ComposedChart data={overviewChart} barCategoryGap="28%" margin={{ top: 22, right: 12, left: 4, bottom: 0 }}>
+                <ResponsiveContainer width="100%" height={374}>
+                  <ComposedChart data={overviewChart} barCategoryGap="28%" margin={{ top: 28, right: 12, left: 4, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-                    <XAxis dataKey="month" tick={{ fontSize: 12, fill: "#6b7280" }} axisLine={false} tickLine={false} />
-                    <YAxis tickFormatter={fmtLabel} tick={{ fontSize: 10, fill: "#9ca3af" }} axisLine={false} tickLine={false} width={46} />
+                    <XAxis dataKey="month" tick={{ fontSize: 18, fill: "#6b7280" }} axisLine={false} tickLine={false} />
+                    <YAxis tickFormatter={fmtLabel} tick={{ fontSize: 18, fill: "#9ca3af" }} axisLine={false} tickLine={false} width={64} />
                     <Tooltip
                       formatter={(v: any, n: any) => [`฿${fmtNum(Number(v))}`, n]}
                       labelStyle={{ fontWeight: 600, fontSize: 12 }}
                       contentStyle={{ borderRadius: 12, fontSize: 11, border: "1px solid #e5e7eb" }}
                     />
-                    <Legend formatter={(v) => <span style={{ fontSize: 11, color: "#6b7280" }}>{v}</span>} />
+                    {/* the "อื่นๆ = …" footnote used to sit under the chart at 10px;
+                        folded into the legend it says the same thing legibly */}
+                    <Legend formatter={(v) => (
+                      <span style={{ fontSize: 18, color: "#6b7280" }}>
+                        {v === chartSeries.restLabel && chartSeries.restNote ? `อื่นๆ (${chartSeries.restNote})` : v}
+                      </span>
+                    )} />
                     {chartSeries.top.map((g, i) => {
                       const isLast = !chartSeries.restLabel && i === chartSeries.top.length - 1
                       return (
@@ -1670,7 +1732,7 @@ export default function CostReportPage() {
                           fill={GROUP_COLOR[g.group]} radius={isLast ? [4, 4, 0, 0] : 0}>
                           {isLast && (
                             <LabelList dataKey="total" position="top"
-                              style={{ fontSize: 11, fill: "#111827", fontWeight: 700 }} formatter={fmtLabel} />
+                              style={{ fontSize: 20, fill: "#111827", fontWeight: 700 }} formatter={fmtLabel} />
                           )}
                         </Bar>
                       )
@@ -1678,244 +1740,251 @@ export default function CostReportPage() {
                     {chartSeries.restLabel && (
                       <Bar dataKey={chartSeries.restLabel} stackId="cg" fill="#cbd5e1" radius={[4, 4, 0, 0]} isAnimationActive={false}>
                         <LabelList dataKey="total" position="top"
-                          style={{ fontSize: 11, fill: "#111827", fontWeight: 700 }} formatter={fmtLabel} />
+                          style={{ fontSize: 20, fill: "#111827", fontWeight: 700 }} formatter={fmtLabel} />
                       </Bar>
                     )}
-                    <Line dataKey={`รวม ${prevYear}`} type="monotone" stroke="#111827" strokeWidth={2} isAnimationActive={false}
-                      strokeDasharray="4 3" dot={{ r: 3, fill: "#111827", strokeWidth: 0 }} />
+                    <Line dataKey={`รวม ${prevYear}`} type="monotone" stroke="#111827" strokeWidth={3} isAnimationActive={false}
+                      strokeDasharray="5 4" dot={{ r: 4, fill: "#111827", strokeWidth: 0 }} />
                   </ComposedChart>
                 </ResponsiveContainer>
-                {chartSeries.restNote && (
-                  <p className="mt-1 text-[10px] text-gray-400">อื่นๆ = {chartSeries.restNote} (ดูรายละเอียดครบทุกกลุ่มในตารางขวา)</p>
-                )}
               </div>
 
-              {/* Comparison table + takeaways */}
-              <div className="lg:col-span-2">
-                <p className="mb-2 text-xs font-semibold text-gray-700">Cost Group — YoY</p>
-                <table className="w-full text-xs">
+              {/* Comparison table */}
+              <div className="col-span-5 flex min-h-0 flex-col">
+                <p className="text-[22px] font-semibold leading-[30px] text-gray-800">กลุ่มต้นทุน — เทียบปีก่อน</p>
+                <p className="mb-2 text-[18px] leading-[24px] text-gray-500">{deltaNote}</p>
+                <table className="w-full table-fixed text-[24px]">
+                  <colgroup>
+                    <col style={{ width: "40%" }} />
+                    <col style={{ width: "17%" }} />
+                    <col style={{ width: "17%" }} />
+                    <col style={{ width: "15%" }} />
+                    <col style={{ width: "11%" }} />
+                  </colgroup>
                   <thead>
-                    <tr className="border-b text-left text-[10px] text-gray-400">
-                      <th className="py-1.5 pr-1 font-medium">Group</th>
-                      <th className="py-1.5 pr-1 text-right font-medium">{year}</th>
-                      <th className="py-1.5 pr-1 text-right font-medium">{prevYear}</th>
-                      <th className="py-1.5 pr-1 text-right font-medium">%YoY</th>
-                      <th className="py-1.5 text-right font-medium">สัดส่วน</th>
+                    <tr className="border-b-2 border-gray-300 text-left text-[18px] leading-[24px] text-gray-500">
+                      <th className="py-2 pr-1 font-medium">กลุ่มต้นทุน</th>
+                      <th className="py-2 pr-1 text-right font-medium">{yBE}</th>
+                      <th className="py-2 pr-1 text-right font-medium">{pBE}</th>
+                      <th className="py-2 pr-1 text-right font-medium">±ปีก่อน</th>
+                      <th className="py-2 text-right font-medium">สัดส่วน</th>
                     </tr>
                   </thead>
                   <tbody>
                     {groupAggs.map((g) => (
-                      <tr key={g.group} className="border-b last:border-b-0">
-                        <td className="py-1.5 pr-1">
-                          <span className="mr-1 inline-block h-2 w-2 rounded-full" style={{ background: GROUP_COLOR[g.group] }} />
-                          <span className="font-medium text-gray-700">{g.group.split(" - ")[0]}</span>
-                          <span className="ml-1 text-[9px] text-gray-400">{GROUP_THAI[g.group]}</span>
+                      <tr key={g.group} className="border-b border-gray-100 last:border-b-0">
+                        <td className="py-2 pr-1 leading-[34px]">
+                          <span className="mr-2 inline-block h-3 w-3 rounded-full align-middle" style={{ background: GROUP_COLOR[g.group] }} />
+                          <span className="align-middle font-medium text-gray-800">{GROUP_THAI[g.group] ?? g.group}</span>
                         </td>
-                        <td className="py-1.5 pr-1 text-right tabular-nums font-semibold text-gray-800">{fmtShort(g.curr)}</td>
-                        <td className="py-1.5 pr-1 text-right tabular-nums text-gray-400">{fmtShort(g.prev)}</td>
-                        <td className="py-1.5 pr-1 text-right"><PctBadge pct={pctOf(g.curr, g.prev)} size="text-[10px]" /></td>
-                        <td className="py-1.5 text-right tabular-nums text-gray-500">
+                        <td className="py-2 pr-1 text-right font-semibold leading-[34px] tabular-nums text-gray-900">{fmtShort(g.curr)}</td>
+                        <td className="py-2 pr-1 text-right leading-[34px] tabular-nums text-gray-400">{fmtShort(g.prev)}</td>
+                        <td className="py-2 pr-1 text-right leading-[34px]"><PctBadge pct={pctOf(g.curr, g.prev)} size="text-[20px]" /></td>
+                        <td className="py-2 text-right leading-[34px] tabular-nums text-gray-500">
                           {totalCurr > 0 ? `${(g.curr / totalCurr * 100).toFixed(0)}%` : "—"}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-
-                <div className="mt-4 rounded-xl bg-gray-50 p-3">
-                  <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-gray-500">Key Takeaways</p>
-                  <ul className="space-y-1">
-                    {takeaways.map((t, i) => (
-                      <li key={i} className="flex gap-1.5 text-[11px] leading-snug text-gray-600">
-                        <span className="text-emerald-500">•</span>{t}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
               </div>
             </div>
-          </section>
+          </SlideFrame>
 
           {/* ══ SLIDE 2: Break Rate (ML / MS) ═════════════════════════════ */}
           {hasBd && (
-            <section ref={setSlideRef("breakdown")} className="slide rounded-2xl bg-white p-8 shadow-sm print:rounded-none print:shadow-none">
-              <div className="mb-4 flex items-start justify-between border-b pb-4">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-widest text-emerald-600">Fleet Reliability</p>
-                  <h2 className="mt-1 text-2xl font-bold text-gray-900">Break Rate</h2>
-                  <p className="mt-0.5 text-sm text-gray-400">
-                    {periodLabel} เทียบกับ {prevYear} · % = จำนวน breakdown ÷ (จำนวนรถ × วันในเดือน) · ตัวเลขเล็ก = ครั้ง/วัน
-                  </p>
+            <SlideFrame
+              slideRef={setSlideRef("breakdown")}
+              accent="#059669"
+              eyebrow="Fleet Reliability"
+              title="Break Rate — อัตราการเสียของรถ"
+              meta={`${periodTh} เทียบ ${pBE} · Break Rate = จำนวนครั้งที่รถเสีย ÷ (จำนวนรถ × จำนวนวันในเดือน) × 100 · ยิ่งต่ำยิ่งดี${trimNote}`}
+              right={<>
+                <div className="flex items-center gap-2">
+                  <p className="text-[18px] leading-[24px] text-gray-300">Slide 2</p>
+                  <PngButton slideKey="breakdown" name={`mm-report-2-breakdown-${year}`} />
                 </div>
-                <div className="flex flex-col items-end gap-1.5">
-                  <div className="flex items-center gap-2">
-                    <p className="text-xs text-gray-300">Slide 2 — Break Rate</p>
-                    <PngButton slideKey="breakdown" name={`mm-report-2-breakdown-${year}`} />
-                  </div>
-                  <FilterTags note="* Break Rate ตาม filter รถมีนา/รถร่วม — ไม่ตามคลัง (ข้อมูลรถไม่มีมิติคลัง)" />
-                </div>
-              </div>
+                <FilterTags note="* กรองตามฟลีทรถมีนา/รถร่วมได้ — ไม่ตามคลัง (ข้อมูลรถไม่มีมิติคลัง)" />
+              </>}
+            >
+              {/* Trend chart — full slide width now that the insights box is gone */}
+              <p className="text-[22px] font-semibold leading-[30px] text-gray-800">
+                Break Rate รายเดือน — เส้นทึบ {yBE} · เส้นประ {pBE}
+              </p>
+              <ResponsiveContainer width="100%" height={258}>
+                <ComposedChart data={bdChart} margin={{ top: 12, right: 12, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+                  <XAxis dataKey="month" tick={{ fontSize: 18, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
+                  <YAxis tickFormatter={(v) => `${v}%`} tick={{ fontSize: 18, fill: "#9ca3af" }} axisLine={false} tickLine={false} width={60} />
+                  <Tooltip
+                    formatter={(v: any, n: any) => [v !== null ? `${Number(v).toFixed(1)}%` : "—", n]}
+                    labelStyle={{ fontWeight: 600, fontSize: 12 }}
+                    contentStyle={{ borderRadius: 12, fontSize: 11, border: "1px solid #e5e7eb" }}
+                  />
+                  <Legend formatter={(v) => <span style={{ fontSize: 18, color: "#6b7280" }}>{v}</span>} />
+                  {bdFleets.map((f) => (
+                    <React.Fragment key={f.key}>
+                      {/* no LabelList: every one of those values is in the matrix
+                          below at 32px, where it can actually be read */}
+                      <Line dataKey={f.key} name={`${f.key} ${yBE}`} type="monotone" connectNulls isAnimationActive={false}
+                        stroke={BD_FLEET_COLOR[f.key]} strokeWidth={3.5}
+                        dot={{ r: 5, fill: BD_FLEET_COLOR[f.key], strokeWidth: 0 }} activeDot={{ r: 7 }} />
+                      <Line dataKey={`${f.key} ${prevYear}`} name={`${f.key} ${pBE}`} type="monotone" connectNulls isAnimationActive={false}
+                        stroke={BD_FLEET_COLOR[f.key]} strokeWidth={2.5} strokeDasharray="5 4" strokeOpacity={0.45}
+                        dot={{ r: 3, fill: BD_FLEET_COLOR[f.key], strokeWidth: 0, fillOpacity: 0.45 }} />
+                    </React.Fragment>
+                  ))}
+                </ComposedChart>
+              </ResponsiveContainer>
 
-              {/* Trend chart + insights */}
-              <div className="mb-5 grid gap-5 lg:grid-cols-3">
-                <div className="lg:col-span-2">
-                  <p className="mb-2 text-xs font-semibold text-gray-700">Break Rate รายเดือน — {year} (เส้นทึบ) vs {prevYear} (เส้นประ)</p>
-                  <ResponsiveContainer width="100%" height={240}>
-                    <ComposedChart data={bdChart} margin={{ top: 20, right: 12, left: 0, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-                      <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-                      <YAxis tickFormatter={(v) => `${v}%`} tick={{ fontSize: 10, fill: "#9ca3af" }} axisLine={false} tickLine={false} width={40} />
-                      <Tooltip
-                        formatter={(v: any, n: any) => [v !== null ? `${Number(v).toFixed(2)}%` : "—", n]}
-                        labelStyle={{ fontWeight: 600, fontSize: 12 }}
-                        contentStyle={{ borderRadius: 12, fontSize: 11, border: "1px solid #e5e7eb" }}
-                      />
-                      <Legend formatter={(v) => <span style={{ fontSize: 10, color: "#6b7280" }}>{v}</span>} />
-                      {bdFleets.map((f) => (
-                        <React.Fragment key={f.key}>
-                          <Line dataKey={f.key} name={`${f.key} ${year}`} type="monotone" connectNulls isAnimationActive={false}
-                            stroke={BD_FLEET_COLOR[f.key]} strokeWidth={2.5}
-                            dot={{ r: 3.5, fill: BD_FLEET_COLOR[f.key], strokeWidth: 0 }} activeDot={{ r: 5 }}>
-                            <LabelList dataKey={f.key} position="top" offset={8}
-                              style={{ fontSize: 9, fill: BD_FLEET_COLOR[f.key], fontWeight: 600 }}
-                              formatter={(v: any) => (v === null || v === undefined ? "" : `${Number(v).toFixed(1)}%`)} />
-                          </Line>
-                          <Line dataKey={`${f.key} ${prevYear}`} name={`${f.key} ${prevYear}`} type="monotone" connectNulls isAnimationActive={false}
-                            stroke={BD_FLEET_COLOR[f.key]} strokeWidth={1.5} strokeDasharray="5 4" strokeOpacity={0.45}
-                            dot={{ r: 2, fill: BD_FLEET_COLOR[f.key], strokeWidth: 0, fillOpacity: 0.45 }} />
-                        </React.Fragment>
-                      ))}
-                    </ComposedChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="rounded-xl bg-gray-50 p-4">
-                  <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-gray-500">Key Takeaways</p>
-                  <ul className="space-y-1.5">
-                    {bdInsights.map((t, i) => (
-                      <li key={i} className="flex gap-1.5 text-[11px] leading-snug text-gray-600">
-                        <span className="text-emerald-500">•</span>{t}
-                      </li>
+              {/* Month matrix — the two stacked ML/MS cards transposed. Same 24
+                  data points, a quarter of the height, and the colour rule that
+                  drives them stated instead of implied. */}
+              <div className="mt-5 flex items-baseline justify-between">
+                <p className="text-[22px] font-semibold leading-[30px] text-gray-800">รายเดือน (%)</p>
+                <p className="flex items-center gap-4 text-[18px] leading-[24px] text-gray-500">
+                  <span className="text-emerald-700">● ต่ำกว่า 5% ดี</span>
+                  <span className="text-amber-600">● 5–10% เฝ้าระวัง</span>
+                  <span className="text-red-500">● 10% ขึ้นไป ต้องแก้ไข</span>
+                </p>
+              </div>
+              <table className="mt-1.5 w-full table-fixed border-separate border-spacing-0">
+                <colgroup>
+                  <col style={{ width: "13.8%" }} />
+                  {visMonths.map((my) => <col key={my} style={{ width: `${64.5 / visMonths.length}%` }} />)}
+                  <col style={{ width: "7.0%" }} />
+                  <col style={{ width: "14.7%" }} />
+                </colgroup>
+                <thead>
+                  <tr className="text-[18px] leading-[24px] text-gray-500">
+                    <th className="border-b-2 border-gray-300 py-2 pr-2 text-left font-medium">ฟลีท</th>
+                    {visMonths.map((my) => (
+                      <th key={my} className="border-b-2 border-gray-300 py-2 text-right font-medium">{monthTh(my)}</th>
                     ))}
-                  </ul>
-                </div>
-              </div>
-
-              <div className="grid gap-5 lg:grid-cols-2">
-                {bdFleets.map((f) => (
-                  <div key={f.key} className="rounded-2xl border border-emerald-100 border-l-4 border-l-emerald-500 p-5">
-                    <p className="mb-3 text-sm font-bold text-emerald-700">{f.name}</p>
-
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="border-b text-left text-[10px] text-gray-400">
-                          <th className="py-1.5 pr-2 font-medium">Mo</th>
-                          <th className="py-1.5 pr-2 font-medium">{String(year).slice(2)}</th>
-                          <th className="py-1.5 font-medium">{String(prevYear).slice(2)}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {f.rows.map((r) => (
-                          <tr key={r.my} className="border-b last:border-b-0">
-                            <td className="py-1.5 pr-2 text-gray-600">{MONTH_LABEL[r.my.split("-")[1]]}</td>
-                            <td className={`py-1.5 pr-2 tabular-nums font-semibold ${bdPctColor(r.pCurr)}`}>
-                              {r.pCurr !== null ? `${r.pCurr.toFixed(2)}%` : "—"}
-                              {r.nCurr !== null && <div className="text-[9px] font-normal leading-tight text-gray-400">{r.nCurr.toFixed(1)}</div>}
-                            </td>
-                            <td className="py-1.5 tabular-nums text-gray-500">
-                              {r.pPrev !== null ? `${r.pPrev.toFixed(2)}%` : "—"}
-                              {r.nPrev !== null && <div className="text-[9px] leading-tight text-gray-300">{r.nPrev.toFixed(1)}</div>}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ))}
-              </div>
-            </section>
+                    <th className="border-b-2 border-gray-300 py-2 text-right font-medium">เฉลี่ย</th>
+                    <th className="border-b-2 border-gray-300 py-2 text-right font-medium">รวมเสีย (ครั้ง)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bdFleets.map((f) => ([
+                    <tr key={`${f.key}-c`} className={`${visMonths.length > 8 ? "text-[22px] leading-[30px]" : "text-[24px] leading-[34px]"} tabular-nums`}>
+                      <td className="border-b border-gray-100 py-2 pr-2 font-bold" style={{ color: BD_FLEET_COLOR[f.key] }}>
+                        {f.key} {yBE}
+                      </td>
+                      {f.rows.filter((r) => visMonths.includes(r.my)).map((r) => (
+                        <td key={r.my} className={`border-b border-gray-100 py-2 text-right font-semibold ${bdPctColor(r.pCurr)}`}>
+                          {r.pCurr !== null ? r.pCurr.toFixed(1) : "—"}
+                        </td>
+                      ))}
+                      <td className={`border-b border-gray-100 py-2 text-right font-bold ${bdPctColor(f.curr.rate)}`}>
+                        {f.curr.rate !== null ? f.curr.rate.toFixed(1) : "—"}
+                      </td>
+                      <td className="border-b border-gray-100 py-2 text-right font-semibold text-gray-800">
+                        {fmtNum(f.curr.breakdowns)}
+                      </td>
+                    </tr>,
+                    <tr key={`${f.key}-p`} className={`${visMonths.length > 8 ? "text-[22px] leading-[30px]" : "text-[24px] leading-[34px]"} tabular-nums text-gray-400`}>
+                      <td className="border-b-2 border-gray-200 py-2 pr-2 font-medium">{f.key} {pBE}</td>
+                      {f.rows.filter((r) => visMonths.includes(r.my)).map((r) => (
+                        <td key={r.my} className="border-b-2 border-gray-200 py-2 text-right">
+                          {r.pPrev !== null ? r.pPrev.toFixed(1) : "—"}
+                        </td>
+                      ))}
+                      <td className="border-b-2 border-gray-200 py-2 text-right font-semibold">
+                        {f.prev.rate !== null ? f.prev.rate.toFixed(1) : "—"}
+                      </td>
+                      <td className="border-b-2 border-gray-200 py-2 text-right">{fmtNum(f.prev.breakdowns)}</td>
+                    </tr>,
+                  ]))}
+                </tbody>
+              </table>
+              <p className="mt-2 text-[18px] leading-[24px] text-gray-500">
+                {bdFleets.map((f) => `${f.key} · ${f.thai}${f.curr.trucks ? ` (เฉลี่ย ${f.curr.trucks} คัน)` : ""}`).join("   ·   ")}
+              </p>
+            </SlideFrame>
           )}
 
           {/* ══ SLIDE: อู่ใน vs อู่นอก ════════════════════════════════════════ */}
           {hasWs && (
-            <section ref={setSlideRef("workshop")} className="slide rounded-2xl bg-white p-8 shadow-sm print:rounded-none print:shadow-none">
-              <div className="mb-4 flex items-start justify-between border-b pb-4">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-widest text-sky-600">Workshop Split</p>
-                  <h2 className="mt-1 text-2xl font-bold text-gray-900">ค่าซ่อม อู่ใน vs อู่นอก</h2>
-                  <p className="mt-0.5 text-sm text-gray-400">
-                    {periodLabel} เทียบกับ {prevYear} · <span className="font-semibold text-sky-500">อู่ใน</span> = ซ่อมภายใน (ไม่มีค่าแรง) · <span className="font-semibold text-orange-500">อู่นอก</span> = จ้างซ่อมภายนอก (มีรายการค่าแรง)
-                  </p>
+            <SlideFrame
+              slideRef={setSlideRef("workshop")}
+              accent="#0284c7"
+              eyebrow="Workshop Split"
+              title="ค่าซ่อม อู่ใน vs อู่นอก"
+              meta={`${periodTh} เทียบ ${pBE} · ${unitNote} · อู่ใน = ซ่อมเองในอู่ (ไม่มีรายการค่าแรง) · อู่นอก = จ้างซ่อมภายนอก (มีรายการค่าแรง)`}
+              right={<>
+                <div className="flex items-center gap-2">
+                  <p className="text-[18px] leading-[24px] text-gray-300">Slide {hasBd ? 3 : 2}</p>
+                  <PngButton slideKey="workshop" name={`mm-report-${hasBd ? 3 : 2}-workshop-${year}`} />
                 </div>
-                <div className="flex flex-col items-end gap-1.5">
-                  <div className="flex items-center gap-2">
-                    <p className="text-xs text-gray-300">Slide {hasBd ? 3 : 2} — อู่ใน vs อู่นอก</p>
-                    <PngButton slideKey="workshop" name={`mm-report-${hasBd ? 3 : 2}-workshop-${year}`} />
-                  </div>
-                  <FilterTags />
-                </div>
-              </div>
-
+                <FilterTags />
+              </>}
+            >
               {/* KPI row */}
-              <div className="mb-5 grid grid-cols-2 gap-4 lg:grid-cols-4">
-                <div className="rounded-2xl border border-sky-100 px-5 py-4">
-                  <p className="text-xs text-gray-400"><span className="rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-bold text-sky-600">อู่ใน</span> {year}</p>
-                  <p className="mt-1 text-3xl font-bold text-sky-700">{fmtShort(wsAgg.curr.nai)}</p>
-                  <p className="mt-0.5 text-xs text-gray-400">
-                    {wsAgg.curr.naiPlates} คัน · {prevYear}: {fmtShort(wsAgg.prev.nai)} <PctBadge pct={pctOf(wsAgg.curr.nai, wsAgg.prev.nai)} size="text-[10px]" />
+              <div className="mb-5 grid h-[144px] shrink-0 grid-cols-4 gap-5">
+                <div className="rounded-2xl border-2 border-sky-100 px-5 py-4">
+                  <p className="text-[20px] leading-[26px] text-gray-500">อู่ใน {yBE}</p>
+                  <p className="mt-0.5 text-[56px] font-bold leading-[60px] text-sky-700">{fmtShort(wsAgg.curr.nai)}</p>
+                  <p className="text-[18px] leading-[24px] text-gray-500">
+                    รถ {wsAgg.curr.naiPlates} คัน ที่เข้าอู่ใน · {pBE}: {fmtShort(wsAgg.prev.nai)} <PctBadge pct={pctOf(wsAgg.curr.nai, wsAgg.prev.nai)} size="text-[18px]" />
                   </p>
                 </div>
-                <div className="rounded-2xl border border-orange-100 px-5 py-4">
-                  <p className="text-xs text-gray-400"><span className="rounded bg-orange-100 px-1.5 py-0.5 text-[10px] font-bold text-orange-600">อู่นอก</span> {year}</p>
-                  <p className="mt-1 text-3xl font-bold text-orange-600">{fmtShort(wsAgg.curr.nok)}</p>
-                  <p className="mt-0.5 text-xs text-gray-400">
-                    {wsAgg.curr.nokPlates} คัน · {prevYear}: {fmtShort(wsAgg.prev.nok)} <PctBadge pct={pctOf(wsAgg.curr.nok, wsAgg.prev.nok)} size="text-[10px]" />
+                <div className="rounded-2xl border-2 border-orange-100 px-5 py-4">
+                  <p className="text-[20px] leading-[26px] text-gray-500">อู่นอก {yBE}</p>
+                  <p className="mt-0.5 text-[56px] font-bold leading-[60px] text-orange-600">{fmtShort(wsAgg.curr.nok)}</p>
+                  <p className="text-[18px] leading-[24px] text-gray-500">
+                    รถ {wsAgg.curr.nokPlates} คัน ที่ส่งอู่นอก · {pBE}: {fmtShort(wsAgg.prev.nok)} <PctBadge pct={pctOf(wsAgg.curr.nok, wsAgg.prev.nok)} size="text-[18px]" />
                   </p>
                 </div>
-                <div className="rounded-2xl border px-5 py-4">
-                  <p className="text-xs text-gray-400">เฉลี่ย / คัน</p>
-                  <p className="mt-1 text-xl font-bold">
-                    <span className="text-sky-700">{wsNaiAvg > 0 ? fmtShort(wsNaiAvg) : "—"}</span>
-                    <span className="mx-1.5 text-sm font-normal text-gray-300">vs</span>
-                    <span className="text-orange-600">{wsNokAvg > 0 ? fmtShort(wsNokAvg) : "—"}</span>
-                  </p>
-                  <p className="mt-0.5 text-xs text-gray-400">
-                    {wsNaiAvg > 0 && wsNokAvg > 0
-                      ? `อู่นอก${wsNokAvg >= wsNaiAvg ? "แพงกว่า +" : "ถูกกว่า −"}${Math.abs(((wsNokAvg - wsNaiAvg) / wsNaiAvg) * 100).toFixed(0)}% ต่อคัน`
-                      : "—"}
-                  </p>
+                {/* the decision was in the 12px sub-line and the raw pair was the
+                    headline — swapped, so the number that matters is the big one */}
+                <div className="rounded-2xl border-2 border-gray-200 px-5 py-4">
+                  <p className="text-[20px] leading-[26px] text-gray-500">อู่นอกแพงกว่าอู่ใน (ต่อคัน)</p>
+                  {wsNaiAvg > 0 && wsNokAvg > 0 ? (
+                    <>
+                      <p className={`mt-0.5 text-[56px] font-bold leading-[60px] ${wsNokAvg >= wsNaiAvg ? "text-red-500" : "text-emerald-600"}`}>
+                        {wsNokAvg >= wsNaiAvg ? "+" : "−"}{Math.abs(((wsNokAvg - wsNaiAvg) / wsNaiAvg) * 100).toFixed(0)}%
+                      </p>
+                      <p className="text-[18px] leading-[24px] text-gray-500">
+                        ฿{fmtNum(Math.round(wsNokAvg))} vs ฿{fmtNum(Math.round(wsNaiAvg))} ต่อคัน
+                      </p>
+                    </>
+                  ) : (
+                    <p className="mt-0.5 text-[56px] font-bold leading-[60px] text-gray-300">—</p>
+                  )}
                 </div>
-                <div className="rounded-2xl border px-5 py-4">
-                  <p className="text-xs text-gray-400">สัดส่วนอู่นอก</p>
-                  <p className="mt-1 text-3xl font-bold text-gray-900">{wsShare.toFixed(0)}%</p>
-                  <div className="mt-1.5 flex h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
+                <div className="rounded-2xl border-2 border-gray-200 px-5 py-4">
+                  <p className="text-[20px] leading-[26px] text-gray-500">สัดส่วนอู่นอก</p>
+                  <p className="mt-0.5 text-[56px] font-bold leading-[60px] text-gray-900">{wsShare.toFixed(0)}%</p>
+                  <div className="mb-1 flex h-2.5 w-full overflow-hidden rounded-full bg-gray-100">
                     <div className="bg-sky-400" style={{ width: `${100 - wsShare}%` }} />
                     <div className="bg-orange-400" style={{ width: `${wsShare}%` }} />
                   </div>
-                  <p className="mt-1 text-xs text-gray-400">{wsSharePrev !== null ? `ปี ${prevYear}: ${wsSharePrev.toFixed(0)}%` : "—"}</p>
+                  <p className="text-[18px] leading-[24px] text-gray-500">{wsSharePrev !== null ? `ปี ${pBE}: ${wsSharePrev.toFixed(0)}%` : "—"}</p>
                 </div>
               </div>
 
-              <div className="grid gap-5 lg:grid-cols-5">
+              <div className="grid min-h-0 flex-1 grid-cols-12 gap-5">
                 {/* Monthly chart */}
-                <div className="lg:col-span-3">
-                  <p className="mb-2 text-xs font-semibold text-gray-700">
-                    รายเดือน {year}
-                    <span className="ml-2 font-normal text-gray-400">แท่ง = {year} · เส้นประ = {prevYear}</span>
+                <div className="col-span-7 flex min-h-0 flex-col">
+                  <p className="text-[22px] font-semibold leading-[30px] text-gray-800">ค่าซ่อมรายเดือน</p>
+                  <p className="mb-2 text-[18px] leading-[24px] text-gray-500">
+                    แท่ง = {yBE} · เส้นประ = {pBE} · เส้นทึบ = จำนวนคัน (แกนขวา)
                   </p>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <ComposedChart data={wsChart} barCategoryGap="28%" barGap={4} margin={{ top: 20, right: 12, left: 4, bottom: 0 }}>
+                  <ResponsiveContainer width="100%" height={374}>
+                    <ComposedChart data={wsChart} barCategoryGap="28%" barGap={4} margin={{ top: 24, right: 12, left: 4, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-                      <XAxis dataKey="month" tick={{ fontSize: 12, fill: "#6b7280" }} axisLine={false} tickLine={false} />
-                      <YAxis yAxisId="cost" tickFormatter={fmtLabel} tick={{ fontSize: 10, fill: "#9ca3af" }} axisLine={false} tickLine={false} width={46} />
+                      <XAxis dataKey="month" tick={{ fontSize: 18, fill: "#6b7280" }} axisLine={false} tickLine={false} />
+                      <YAxis yAxisId="cost" tickFormatter={fmtLabel} tick={{ fontSize: 18, fill: "#9ca3af" }} axisLine={false} tickLine={false} width={64} />
                       <YAxis yAxisId="plates" orientation="right" allowDecimals={false}
-                        tick={{ fontSize: 10, fill: "#a78bfa" }} axisLine={false} tickLine={false} width={34} />
+                        tick={{ fontSize: 18, fill: "#a78bfa" }} axisLine={false} tickLine={false} width={48} />
                       <Tooltip
                         formatter={(v: any, n: any) => {
                           if (n === "naiPlates") return [`${v} คัน`, `อู่ใน (คัน)`]
                           if (n === "nokPlates") return [`${v} คัน`, `อู่นอก (คัน)`]
                           const map: Record<string, string> = {
-                            auNai: `อู่ใน ${year}`, auNok: `อู่นอก ${year}`,
-                            prevNai: `อู่ใน ${prevYear}`, prevNok: `อู่นอก ${prevYear}`,
+                            auNai: `อู่ใน ${yBE}`, auNok: `อู่นอก ${yBE}`,
+                            prevNai: `อู่ใน ${pBE}`, prevNok: `อู่นอก ${pBE}`,
                           }
                           return [`฿${fmtNum(Number(v))}`, map[n] ?? n]
                         }}
@@ -1925,122 +1994,96 @@ export default function CostReportPage() {
                       <Legend
                         formatter={(v) => {
                           const map: Record<string, string> = {
-                            auNai: `อู่ใน ${year}`, auNok: `อู่นอก ${year}`,
-                            prevNai: `อู่ใน ${prevYear}`, prevNok: `อู่นอก ${prevYear}`,
+                            auNai: `อู่ใน ${yBE}`, auNok: `อู่นอก ${yBE}`,
+                            prevNai: `อู่ใน ${pBE}`, prevNok: `อู่นอก ${pBE}`,
                             naiPlates: "อู่ใน (คัน)", nokPlates: "อู่นอก (คัน)",
                           }
-                          return <span style={{ fontSize: 11, color: "#6b7280" }}>{map[v] ?? v}</span>
+                          return <span style={{ fontSize: 18, color: "#6b7280" }}>{map[v] ?? v}</span>
                         }}
                       />
                       <Bar yAxisId="cost" dataKey="auNai" name="auNai" fill="#0ea5e9" radius={[4, 4, 0, 0]} isAnimationActive={false}>
-                        <LabelList dataKey="auNai" position="top" style={{ fontSize: 9, fill: "#0284c7", fontWeight: 600 }} formatter={fmtLabel} />
+                        <LabelList dataKey="auNai" position="top" style={{ fontSize: 18, fill: "#0284c7", fontWeight: 600 }} formatter={fmtLabel} />
                       </Bar>
                       <Bar yAxisId="cost" dataKey="auNok" name="auNok" fill="#f97316" radius={[4, 4, 0, 0]} isAnimationActive={false}>
-                        <LabelList dataKey="auNok" position="top" style={{ fontSize: 9, fill: "#ea580c", fontWeight: 600 }} formatter={fmtLabel} />
+                        <LabelList dataKey="auNok" position="top" style={{ fontSize: 18, fill: "#ea580c", fontWeight: 600 }} formatter={fmtLabel} />
                       </Bar>
-                      <Line yAxisId="cost" dataKey="prevNai" name="prevNai" type="monotone" stroke="#0ea5e9" strokeWidth={1.5} isAnimationActive={false}
-                        strokeDasharray="5 4" strokeOpacity={0.45} dot={{ r: 2, fill: "#0ea5e9", strokeWidth: 0, fillOpacity: 0.45 }} />
-                      <Line yAxisId="cost" dataKey="prevNok" name="prevNok" type="monotone" stroke="#f97316" strokeWidth={1.5} isAnimationActive={false}
-                        strokeDasharray="5 4" strokeOpacity={0.45} dot={{ r: 2, fill: "#f97316", strokeWidth: 0, fillOpacity: 0.45 }} />
+                      <Line yAxisId="cost" dataKey="prevNai" name="prevNai" type="monotone" stroke="#0ea5e9" strokeWidth={2.5} isAnimationActive={false}
+                        strokeDasharray="5 4" strokeOpacity={0.45} dot={{ r: 3, fill: "#0ea5e9", strokeWidth: 0, fillOpacity: 0.45 }} />
+                      <Line yAxisId="cost" dataKey="prevNok" name="prevNok" type="monotone" stroke="#f97316" strokeWidth={2.5} isAnimationActive={false}
+                        strokeDasharray="5 4" strokeOpacity={0.45} dot={{ r: 3, fill: "#f97316", strokeWidth: 0, fillOpacity: 0.45 }} />
                       <Line yAxisId="plates" dataKey="naiPlates" name="naiPlates" type="monotone" stroke="#0369a1" isAnimationActive={false}
-                        strokeWidth={2} dot={{ r: 3, fill: "#0369a1", strokeWidth: 0 }} activeDot={{ r: 5 }}>
-                        <LabelList dataKey="naiPlates" position="top" offset={8}
-                          style={{ fontSize: 9, fill: "#0369a1", fontWeight: 700 }} formatter={(v: any) => (Number(v) > 0 ? v : "")} />
-                      </Line>
+                        strokeWidth={3} dot={{ r: 4, fill: "#0369a1", strokeWidth: 0 }} activeDot={{ r: 6 }} />
                       <Line yAxisId="plates" dataKey="nokPlates" name="nokPlates" type="monotone" stroke="#9a3412" isAnimationActive={false}
-                        strokeWidth={2} dot={{ r: 3, fill: "#9a3412", strokeWidth: 0 }} activeDot={{ r: 5 }}>
-                        <LabelList dataKey="nokPlates" position="bottom" offset={8}
-                          style={{ fontSize: 9, fill: "#9a3412", fontWeight: 700 }} formatter={(v: any) => (Number(v) > 0 ? v : "")} />
-                      </Line>
+                        strokeWidth={3} dot={{ r: 4, fill: "#9a3412", strokeWidth: 0 }} activeDot={{ r: 6 }} />
                     </ComposedChart>
                   </ResponsiveContainer>
                 </div>
 
-                {/* Repair-type table + takeaways */}
-                <div className="lg:col-span-2">
-                  <div className="mb-2 flex items-baseline justify-between gap-2">
-                    <p className="text-xs font-semibold text-gray-700">ประเภทการซ่อม · Top 5</p>
-                    <p className="text-[10px] tabular-nums text-gray-400">รวม {fmtShort(wsByType.grand)}</p>
+                {/* Repair types — as bars, because the อู่ใน/อู่นอก split is the
+                    slide's whole thesis and two columns of fmtShort never showed it */}
+                <div className="col-span-5 flex min-h-0 flex-col">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <p className="text-[22px] font-semibold leading-[30px] text-gray-800">ประเภทการซ่อม · Top 5</p>
+                    <p className="text-[18px] leading-[24px] tabular-nums text-gray-500">รวม {fmtShort(wsByType.grand)}</p>
                   </div>
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="border-b text-left text-[10px] text-gray-400">
-                        <th className="w-6 py-1.5 pr-1 font-medium">#</th>
-                        <th className="py-1.5 pr-1 font-medium">ประเภทการซ่อม</th>
-                        <th className="py-1.5 pr-1 text-right font-medium">ยอดรวม</th>
-                        <th className="py-1.5 pr-1 text-right font-medium">อู่ใน</th>
-                        <th className="py-1.5 text-right font-medium">อู่นอก</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {wsByType.top.map((t, i) => (
-                        <tr key={t.type} className="border-b last:border-b-0">
-                          <td className="py-1.5 pr-1 tabular-nums text-gray-400">{i + 1}</td>
-                          <td className="py-1.5 pr-1 text-gray-600">{t.type}</td>
-                          <td className="py-1.5 pr-1 text-right tabular-nums font-semibold text-gray-800">{fmtShort(t.total)}</td>
-                          <td className="py-1.5 pr-1 text-right tabular-nums text-sky-700">{t.nai > 0 ? fmtShort(t.nai) : "—"}</td>
-                          <td className="py-1.5 text-right tabular-nums text-orange-600">{t.nok > 0 ? fmtShort(t.nok) : "—"}</td>
-                        </tr>
-                      ))}
-                      {wsByType.rest && (
-                        <tr className="border-b text-gray-400 last:border-b-0">
-                          <td className="py-1.5 pr-1" />
-                          <td className="py-1.5 pr-1">อื่นๆ ({wsByType.rest.count} ประเภท)</td>
-                          <td className="py-1.5 pr-1 text-right tabular-nums">{fmtShort(wsByType.rest.total)}</td>
-                          <td className="py-1.5 pr-1 text-right tabular-nums">{wsByType.rest.nai > 0 ? fmtShort(wsByType.rest.nai) : "—"}</td>
-                          <td className="py-1.5 text-right tabular-nums">{wsByType.rest.nok > 0 ? fmtShort(wsByType.rest.nok) : "—"}</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-
-                  <p className="mt-2 text-[10px] leading-snug text-gray-400">
-                    * ตารางนี้มาจาก<strong className="font-semibold text-gray-500">ใบแจ้งซ่อม (MR)</strong> คนละฐานกับการ์ดด้านบนที่มาจากการเบิกของจากคลัง
-                    — MR รวมค่าแรงอู่นอกและอะไหล่ศูนย์ที่ไม่ผ่านคลัง แต่ไม่รวมการเบิกที่ไม่ผูกใบแจ้งซ่อม (เครื่องมือช่าง วัสดุสิ้นเปลือง)
-                    · นับตามวันแจ้งซ่อม · ไม่รวมยาง อุปกรณ์เสริม PM ช่างมีนา และงานที่ไม่ใช่การซ่อม (น้ำมันเชื้อเพลิง ทำความสะอาด ต่อภาษี ตรวจ NGV)
-                    · กรองตามฟลีทได้ แต่ไม่ตามคลังสินค้า/กลุ่มต้นทุน
+                  <p className="mt-1 text-[18px] leading-[24px] text-gray-500">
+                    ที่มา: ใบแจ้งซ่อม (MR) — คนละฐานกับการ์ดด้านบนที่มาจากใบเบิกของจากคลัง จึงรวมกันไม่เท่า
                   </p>
-
-                  <div className="mt-4 rounded-xl bg-gray-50 p-3">
-                    <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-gray-500">Key Takeaways</p>
-                    <ul className="space-y-1">
-                      {wsTakeaways.map((t, i) => (
-                        <li key={i} className="flex gap-1.5 text-[11px] leading-snug text-gray-600">
-                          <span className="text-sky-500">•</span>{t}
-                        </li>
-                      ))}
-                    </ul>
+                  <p className="text-[18px] leading-[24px] text-gray-500">
+                    ไม่รวม: ยาง · อุปกรณ์เสริม · PM ช่างมีนา · งานที่ไม่ใช่การซ่อม (น้ำมัน ล้างรถ ต่อภาษี ตรวจ NGV)
+                  </p>
+                  <div className="mt-3 flex flex-col gap-2.5">
+                    {[...wsByType.top.map((t) => ({ label: t.type, ...t })),
+                      ...(wsByType.rest ? [{ label: `อื่นๆ (${wsByType.rest.count} ประเภท)`, ...wsByType.rest }] : [])
+                    ].map((t) => (
+                      <div key={t.label}>
+                        <div className="flex items-baseline justify-between gap-3">
+                          <span className="truncate text-[22px] leading-[28px] text-gray-700" title={t.label}>{t.label}</span>
+                          <span className="shrink-0 text-[22px] font-bold leading-[28px] tabular-nums text-gray-900">{fmtShort(t.total)}</span>
+                        </div>
+                        <div className="mt-1 flex h-2.5 w-full overflow-hidden rounded-full bg-gray-100">
+                          <div className="bg-sky-500" style={{ width: `${wsByType.grand > 0 ? (t.nai / wsByType.grand) * 100 : 0}%` }} />
+                          <div className="bg-orange-500" style={{ width: `${wsByType.grand > 0 ? (t.nok / wsByType.grand) * 100 : 0}%` }} />
+                        </div>
+                      </div>
+                    ))}
                   </div>
+                  <p className="mt-2.5 flex items-center gap-4 text-[18px] leading-[24px] text-gray-500">
+                    <span><span className="mr-1.5 inline-block h-3 w-3 rounded-sm bg-sky-500 align-middle" />อู่ใน</span>
+                    <span><span className="mr-1.5 inline-block h-3 w-3 rounded-sm bg-orange-500 align-middle" />อู่นอก</span>
+                    <span className="text-gray-400">ความยาวแท่ง = สัดส่วนของยอดรวมทั้งหมด</span>
+                  </p>
                 </div>
               </div>
-            </section>
+            </SlideFrame>
           )}
 
           {/* ══ SLIDE: ต้นทุนรายฟลีท × เดือน ═══════════════════════════════════ */}
           {hasPivot && (
-            <section ref={setSlideRef("fleetPivot")} className="slide rounded-2xl bg-white p-8 shadow-sm print:rounded-none print:shadow-none">
-              <div className="mb-4 flex items-start justify-between border-b pb-4">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-widest text-indigo-600">Fleet × Month</p>
-                  <h2 className="mt-1 text-2xl font-bold text-gray-900">ต้นทุนรายฟลีท แยกตามเดือน</h2>
-                  <p className="mt-0.5 text-sm text-gray-400">
-                    {periodLabel} เทียบกับ {prevYear} · ค่าใช้จ่ายรถสำนักงานถูกเฉลี่ยเข้าแต่ละฟลีทตามจำนวนรถแล้ว
-                  </p>
+            <SlideFrame
+              slideRef={setSlideRef("fleetPivot")}
+              accent="#4f46e5"
+              eyebrow="Fleet × Month"
+              title="ต้นทุนรายฟลีท แยกตามเดือน"
+              meta={pivotMetric === "perTruck"
+                ? `${periodTh} · หน่วย: บาท/คัน (หารด้วยจำนวนรถของฟลีทในเดือนนั้น · — = ไม่มีข้อมูลจำนวนรถ) · ${deltaNote}${trimNote}`
+                : `${periodTh} · ${unitNote} · ค่าใช้จ่ายรถสำนักงานเฉลี่ยเข้าแต่ละฟลีทตามจำนวนรถแล้ว · ${deltaNote}${trimNote}`}
+              right={<>
+                <div className="flex items-center gap-2">
+                  <p className="text-[18px] leading-[24px] text-gray-300">Slide {2 + (hasBd ? 1 : 0) + (hasWs ? 1 : 0)}</p>
+                  <PngButton slideKey="fleetPivot" name={`mm-report-${2 + (hasBd ? 1 : 0) + (hasWs ? 1 : 0)}-fleet-pivot-${year}`} />
                 </div>
-                <div className="flex flex-col items-end gap-1.5">
-                  <div className="flex items-center gap-2">
-                    <p className="text-xs text-gray-300">Slide {2 + (hasBd ? 1 : 0) + (hasWs ? 1 : 0)} — Fleet × Month</p>
-                    <PngButton slideKey="fleetPivot" name={`mm-report-${2 + (hasBd ? 1 : 0) + (hasWs ? 1 : 0)}-fleet-pivot-${year}`} />
-                  </div>
-                  <FilterTags />
-                </div>
-              </div>
-
-              {/* metric toggle */}
-              <div className="mb-3 flex items-center gap-1.5">
+                <FilterTags />
+              </>}
+            >
+              {/* metric toggle — data-no-export, it is a control, not content.
+                  It used to bake two pill buttons into every PNG, and their
+                  selected state was the file's only clue to the unit. That now
+                  lives in the header meta line above. */}
+              <div data-no-export className="print:hidden mb-3 flex shrink-0 items-center gap-1.5">
                 {([["total", "ต้นทุนรวม"], ["perTruck", "ต้นทุนต่อคัน"]] as const).map(([m, label]) => (
                   <button key={m} onClick={() => setPivotMetric(m)}
-                    className={`rounded-full border px-3 py-1 text-[11px] font-semibold transition ${
+                    className={`rounded-full border px-3 py-1 text-[13px] font-semibold transition ${
                       pivotMetric === m
                         ? "border-indigo-500 bg-indigo-500 text-white"
                         : "border-gray-200 bg-white text-gray-500 hover:bg-gray-50"
@@ -2048,24 +2091,32 @@ export default function CostReportPage() {
                     {label}
                   </button>
                 ))}
-                <span className="ml-2 text-[11px] text-gray-400">
-                  {pivotMetric === "perTruck" ? "หารด้วยจำนวนรถของฟลีทในเดือนนั้น · กลุ่มที่ไม่มีจำนวนรถแสดง —" : "บาท"}
-                </span>
               </div>
 
-              {/* a 12-month range is wider than the slide — scroll the table, not the page */}
-              <div className="overflow-x-auto rounded-xl border">
-                <table className="w-full border-separate border-spacing-0 text-xs">
+              {/* table-fixed + colgroup: widths are declared, so the table cannot
+                  outgrow the slide. It used to sit in overflow-x-auto, where the
+                  columns that scrolled out of view were dropped from the PNG with
+                  nothing to show they were missing. */}
+              <div className="min-h-0 flex-1 overflow-hidden rounded-xl border-2 border-gray-200">
+                <table className="w-full table-fixed border-separate border-spacing-0 text-[22px]">
+                  <colgroup>
+                    <col style={{ width: "12.2%" }} />
+                    {visMonths.map((my) => <col key={my} style={{ width: `${64.5 / visMonths.length}%` }} />)}
+                    <col style={{ width: "8.4%" }} />
+                    <col style={{ width: "7.6%" }} />
+                    <col style={{ width: "7.3%" }} />
+                  </colgroup>
                   <thead>
-                    <tr className="bg-gray-50">
-                      <th className="sticky left-0 min-w-[150px] border-b border-r bg-gray-50 px-3 py-2 text-left font-semibold uppercase tracking-wide text-gray-500">Fleet</th>
-                      <th className="border-b border-r px-2 py-2 text-center font-semibold uppercase tracking-wide text-gray-500">ปี</th>
-                      {months.map((my) => (
-                        <th key={my} className="min-w-[62px] border-b px-2 py-2 text-right font-semibold text-gray-400">
-                          {MONTH_LABEL[my.split("-")[1]] ?? my}
+                    <tr className="bg-gray-50 text-[18px] leading-[24px]">
+                      <th className="border-b-2 border-r px-3 py-2 text-left font-semibold text-gray-500">ฟลีท</th>
+                      {visMonths.map((my) => (
+                        <th key={my} className="border-b-2 px-1.5 py-2 text-right font-semibold text-gray-500">
+                          {monthTh(my)}
                         </th>
                       ))}
-                      <th className="min-w-[72px] border-b border-l px-2 py-2 text-right font-semibold uppercase tracking-wide text-gray-500">รวม</th>
+                      <th className="border-b-2 border-l px-1.5 py-2 text-right font-semibold text-gray-500">รวม {yBE}</th>
+                      <th className="border-b-2 px-1.5 py-2 text-right font-semibold text-gray-500">รวม {pBE}</th>
+                      <th className="border-b-2 px-1.5 py-2 text-right font-semibold text-gray-500">±ปีก่อน</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2080,44 +2131,43 @@ export default function CostReportPage() {
                           // v !== 0, not v > 0: a credit/adjustment makes a month
                           // negative, and hiding it as "—" while it still counts
                           // in the รวม makes the row visibly not add up.
-                          : <span className={extra}>{v !== 0 ? fmtNum(v) : "—"}</span>
+                          : <span className={extra}>{v !== 0 ? fmtShort(v) : "—"}</span>
+                      const currTotal = pivotRowTotal(r.currTotal, r.trucks, r.isFleet)
+                      const prevTotal = pivotRowTotal(r.prevTotal, r.trucksPrev, r.isFleet)
                       return (
                         <React.Fragment key={r.key}>
-                          <tr className={startsBuckets ? "border-t-4 border-t-gray-300" : undefined}>
-                            <td rowSpan={2}
-                              className={`sticky left-0 border-b-2 border-r bg-white px-3 align-middle ${startsBuckets ? "border-t-4 border-t-gray-300" : ""}`}>
+                          {startsBuckets && (
+                            <tr>
+                              <td colSpan={visMonths.length + 4}
+                                className="border-t-2 border-gray-300 bg-gray-50 px-3 py-1.5 text-[18px] leading-[24px] text-gray-400">
+                                กลุ่มที่จับคู่ทะเบียนกับฟลีทไม่ได้ (นับรวมในยอดรวมด้านล่าง)
+                              </td>
+                            </tr>
+                          )}
+                          <tr className="leading-[31px]">
+                            <td className="border-b border-r px-3 py-1.5 align-middle">
                               <div className="flex items-center gap-2">
                                 {r.isFleet && (
-                                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: r.color }} />
+                                  <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: r.color }} />
                                 )}
-                                <span className={`text-[12px] ${r.isFleet ? "font-bold text-gray-800" : "font-medium text-gray-400"}`}>
+                                <span className={`truncate ${r.isFleet ? "font-bold text-gray-800" : "font-medium text-gray-400"}`} title={r.label}>
                                   {r.label}
                                 </span>
                               </div>
                             </td>
-                            <td className={`border-r px-2 py-1.5 text-center ${startsBuckets ? "border-t-4 border-t-gray-300" : ""}`}>
-                              <span className="inline-block rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-600">{year + 543}</span>
-                            </td>
-                            {months.map((my) => (
-                              <td key={my} className={`px-2 py-1.5 text-right tabular-nums ${startsBuckets ? "border-t-4 border-t-gray-300" : ""} ${muted || "text-gray-800"}`}>
+                            {visMonths.map((my) => (
+                              <td key={my} className={`border-b px-1.5 py-1.5 text-right tabular-nums ${muted || "text-gray-800"}`}>
                                 {cell(pivotCell(r.curr[my] || 0, r.trucks[my] || 0, r.isFleet), "font-semibold")}
                               </td>
                             ))}
-                            <td className={`border-l px-2 py-1.5 text-right tabular-nums ${startsBuckets ? "border-t-4 border-t-gray-300" : ""} ${muted || "text-gray-900"}`}>
-                              {cell(pivotRowTotal(r.currTotal, r.trucks, r.isFleet), "font-bold")}
+                            <td className={`border-b border-l px-1.5 py-1.5 text-right tabular-nums ${muted || "text-gray-900"}`}>
+                              {cell(currTotal, "font-bold")}
                             </td>
-                          </tr>
-                          <tr className="border-b-2">
-                            <td className="border-b-2 border-r px-2 py-1.5 text-center">
-                              <span className="inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">{prevYear + 543}</span>
+                            <td className="border-b px-1.5 py-1.5 text-right tabular-nums text-gray-400">
+                              {cell(prevTotal, "")}
                             </td>
-                            {months.map((my) => (
-                              <td key={my} className="border-b-2 px-2 py-1.5 text-right tabular-nums text-gray-400">
-                                {cell(pivotCell(r.prev[my] || 0, r.trucksPrev[my] || 0, r.isFleet), "")}
-                              </td>
-                            ))}
-                            <td className="border-b-2 border-l px-2 py-1.5 text-right tabular-nums text-gray-500">
-                              {cell(pivotRowTotal(r.prevTotal, r.trucksPrev, r.isFleet), "font-semibold")}
+                            <td className="border-b px-1.5 py-1.5 text-right">
+                              <PctBadge pct={currTotal !== null && prevTotal !== null ? pctOf(currTotal, prevTotal) : null} size="text-[20px]" />
                             </td>
                           </tr>
                         </React.Fragment>
@@ -2125,49 +2175,35 @@ export default function CostReportPage() {
                     })}
                   </tbody>
                   <tfoot>
-                    <tr className="bg-gray-50">
-                      <td rowSpan={2} className="sticky left-0 border-r border-t-2 bg-gray-50 px-3 align-middle text-[12px] font-bold text-gray-900">รวม</td>
-                      <td className="border-r border-t-2 px-2 py-1.5 text-center">
-                        <span className="inline-block rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-600">{year + 543}</span>
-                      </td>
-                      {months.map((my) => (
-                        <td key={my} className="border-t-2 px-2 py-1.5 text-right font-bold tabular-nums text-gray-900">
-                          {(() => {
-                            const v = pivotCell(fleetPivot.totals.curr[my] || 0, fleetPivot.totals.trucks[my] || 0, true)
-                            return v === null || v <= 0 ? <span className="text-gray-300">—</span> : fmtNum(v)
-                          })()}
-                        </td>
-                      ))}
-                      <td className="border-l border-t-2 px-2 py-1.5 text-right font-bold tabular-nums text-gray-900">
-                        {(() => {
-                          const v = pivotRowTotal(fleetPivot.totals.currTotal, fleetPivot.totals.trucks, true)
-                          return v === null || v <= 0 ? <span className="text-gray-300">—</span> : fmtNum(v)
-                        })()}
-                      </td>
-                    </tr>
-                    <tr className="bg-gray-50">
-                      <td className="border-r px-2 py-1.5 text-center">
-                        <span className="inline-block rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">{prevYear + 543}</span>
-                      </td>
-                      {months.map((my) => (
-                        <td key={my} className="px-2 py-1.5 text-right font-semibold tabular-nums text-gray-500">
-                          {(() => {
-                            const v = pivotCell(fleetPivot.totals.prev[my] || 0, fleetPivot.totals.trucksPrev[my] || 0, true)
-                            return v === null || v <= 0 ? <span className="text-gray-300">—</span> : fmtNum(v)
-                          })()}
-                        </td>
-                      ))}
-                      <td className="border-l px-2 py-1.5 text-right font-semibold tabular-nums text-gray-500">
-                        {(() => {
-                          const v = pivotRowTotal(fleetPivot.totals.prevTotal, fleetPivot.totals.trucksPrev, true)
-                          return v === null || v <= 0 ? <span className="text-gray-300">—</span> : fmtNum(v)
-                        })()}
-                      </td>
-                    </tr>
+                    {(() => {
+                      const tCurr = pivotRowTotal(fleetPivot.totals.currTotal, fleetPivot.totals.trucks, true)
+                      const tPrev = pivotRowTotal(fleetPivot.totals.prevTotal, fleetPivot.totals.trucksPrev, true)
+                      const foot = (v: number | null) =>
+                        v === null || v === 0 ? <span className="text-gray-300">—</span> : fmtShort(v)
+                      return (
+                        <tr className="bg-gray-50 leading-[34px]">
+                          <td className="border-r border-t-2 border-gray-300 px-3 py-2 text-[24px] font-bold text-gray-900">รวม</td>
+                          {visMonths.map((my) => (
+                            <td key={my} className="border-t-2 border-gray-300 px-1.5 py-2 text-right text-[24px] font-bold tabular-nums text-gray-900">
+                              {foot(pivotCell(fleetPivot.totals.curr[my] || 0, fleetPivot.totals.trucks[my] || 0, true))}
+                            </td>
+                          ))}
+                          <td className="border-l border-t-2 border-gray-300 px-1.5 py-2 text-right text-[24px] font-bold tabular-nums text-gray-900">
+                            {foot(tCurr)}
+                          </td>
+                          <td className="border-t-2 border-gray-300 px-1.5 py-2 text-right text-[24px] font-semibold tabular-nums text-gray-500">
+                            {foot(tPrev)}
+                          </td>
+                          <td className="border-t-2 border-gray-300 px-1.5 py-2 text-right">
+                            <PctBadge pct={tCurr !== null && tPrev !== null ? pctOf(tCurr, tPrev) : null} size="text-[20px]" />
+                          </td>
+                        </tr>
+                      )
+                    })()}
                   </tfoot>
                 </table>
               </div>
-            </section>
+            </SlideFrame>
           )}
 
           {/* ══ SLIDES 3+: one per cost group ═════════════════════════════════ */}
@@ -2192,165 +2228,151 @@ export default function CostReportPage() {
               .filter((it) => it.prev > 20_000 || it.curr > 20_000)
               .sort((a, b) => Math.abs(b.curr - b.prev) - Math.abs(a.curr - a.prev))[0]
             return (
-              <section key={g.group} ref={setSlideRef(`cg-${g.group}`)}
-                className={`slide rounded-2xl bg-white p-8 shadow-sm print:rounded-none print:shadow-none ${
-                  picked ? "" : "opacity-45 saturate-50"
-                }`}>
-                <div className="mb-4 flex items-start justify-between border-b pb-4">
-                  <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: GROUP_COLOR[g.group] }}>
-                      Cost Group Breakdown
-                    </p>
-                    <h2 className="mt-1 flex items-center gap-2 text-2xl font-bold text-gray-900">
-                      <span className="inline-block h-3.5 w-3.5 rounded-full" style={{ background: GROUP_COLOR[g.group] }} />
-                      {g.group}
-                      <span className="text-base font-medium text-gray-400">{GROUP_THAI[g.group]}</span>
-                      {!picked && (
-                        <span className="rounded-full border border-gray-300 bg-gray-100 px-2.5 py-1 text-[11px] font-semibold text-gray-500">
-                          ไม่ได้เลือกในตัวกรอง
-                        </span>
-                      )}
-                    </h2>
-                    <p className="mt-0.5 text-sm text-gray-400">{periodLabel} เทียบกับ {prevYear}</p>
+              <SlideFrame
+                key={g.group}
+                slideRef={setSlideRef(`cg-${g.group}`)}
+                muted={!picked}
+                accent={GROUP_COLOR[g.group]}
+                eyebrow="Cost Group Breakdown"
+                title={<span className="flex items-center gap-3">
+                  <span className="inline-block h-5 w-5 rounded-full" style={{ background: GROUP_COLOR[g.group] }} />
+                  {GROUP_THAI[g.group] ?? g.group}
+                  {!picked && (
+                    <span className="rounded-full border border-gray-300 bg-gray-100 px-3 py-1 text-[18px] font-semibold text-gray-500">
+                      ไม่ได้เลือกในตัวกรอง
+                    </span>
+                  )}
+                </span>}
+                meta={`${g.group} · ${periodTh} เทียบ ${pBE} · ${unitNote} · ${deltaNote}`}
+                right={<>
+                  <div className="flex items-center gap-2">
+                    <p className="text-[18px] leading-[24px] text-gray-300">Slide {idx + 2 + (hasBd ? 1 : 0) + (hasWs ? 1 : 0) + (hasPivot ? 1 : 0)}</p>
+                    <PngButton
+                      slideKey={`cg-${g.group}`}
+                      name={`mm-report-${idx + 2 + (hasBd ? 1 : 0) + (hasWs ? 1 : 0) + (hasPivot ? 1 : 0)}-${g.group.split(" - ")[0].replace(/\s+/g, "").toLowerCase()}-${year}`}
+                    />
                   </div>
-                  <div className="flex flex-col items-end gap-1.5">
-                    <div className="flex items-center gap-2">
-                      <p className="text-xs text-gray-300">Slide {idx + 2 + (hasBd ? 1 : 0) + (hasWs ? 1 : 0) + (hasPivot ? 1 : 0)}</p>
-                      <PngButton
-                        slideKey={`cg-${g.group}`}
-                        name={`mm-report-${idx + 2 + (hasBd ? 1 : 0) + (hasWs ? 1 : 0) + (hasPivot ? 1 : 0)}-${g.group.split(" - ")[0].replace(/\s+/g, "").toLowerCase()}-${year}`}
-                      />
-                    </div>
-                    <FilterTags />
-                  </div>
-                </div>
-
+                  <FilterTags />
+                </>}
+              >
                 {/* group KPIs */}
-                <div className="mb-5 grid grid-cols-2 gap-4 lg:grid-cols-4">
-                  <div className="rounded-2xl border px-5 py-3.5">
-                    <p className="text-xs text-gray-400">{year} Cost</p>
-                    <p className="mt-1 text-2xl font-bold text-gray-900">{fmtShort(g.curr)}</p>
-                    <p className="mt-0.5 text-[11px] text-gray-400">฿{fmtNum(g.curr)}</p>
+                <div className="mb-5 grid h-[144px] shrink-0 grid-cols-4 gap-5">
+                  <div className="rounded-2xl border-2 border-gray-200 px-5 py-4">
+                    <p className="text-[20px] leading-[26px] text-gray-500">ต้นทุน {yBE}</p>
+                    <p className="mt-0.5 text-[56px] font-bold leading-[60px] text-gray-900">{fmtShort(g.curr)}</p>
+                    <p className="text-[18px] leading-[24px] text-gray-400">฿{fmtNum(g.curr)}</p>
                   </div>
-                  <div className="rounded-2xl border px-5 py-3.5">
-                    <p className="text-xs text-gray-400">{prevYear} Cost</p>
-                    <p className="mt-1 text-2xl font-bold text-gray-400">{fmtShort(g.prev)}</p>
-                    <p className="mt-0.5 text-[11px] text-gray-400">฿{fmtNum(g.prev)}</p>
+                  <div className="rounded-2xl border-2 border-gray-200 px-5 py-4">
+                    <p className="text-[20px] leading-[26px] text-gray-500">ต้นทุน {pBE}</p>
+                    <p className="mt-0.5 text-[56px] font-bold leading-[60px] text-gray-400">{fmtShort(g.prev)}</p>
+                    <p className="text-[18px] leading-[24px] text-gray-400">฿{fmtNum(g.prev)}</p>
                   </div>
-                  <div className="rounded-2xl border px-5 py-3.5">
-                    <p className="text-xs text-gray-400">YoY</p>
-                    <p className="mt-1"><PctBadge pct={pctOf(g.curr, g.prev)} size="text-2xl" /></p>
-                    <p className="mt-0.5 text-[11px] text-gray-400">
+                  <div className="rounded-2xl border-2 border-gray-200 px-5 py-4">
+                    <p className="text-[20px] leading-[26px] text-gray-500">เทียบปีก่อน</p>
+                    <p className="mt-0.5 leading-[60px]"><PctBadge pct={pctOf(g.curr, g.prev)} size="text-[56px]" /></p>
+                    <p className="text-[18px] leading-[24px] text-gray-400">
                       {g.prev > 0 ? `${g.curr - g.prev >= 0 ? "+" : "−"}฿${fmtNum(Math.abs(g.curr - g.prev))}` : "—"}
                     </p>
                   </div>
-                  <div className="rounded-2xl border px-5 py-3.5">
-                    <p className="text-xs text-gray-400">สัดส่วนของทั้งหมด</p>
-                    <p className="mt-1 text-2xl font-bold text-gray-900">{share.toFixed(1)}%</p>
-                    <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
+                  <div className="rounded-2xl border-2 border-gray-200 px-5 py-4">
+                    <p className="text-[20px] leading-[26px] text-gray-500">สัดส่วนของต้นทุนซ่อมบำรุงทั้งหมด</p>
+                    <p className="mt-0.5 text-[56px] font-bold leading-[60px] text-gray-900">{share.toFixed(1)}%</p>
+                    <div className="h-2.5 w-full overflow-hidden rounded-full bg-gray-100">
                       <div className="h-full rounded-full" style={{ width: `${Math.min(share, 100)}%`, background: GROUP_COLOR[g.group] }} />
                     </div>
                   </div>
                 </div>
 
-                <div className="grid gap-5 lg:grid-cols-2">
+                {/* three columns instead of three stacked bands — that is what
+                    buys the height back for the type scale */}
+                <div className="grid min-h-0 flex-1 grid-cols-12 gap-5">
                   {/* monthly trend */}
-                  <div>
-                    <p className="mb-2 text-xs font-semibold text-gray-700">รายเดือน {year} vs {prevYear}</p>
-                    <ResponsiveContainer width="100%" height={230}>
-                      <ComposedChart data={monthly} barCategoryGap="30%" margin={{ top: 18, right: 8, left: 4, bottom: 0 }}>
+                  <div className="col-span-4 flex min-h-0 flex-col">
+                    <p className="text-[22px] font-semibold leading-[30px] text-gray-800">รายเดือน {yBE} vs {pBE}</p>
+                    {/* the Insight box became this line — same fact, half the height */}
+                    <p className="mb-2 line-clamp-2 text-[18px] leading-[24px] text-gray-500">
+                      {mover
+                        ? `ตัวขับเคลื่อนหลัก: ${mover.name} ${fmtShort(mover.prev)} → ${fmtShort(mover.curr)}`
+                        : `แท่ง = ${yBE} · เส้นประ = ${pBE}`}
+                    </p>
+                    <ResponsiveContainer width="100%" height={338}>
+                      <ComposedChart data={monthly} barCategoryGap="30%" margin={{ top: 24, right: 8, left: 4, bottom: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-                        <XAxis dataKey="month" tick={{ fontSize: 10, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-                        <YAxis tickFormatter={fmtLabel} tick={{ fontSize: 10, fill: "#9ca3af" }} axisLine={false} tickLine={false} width={44} />
-                        <Tooltip formatter={(v: any, n: any) => [`฿${fmtNum(Number(v))}`, n === "curr" ? `${year}` : `${prevYear}`]}
+                        <XAxis dataKey="month" tick={{ fontSize: 18, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
+                        <YAxis tickFormatter={fmtLabel} tick={{ fontSize: 18, fill: "#9ca3af" }} axisLine={false} tickLine={false} width={62} />
+                        <Tooltip formatter={(v: any, n: any) => [`฿${fmtNum(Number(v))}`, n === "curr" ? `${yBE}` : `${pBE}`]}
                           contentStyle={{ borderRadius: 12, fontSize: 11, border: "1px solid #e5e7eb" }} />
                         <Bar dataKey="curr" fill={GROUP_COLOR[g.group]} radius={[4, 4, 0, 0]} isAnimationActive={false}>
-                          <LabelList dataKey="curr" position="top" style={{ fontSize: 9, fill: "#6b7280", fontWeight: 600 }} formatter={fmtLabel} />
+                          <LabelList dataKey="curr" position="top" style={{ fontSize: 18, fill: "#6b7280", fontWeight: 600 }} formatter={fmtLabel} />
                         </Bar>
-                        <Line dataKey="prev" type="monotone" stroke="#111827" strokeWidth={2} isAnimationActive={false}
-                          strokeDasharray="4 3" dot={{ r: 2.5, fill: "#111827", strokeWidth: 0 }} />
+                        <Line dataKey="prev" type="monotone" stroke="#111827" strokeWidth={3} isAnimationActive={false}
+                          strokeDasharray="5 4" dot={{ r: 3.5, fill: "#111827", strokeWidth: 0 }} />
                       </ComposedChart>
                     </ResponsiveContainer>
-                    {mover && (
-                      <div className="mt-2 rounded-xl bg-gray-50 px-3 py-2 text-[11px] leading-snug text-gray-600">
-                        <span className="font-semibold text-gray-700">Insight: </span>
-                        ตัวขับเคลื่อนหลัก{mover.curr - mover.prev >= 0 ? "ที่เพิ่มขึ้น" : "ที่ลดลง"}: {mover.name}
-                        {" "}({fmtShort(mover.prev)} → {fmtShort(mover.curr)}, {mover.curr - mover.prev >= 0 ? "+" : "−"}฿{fmtNum(Math.abs(mover.curr - mover.prev))})
+                  </div>
+
+                  {/* top product groups — as bars, same device as slide 3 */}
+                  <div className="col-span-3 flex min-h-0 flex-col">
+                    <p className="text-[22px] font-semibold leading-[30px] text-gray-800">Top กลุ่มสินค้า</p>
+                    <p className="mb-3 text-[18px] leading-[24px] text-gray-500">ความยาวแท่ง = เทียบกลุ่มที่มากที่สุด</p>
+                    {det?.pgs.length ? (
+                      <div className="flex flex-col gap-3">
+                        {det.pgs.slice(0, 6).map((pg) => {
+                          const w = det.pgs[0].curr > 0 ? (pg.curr / det.pgs[0].curr) * 100 : 0
+                          return (
+                            <div key={pg.pg}>
+                              <div className="flex items-baseline justify-between gap-2">
+                                <span className="truncate text-[22px] leading-[28px] text-gray-700" title={pg.pg}>{pg.pg}</span>
+                                <span className="shrink-0 text-[22px] font-bold leading-[28px] tabular-nums text-gray-900">{fmtShort(pg.curr)}</span>
+                              </div>
+                              <div className="mt-1 h-2.5 w-full overflow-hidden rounded-full bg-gray-100">
+                                <div className="h-full rounded-full" style={{ width: `${Math.min(w, 100)}%`, background: GROUP_COLOR[g.group] }} />
+                              </div>
+                            </div>
+                          )
+                        })}
                       </div>
+                    ) : (
+                      <p className="py-6 text-center text-[20px] text-gray-300">ไม่มีข้อมูล detail</p>
                     )}
                   </div>
 
-                  {/* top product groups */}
-                  <div>
-                    <p className="mb-2 text-xs font-semibold text-gray-700">Top กลุ่มสินค้า</p>
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="border-b text-left text-[10px] text-gray-400">
-                          <th className="py-1.5 pr-1 font-medium">กลุ่มสินค้า</th>
-                          <th className="py-1.5 pr-1 text-right font-medium">{year}</th>
-                          <th className="py-1.5 pr-1 text-right font-medium">{prevYear}</th>
-                          <th className="py-1.5 pr-1 text-right font-medium">%YoY</th>
-                          <th className="w-1/5 py-1.5 font-medium"></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(det?.pgs.slice(0, 8) ?? []).map((p) => {
-                          const w = det!.pgs[0].curr > 0 ? (p.curr / det!.pgs[0].curr) * 100 : 0
-                          return (
-                            <tr key={p.pg} className="border-b last:border-b-0">
-                              <td className="max-w-[180px] truncate py-1.5 pr-1 text-gray-700" title={p.pg}>{p.pg}</td>
-                              <td className="py-1.5 pr-1 text-right tabular-nums font-semibold text-gray-800">{fmtShort(p.curr)}</td>
-                              <td className="py-1.5 pr-1 text-right tabular-nums text-gray-400">{fmtShort(p.prev)}</td>
-                              <td className="py-1.5 pr-1 text-right"><PctBadge pct={pctOf(p.curr, p.prev)} size="text-[10px]" /></td>
-                              <td className="py-1.5">
-                                <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
-                                  <div className="h-full rounded-full" style={{ width: `${Math.min(w, 100)}%`, background: GROUP_COLOR[g.group] }} />
-                                </div>
-                              </td>
+                  {/* top items — 3 columns, not 7. SKU code, product group and a
+                      unitless quantity all went: unreadable at projection size,
+                      and the group rollup is the panel immediately to the left. */}
+                  <div className="col-span-5 flex min-h-0 flex-col">
+                    <p className="text-[22px] font-semibold leading-[30px] text-gray-800">Top 5 รายการ</p>
+                    <p className="mb-2 text-[18px] leading-[24px] text-gray-500">เรียงตามต้นทุน {yBE}</p>
+                    {det && det.items.length > 0 ? (
+                      <table className="w-full table-fixed text-[24px]">
+                        <colgroup>
+                          <col style={{ width: "58%" }} />
+                          <col style={{ width: "24%" }} />
+                          <col style={{ width: "18%" }} />
+                        </colgroup>
+                        <thead>
+                          <tr className="border-b-2 border-gray-300 text-left text-[18px] leading-[24px] text-gray-500">
+                            <th className="py-2 pr-2 font-medium">ชื่อสินค้า</th>
+                            <th className="py-2 pr-2 text-right font-medium">{yBE}</th>
+                            <th className="py-2 text-right font-medium">±ปีก่อน</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {det.items.slice(0, 5).map((it) => (
+                            <tr key={`${it.pg}|${it.code}`} className="border-b border-gray-100 last:border-b-0">
+                              <td className="truncate py-2.5 pr-2 leading-[34px] text-gray-700" title={`${it.code} · ${it.name}`}>{it.name}</td>
+                              <td className="py-2.5 pr-2 text-right font-semibold leading-[34px] tabular-nums text-gray-900">{fmtShort(it.curr)}</td>
+                              <td className="py-2.5 text-right leading-[34px]"><PctBadge pct={pctOf(it.curr, it.prev)} size="text-[20px]" /></td>
                             </tr>
-                          )
-                        })}
-                        {!det?.pgs.length && (
-                          <tr><td colSpan={5} className="py-4 text-center text-gray-300">ไม่มีข้อมูล detail</td></tr>
-                        )}
-                      </tbody>
-                    </table>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <p className="py-6 text-center text-[20px] text-gray-300">ไม่มีข้อมูล detail</p>
+                    )}
                   </div>
                 </div>
-
-                {/* top items */}
-                {det && det.items.length > 0 && (
-                  <div className="mt-5">
-                    <p className="mb-2 text-xs font-semibold text-gray-700">Top 10 รายการ (รหัสสินค้า)</p>
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="border-b text-left text-[10px] text-gray-400">
-                          <th className="py-1.5 pr-2 font-medium">รหัส</th>
-                          <th className="py-1.5 pr-2 font-medium">ชื่อสินค้า</th>
-                          <th className="py-1.5 pr-2 font-medium">กลุ่มสินค้า</th>
-                          <th className="py-1.5 pr-2 text-right font-medium">จำนวน</th>
-                          <th className="py-1.5 pr-2 text-right font-medium">{year}</th>
-                          <th className="py-1.5 pr-2 text-right font-medium">{prevYear}</th>
-                          <th className="py-1.5 text-right font-medium">%YoY</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {det.items.slice(0, 10).map((it) => (
-                          <tr key={`${it.pg}|${it.code}`} className="border-b last:border-b-0">
-                            <td className="py-1.5 pr-2 font-mono text-[10px] text-gray-500">{it.code}</td>
-                            <td className="max-w-[280px] truncate py-1.5 pr-2 text-gray-700" title={it.name}>{it.name}</td>
-                            <td className="max-w-[140px] truncate py-1.5 pr-2 text-gray-400">{it.pg}</td>
-                            <td className="py-1.5 pr-2 text-right tabular-nums text-gray-500">{fmtNum(it.qty)}</td>
-                            <td className="py-1.5 pr-2 text-right tabular-nums font-semibold text-gray-800">{fmtShort(it.curr)}</td>
-                            <td className="py-1.5 pr-2 text-right tabular-nums text-gray-400">{fmtShort(it.prev)}</td>
-                            <td className="py-1.5 text-right"><PctBadge pct={pctOf(it.curr, it.prev)} size="text-[10px]" /></td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </section>
+              </SlideFrame>
             )
           })}
         </div>
