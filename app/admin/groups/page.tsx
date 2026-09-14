@@ -10,6 +10,8 @@ const SECTION_KEYS = [
   { key: "mixer",        label: "Mixer" },
   { key: "procurement",  label: "Procurement" },
   { key: "maintenance",  label: "Maintenance" },
+  { key: "safety",       label: "Safety" },
+  { key: "gps",          label: "GPS" },
 ]
 
 type Group = {

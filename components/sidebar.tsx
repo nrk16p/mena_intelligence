@@ -27,6 +27,7 @@ import {
   Settings2,
   Shield,
   ClipboardList,
+  MapPin,
 } from "lucide-react"
 import { ThemeToggle } from "./theme-toggle"
 
@@ -180,6 +181,19 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/repair-daily/garage",   label: "Daily Log Garage",icon: Wrench },
       { href: "/repair-daily/history",  label: "History",         icon: History },
       { href: "/repair-daily/settings", label: "Templates",       icon: Settings2 },
+    ],
+  },
+  {
+    label:        "GPS",
+    groupIcon:    Shield,
+    permissionKey: "gps",
+    dot:          "bg-cyan-500",
+    iconColor:    "text-cyan-500 dark:text-cyan-400",
+    activeBg:     "bg-cyan-50 dark:bg-cyan-950/40",
+    activeText:   "text-cyan-700 dark:text-cyan-300",
+    activeBorder: "border-cyan-500",
+    items: [
+      { href: "/gps/distance", label: "Distance", icon: MapPin },
     ],
   },
   {
