@@ -90,23 +90,15 @@ export async function POST(req: Request) {
       .aggregate(distancePipeline(collections, match))
       .toArray()
 
-    // Plates that matched nothing are reported rather than silently dropped —
-    // a typo'd plate and a truck that genuinely never moved look identical in
-    // the rows alone.
-    const found = new Set(rows.map((r) => r.vehicleNo))
-    const notFound = plates.filter((p) => !found.has(p))
-
     return NextResponse.json({
       success: true,
       startdate,
       enddate,
-      days: span + 1,
-      plates,
-      notFound,
-      collections,
-      count: rows.length,
-      totalDistanceKm: Math.round(rows.reduce((s, r) => s + r.distanceKm, 0) * 10) / 10,
-      rows,
+      rows: rows.map((r) => ({
+        plate: r.vehicleNo,
+        distance: r.distanceKm,
+        days: r.activeDays,
+      })),
     })
   } catch (error) {
     console.error("gps/distance/range API error:", error)
