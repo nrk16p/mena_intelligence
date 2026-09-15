@@ -1,15 +1,15 @@
-# `/api/gps/distance` — สรุประยะทาง GPS รายคันต่อเดือน
+# `/api/gps/distance` — สรุประยะทาง GPS รายคันตามช่วงวันที่
 
-API ชุดนี้ดึงข้อมูลระยะทางจาก MongoDB database **`gps`** แล้วสรุปเป็นรายคันต่อเดือน
+API ชุดนี้ดึงข้อมูลระยะทางจาก MongoDB database **`gps`** แล้วสรุปเป็นรายคันตามช่วงวันที่ที่เลือก
 ใช้โดยหน้า [`/gps/distance`](../../../gps/distance/page.tsx)
 
 มี 3 endpoint:
 
 | Endpoint | หน้าที่ |
 |---|---|
-| `GET /api/gps/distance/options` | ตัวเลือกสำหรับ filter — เดือน, fleet, สาขา, แหล่งที่มา |
-| `GET /api/gps/distance` | สรุประยะทางรายคัน **ทั้งเดือน** |
-| `POST /api/gps/distance/range` | สรุประยะทางรายคัน **ตามช่วงวันที่ + เลือกทะเบียน** |
+| `GET /api/gps/distance/options` | ตัวเลือกสำหรับ filter — ขอบเขตวันที่, fleet, สาขา, แหล่งที่มา |
+| `GET /api/gps/distance` | สรุประยะทางรายคัน **ตามช่วงวันที่** (ยังรับ `month` ทั้งเดือนได้) |
+| `POST /api/gps/distance/range` | สรุประยะทางรายคัน **ตามช่วงวันที่ + เลือกทะเบียน** (response สั้น) |
 
 ทั้งสอง endpoint ที่คืนตัวเลขใช้ pipeline ตัวเดียวกันจาก
 [`lib/gps-distance.ts`](../../../../lib/gps-distance.ts) ต่างกันแค่เงื่อนไข `$match` ชั้นแรก
@@ -108,15 +108,19 @@ km: { $ifNull: ["$distance_km", { $ifNull: ["$total_distance_km", 0] }] }
 
 | param | จำเป็น | รูปแบบ | ความหมาย |
 |---|---|---|---|
-| `month` | ✅ | `YYYY-MM` | เดือนที่ต้องการ ไม่ตรงรูปแบบ → `400` |
+| `start` + `end` | ✅* | `YYYY-MM-DD` | ช่วงวันที่ (รวมหัวท้าย) — ต้องเป็นวันที่จริง, `start ≤ end`, ยาวไม่เกิน 400 วัน |
+| `month` | ✅* | `YYYY-MM` | ทั้งเดือน — ทางเลือกเดิม ใช้เมื่อไม่ได้ส่ง `start`/`end` |
 | `fleet` | – | CSV เช่น `TDM,Asia` | กรองเฉพาะ fleet ที่ระบุ |
 | `branch` | – | CSV เช่น `สระบุรี` | กรองเฉพาะสาขาที่ระบุ |
 | `source` | – | CSV เช่น `hino,dtc` | **จำกัดขอบเขตการคำนวณ** (ดูหัวข้อ 4) |
 
+\* ต้องมีอย่างใดอย่างหนึ่ง — ถ้าส่ง `start`/`end` มาจะใช้อันนั้นก่อนเสมอ ไม่ส่งทั้งคู่ → `400`
+ช่วงวันที่กรองด้วย `date_key` ส่วน `month` กรองด้วย `etl_months` (ดูเหตุผลในหัวข้อ 5)
+
 ### ลำดับ pipeline
 
 ```
-vendorStage(month)                    ← collection แรก: กรอง etl_months + normalize km
+vendorStage(dateMatch)                ← collection แรก: กรอง date_key (หรือ etl_months) + normalize km
   ↓
 $unionWith × (n-1)                    ← ต่อ collection ที่เหลือเข้ามา
   ↓
@@ -142,7 +146,9 @@ document ของ vendor ที่เว้นช่อง fleet ว่าง�
 ```jsonc
 {
   "success": true,
-  "month": "2026-08",
+  "month": "",                // echo — จะมีค่าเมื่อเรียกแบบรายเดือน
+  "start": "2026-08-01",
+  "end": "2026-08-31",
   "fleets": ["TDM"],          // echo ค่าที่กรองมา
   "branches": [],
   "sources": [],
@@ -158,7 +164,7 @@ document ของ vendor ที่เว้นช่อง fleet ว่าง�
 |---|---|
 | `vehicleNo` | ทะเบียน |
 | `fleet`, `branch`, `brand`, `plant` | `$max` ข้าม vendor (null → `"ไม่ระบุ"`) |
-| `distanceKm` | ผลรวมของค่าสูงสุดรายวันทั้งเดือน |
+| `distanceKm` | ผลรวมของค่าสูงสุดรายวันตลอดช่วงที่ขอ |
 | `activeDays` | จำนวนวันที่ระยะทาง > 0 |
 | `dataDays` | จำนวนวันที่มี document ส่งเข้ามา (รวมวันที่จอดนิ่ง) |
 | `avgDayKm` | `distanceKm ÷ activeDays` (ไม่หารด้วยวันที่จอด) |
@@ -290,19 +296,26 @@ curl -X POST http://localhost:3000/api/gps/distance/range \
 
 ให้ตัวเลือกสำหรับ filter ทั้งหมดในครั้งเดียว
 
-**Query param:** `month` (ไม่บังคับ) — ใช้กำหนดว่าจะดึง fleet/สาขา/แหล่ง ของเดือนไหน
+**Query params:** `start`, `end` (ไม่บังคับ) — ใช้กำหนดว่าจะดึง fleet/สาขา/แหล่ง ของช่วงวันไหน
+ไม่ส่งมา (หรือส่งมาไม่ถูกต้อง) จะคืนช่วง default มาให้ พร้อมตัวเลือกของช่วงนั้น
 
 ```jsonc
 {
-  "months":   ["2026-09", "2026-08", ...],   // ใหม่ → เก่า
-  "monthMeta": [{ "month": "2026-09", "vendors": 1, "totalVendors": 8 }, ...],
-  "month":    "2026-08",                     // เดือน default ที่แนะนำ
-  "fleets":   ["Asia", "BTG", ...],          // ของเดือนที่เลือก
+  "minDate": "2026-01-01",          // วันแรกสุดที่มีข้อมูล (ใช้เป็นขอบล่างของปฏิทิน)
+  "maxDate": "2026-09-14",          // วันล่าสุดที่มีข้อมูล (ขอบบนของปฏิทิน)
+  "completeThrough": "2026-09-02",  // วันล่าสุดที่ "ทุก" vendor ส่งถึงแล้ว
+  "start": "2026-08-27",            // ช่วง default = 7 วันสุดท้ายถึง completeThrough
+  "end":   "2026-09-02",
+  "fleets":   ["Asia", "BTG", ...],          // ที่มีจริงในช่วงนี้
   "branches": ["ขอนแก่น", "ลาดกระบัง", ...],
-  "sources":  ["besttech", "cartrack", ...], // เฉพาะเจ้าที่มีข้อมูลจริงในเดือนนั้น
+  "sources":  ["besttech", "cartrack", ...], // เฉพาะเจ้าที่มีข้อมูลจริงในช่วงนี้
+  "coverage": { "vendors": 8, "totalVendors": 8 },
   "collections": [...]
 }
 ```
+
+`fleets` / `branches` ใช้ `distinct` พร้อมเงื่อนไข `date_key` ช่วงเดียวกับที่ถาม
+จึงตรงกับสิ่งที่จะได้จาก `GET /api/gps/distance` เป๊ะ ไม่ใช่การประมาณจากทั้งเดือน
 
 ### เรื่องสำคัญ: ETL ของแต่ละเจ้าเข้าไม่พร้อมกัน
 
@@ -315,19 +328,19 @@ curl -X POST http://localhost:3000/api/gps/distance/range \
 | 2026-01 | 6/8 | 20 |
 | **2026-09** | **1/8** (songdee เท่านั้น) | **2** |
 
-ถ้า default ไปเดือนล่าสุดเฉย ๆ หน้าเว็บจะเปิดมาเจอแค่ 2 fleet และดูเหมือนข้อมูลหาย
-`options` จึงเลือก **เดือนล่าสุดที่ vendor ครบทุกเจ้า** เป็น default:
+ถ้า default เป็น "7 วันล่าสุด" นับจาก `maxDate` เฉย ๆ หน้าเว็บจะเปิดมาเจอ vendor เดียว
+และดูเหมือนข้อมูลหาย ระบบจึงเลื่อนปลายช่วง default ไปที่ **วันล่าสุดที่ทุกเจ้าส่งถึงแล้ว**:
 
 ```js
-const latestComplete = monthMeta.find((m) => m.vendors === collections.length)?.month
-const month = MONTH_RE.test(monthParam) ? monthParam : (latestComplete ?? months[0])
+// วันสุดท้ายของ vendor ที่ตามหลังที่สุด = วันที่ข้อมูลยังครบทุกเจ้า
+const completeThrough = lastWithData[0] ?? maxDate
 ```
 
-ส่วน `monthMeta` ถูกส่งไปให้หน้าเว็บแสดงจำนวนแหล่งข้างชื่อเดือน และขึ้นแถบเตือนสีเหลือง
-เมื่อเลือกเดือนที่ยังไม่ครบ
+ปฏิทินยังเลือกได้ถึง `maxDate` ตามปกติ — ถ้าเลือกช่วงที่ vendor ไม่ครบ
+`coverage` จะบอกว่ามีกี่เจ้าจากทั้งหมด แล้วหน้าเว็บขึ้นแถบเตือนสีเหลืองให้เอง
 
 > เดือนเก่าที่ไม่ครบ (เช่น ม.ค. 6/8) ไม่ได้แปลว่า ETL พัง — besttech เพิ่งเริ่มเดือน พ.ค.
-> และ nostra เริ่มเดือน ก.พ. หน้าเว็บจึงบอกเหตุผล "ETL ยังโหลดไม่ครบ" เฉพาะเดือนล่าสุดเท่านั้น
+> และ nostra เริ่มเดือน ก.พ. หน้าเว็บจึงบอกเหตุผล "ETL ยังโหลดไม่ครบ" เฉพาะช่วงที่ชนวันล่าสุดเท่านั้น
 
 ---
 
@@ -337,6 +350,6 @@ const month = MONTH_RE.test(monthParam) ? monthParam : (latestComplete ?? months
 2. **ห้ามกรอง fleet/branch ก่อน `$group`** — vendor ที่เว้นช่องว่างจะหลุดหาย
 3. **อย่า hardcode รายชื่อ collection** — ใช้ regex `^distance_` เพื่อรองรับ vendor ใหม่
 4. **อย่าลืม `total_distance_km`** ของ songdee ตอนเพิ่มการคำนวณใหม่
-5. **เดือนล่าสุดมักยังไม่ครบ** — ตรวจ `monthMeta` ก่อนสรุปว่า fleet ไหนหายไป
+5. **วันล่าสุดมักยังไม่ครบทุกเจ้า** — ตรวจ `coverage` / `completeThrough` ก่อนสรุปว่า fleet ไหนหายไป
 6. **แก้ pipeline ที่ `lib/gps-distance.ts` ที่เดียว** — ทั้ง endpoint รายเดือนและช่วงวันที่ใช้ร่วมกัน
    ถ้าจะเพิ่ม endpoint ใหม่ ให้ส่ง `$match` ของตัวเองเข้าไป อย่า copy pipeline ออกไปไว้ที่อื่น

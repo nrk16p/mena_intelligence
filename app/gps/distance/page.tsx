@@ -1,7 +1,17 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { BookOpen, X } from "lucide-react"
+import { BookOpen, History, X } from "lucide-react"
+import { ChipRowSkeleton, GpsSpinner, ResultsSkeleton } from "@/components/gps/gps-loader"
+import { EtlLogDialog } from "@/components/gps/etl-log-dialog"
+import { SOURCE_COLOR } from "@/lib/gps-labels"
+import {
+  DateRangePicker,
+  dateLabel,
+  daysInRange,
+  rangeLabel,
+  type DateRange,
+} from "@/components/date-range-picker"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -23,19 +33,9 @@ type Row = {
 
 type SortKey = "vehicleNo" | "fleet" | "branch" | "distanceKm" | "activeDays" | "avgDayKm" | "maxDayKm"
 
-type MonthMeta = { month: string; vendors: number; totalVendors: number }
+type Coverage = { vendors: number; totalVendors: number }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-const TH_MONTHS = [
-  "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
-  "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม",
-]
-
-function monthLabel(ym: string) {
-  const [y, m] = ym.split("-")
-  return `${TH_MONTHS[Number(m) - 1] ?? m} ${y}`
-}
 
 function fmt(v: number, digits = 0) {
   return Number(v || 0).toLocaleString("en-US", {
@@ -52,17 +52,6 @@ function fmtShort(v: number) {
 }
 
 const FLEET_PREVIEW = 8
-
-const SOURCE_COLOR: Record<string, string> = {
-  terminus:     "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400",
-  cartrack:     "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400",
-  songdee:      "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
-  nostra:       "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400",
-  thaitracking: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
-  hino:         "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
-  dtc:          "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400",
-  besttech:     "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400",
-}
 
 // ── KPI card ──────────────────────────────────────────────────────────────────
 
@@ -135,7 +124,7 @@ function LogicDialog({ open, onClose }: { open: boolean; onClose: () => void }) 
             ระบบไล่หาเองตอนเรียก ไม่ได้ระบุรายชื่อไว้ตายตัว ถ้ามีผู้ให้บริการใหม่เข้ามาจะถูกนับอัตโนมัติ
           </li>
           <li>
-            กรองเดือนด้วยฟิลด์ <Code>etl_months</Code> ตามที่เลือกในช่อง ปี-เดือน
+            กรองวันด้วยฟิลด์ <Code>date_key</Code> ตามช่วงวันที่ที่เลือก (รวมวันเริ่มต้นและวันสิ้นสุด)
           </li>
           <li>
             ระยะทางอ่านจาก <Code>distance_km</Code> ยกเว้น songdee ที่ใช้ชื่อฟิลด์{" "}
@@ -156,7 +145,7 @@ function LogicDialog({ open, onClose }: { open: boolean; onClose: () => void }) 
             <strong className="text-gray-900 dark:text-white"> เลือกค่าสูงสุดของวันนั้น</strong>{" "}
             ไม่บวกรวมกัน
           </li>
-          <li>นำค่าที่ชนะของแต่ละวันมาบวกกันเป็นยอดของเดือน</li>
+          <li>นำค่าที่ชนะของแต่ละวันมาบวกกันเป็นยอดของช่วงที่เลือก</li>
         </ol>
         <p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-400">
           ทำไมต้องสูงสุด: ถ้าบวกรวมทุกเจ้า ยอดจะเบิ้ล (เดือน ส.ค. 2026 จะเกินจริงราว 237,000 กม.
@@ -189,12 +178,12 @@ function LogicDialog({ open, onClose }: { open: boolean; onClose: () => void }) 
             เหมาะกับการตรวจสอบว่ากล่องของเจ้าไหนรายงานผิดปกติ
           </li>
           <li>เลือกได้หลายเจ้าพร้อมกัน ระบบจะเทียบค่าสูงสุดรายวันเฉพาะในกลุ่มที่เลือก</li>
-          <li>รายชื่อแหล่งจะแสดงเฉพาะเจ้าที่มีข้อมูลจริงในเดือนที่เลือก</li>
+          <li>รายชื่อแหล่งจะแสดงเฉพาะเจ้าที่มีข้อมูลจริงในช่วงวันที่ที่เลือก</li>
         </ul>
 
         <H>แต่ละคอลัมน์คิดยังไง</H>
         <ul className="list-disc space-y-1 pl-4">
-          <li><strong>ระยะทางรวม</strong> — ผลรวมของค่าสูงสุดรายวันตลอดทั้งเดือน</li>
+          <li><strong>ระยะทางรวม</strong> — ผลรวมของค่าสูงสุดรายวันตลอดช่วงที่เลือก</li>
           <li>
             <strong>วันวิ่ง</strong> — จำนวนวันที่ระยะทางมากกว่า 0 ตัวเลขสีจางข้างหลัง (เช่น{" "}
             <Code>28/30</Code>) คือจำนวนวันที่มีข้อมูลส่งเข้ามาทั้งหมด ส่วนต่างคือวันที่จอดนิ่ง
@@ -210,7 +199,7 @@ function LogicDialog({ open, onClose }: { open: boolean; onClose: () => void }) 
         <H>ข้อควรระวัง</H>
         <ul className="list-disc space-y-1 pl-4">
           <li>
-            เดือนที่ ETL ยังโหลดไม่ครบทุกเจ้าจะเห็น fleet/สาขา ไม่ครบ — ช่องเลือกเดือนบอกไว้ว่าเดือนนั้นมีข้อมูลกี่แหล่ง
+            ช่วงวันที่ที่ ETL ยังโหลดไม่ครบทุกเจ้าจะเห็น fleet/สาขา ไม่ครบ — ระบบจะขึ้นแถบเตือนไว้ว่าช่วงนั้นมีข้อมูลกี่แหล่ง
             และจะมีแถบเตือนสีเหลืองขึ้นให้
           </li>
           <li>
@@ -268,15 +257,15 @@ function ChipRow({
 
 export default function GpsDistancePage() {
   // Filter options
-  const [months, setMonths]           = useState<string[]>([])
-  const [monthMeta, setMonthMeta]     = useState<MonthMeta[]>([])
+  const [bounds, setBounds]         = useState<{ min: string; max: string }>({ min: "", max: "" })
+  const [coverage, setCoverage]     = useState<Coverage | null>(null)
   const [fleetOptions, setFleetOptions] = useState<string[]>([])
   const [branchOptions, setBranchOptions] = useState<string[]>([])
   const [sourceOptions, setSourceOptions] = useState<string[]>([])
   const [optionsLoading, setOptionsLoading] = useState(true)
 
   // Filter state
-  const [month, setMonth] = useState("")
+  const [range, setRange] = useState<DateRange>({ start: "", end: "" })
   const [selectedFleets, setSelectedFleets] = useState<Set<string>>(new Set())
   const [selectedBranches, setSelectedBranches] = useState<Set<string>>(new Set())
   const [selectedSources, setSelectedSources] = useState<Set<string>>(new Set())
@@ -285,7 +274,7 @@ export default function GpsDistancePage() {
   const [rows, setRows]             = useState<Row[]>([])
   const [loading, setLoading]       = useState(false)
   const [error, setError]           = useState("")
-  const [searchedMonth, setSearchedMonth] = useState("")
+  const [searchedRange, setSearchedRange] = useState<DateRange | null>(null)
 
   // Table state
   const [textFilter, setTextFilter] = useState("")
@@ -293,23 +282,25 @@ export default function GpsDistancePage() {
   const [sortDir, setSortDir]       = useState<"asc" | "desc">("desc")
   const [showAllFleets, setShowAllFleets] = useState(false)
   const [logicOpen, setLogicOpen] = useState(false)
+  const [etlOpen, setEtlOpen] = useState(false)
 
-  // ── Load filter options (months always; fleet/สาขา follow the chosen month) ──
+  // ── Load filter options (fleet/สาขา/ที่มา follow the chosen date range) ─────
   useEffect(() => {
     let cancelled = false
     async function load() {
       setOptionsLoading(true)
       try {
-        const qs = month ? `?month=${month}` : ""
+        const qs = range.start && range.end ? `?start=${range.start}&end=${range.end}` : ""
         const r = await fetch(`/api/gps/distance/options${qs}`, { cache: "no-store" })
         const j = await r.json()
         if (cancelled || !j.success) return
-        setMonths(j.months ?? [])
-        setMonthMeta(j.monthMeta ?? [])
+        setBounds({ min: j.minDate ?? "", max: j.maxDate ?? "" })
+        setCoverage(j.coverage ?? null)
         setFleetOptions(j.fleets ?? [])
         setBranchOptions(j.branches ?? [])
         setSourceOptions(j.sources ?? [])
-        if (!month && j.month) setMonth(j.month)
+        // First load: adopt the default window the API picked.
+        if (!range.start && j.start && j.end) setRange({ start: j.start, end: j.end })
       } catch {
         if (!cancelled) setError("โหลดตัวเลือกไม่สำเร็จ")
       } finally {
@@ -318,15 +309,15 @@ export default function GpsDistancePage() {
     }
     load()
     return () => { cancelled = true }
-  }, [month])
+  }, [range.start, range.end])
 
   // ── Search ────────────────────────────────────────────────────────────────
   const search = useCallback(async () => {
-    if (!month) return
+    if (!range.start || !range.end) return
     setLoading(true)
     setError("")
     try {
-      const params = new URLSearchParams({ month })
+      const params = new URLSearchParams({ start: range.start, end: range.end })
       if (selectedFleets.size > 0) params.set("fleet", [...selectedFleets].join(","))
       if (selectedBranches.size > 0) params.set("branch", [...selectedBranches].join(","))
       if (selectedSources.size > 0) params.set("source", [...selectedSources].join(","))
@@ -334,7 +325,7 @@ export default function GpsDistancePage() {
       const j = await r.json()
       if (j.success) {
         setRows(j.rows ?? [])
-        setSearchedMonth(j.month)
+        setSearchedRange({ start: j.start, end: j.end })
       } else {
         setError(j.message || "ค้นหาไม่สำเร็จ")
         setRows([])
@@ -345,7 +336,7 @@ export default function GpsDistancePage() {
     } finally {
       setLoading(false)
     }
-  }, [month, selectedFleets, selectedBranches, selectedSources])
+  }, [range.start, range.end, selectedFleets, selectedBranches, selectedSources])
 
   function toggleIn(setter: (fn: (prev: Set<string>) => Set<string>) => void, value: string) {
     setter((prev) => {
@@ -400,11 +391,6 @@ export default function GpsDistancePage() {
     }
   }, [visibleRows])
 
-  const selectedCoverage = useMemo(
-    () => monthMeta.find((m) => m.month === month),
-    [monthMeta, month]
-  )
-
   const fleetBreakdown = useMemo(() => {
     const map = new Map<string, { km: number; vehicles: number }>()
     for (const r of visibleRows) {
@@ -432,7 +418,7 @@ export default function GpsDistancePage() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
     a.href = url
-    a.download = `gps-distance-${searchedMonth}.csv`
+    a.download = `gps-distance-${searchedRange?.start}_${searchedRange?.end}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -452,97 +438,121 @@ export default function GpsDistancePage() {
   return (
     <div className="flex flex-col gap-4 p-6">
       <LogicDialog open={logicOpen} onClose={() => setLogicOpen(false)} />
+      <EtlLogDialog open={etlOpen} onClose={() => setEtlOpen(false)} />
 
       {/* Header */}
-      <div>
-        <h1 className="text-lg font-bold text-gray-900 dark:text-white">ระยะทาง GPS</h1>
-        <p className="text-xs text-gray-400 mt-0.5">
-          สรุประยะทางรายคันต่อเดือน — รวมข้อมูลจากทุกผู้ให้บริการ GPS
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-lg font-bold text-gray-900 dark:text-white">ระยะทาง GPS</h1>
+          <p className="text-xs text-gray-400 mt-0.5">
+            สรุประยะทางรายคันตามช่วงวันที่ — รวมข้อมูลจากทุกผู้ให้บริการ GPS
+          </p>
+        </div>
+        <button
+          onClick={() => setEtlOpen(true)}
+          title="ประวัติการโหลดข้อมูล (ETL)"
+          className="rounded-xl border border-gray-200 p-2 text-gray-500 transition hover:border-cyan-500 hover:text-cyan-600 dark:border-white/10 dark:text-gray-400 dark:hover:text-cyan-400"
+        >
+          <History size={16} />
+        </button>
       </div>
 
       {/* Filter bar */}
       <div className="rounded-2xl border border-gray-200 dark:border-white/10 bg-white dark:bg-[#1a1d27] p-4">
         <div className="flex flex-wrap items-end gap-3">
-          {/* Month */}
+          {/* Date range */}
           <div className="flex flex-col gap-1">
-            <label className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">ปี-เดือน</label>
-            <select
-              value={month}
-              onChange={(e) => {
-                setMonth(e.target.value)
+            <label className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">ช่วงวันที่</label>
+            <DateRangePicker
+              value={range}
+              onChange={(r) => {
+                setRange(r)
                 setSelectedFleets(new Set())
                 setSelectedBranches(new Set())
                 setSelectedSources(new Set())
               }}
-              disabled={optionsLoading}
-              className="rounded-xl border border-gray-200 dark:border-white/10 bg-transparent px-3 py-1.5 text-xs dark:text-white outline-none focus:border-cyan-500 disabled:opacity-40 min-w-40"
-            >
-              {months.length === 0 && <option value="">{optionsLoading ? "กำลังโหลด…" : "ไม่มีข้อมูล"}</option>}
-              {months.map((m) => {
-                const meta = monthMeta.find((x) => x.month === m)
-                return (
-                  <option key={m} value={m} className="dark:bg-[#1a1d27]">
-                    {monthLabel(m)}
-                    {meta ? ` · ${meta.vendors}/${meta.totalVendors} แหล่ง` : ""}
-                  </option>
-                )
-              })}
-            </select>
+              min={bounds.min}
+              max={bounds.max}
+              disabled={optionsLoading && !range.start}
+            />
           </div>
+
+          {bounds.max && (
+            <span className="pb-1.5 text-[11px] text-gray-400">
+              ข้อมูลมีถึง {dateLabel(bounds.max)}
+            </span>
+          )}
 
           {/* Search button */}
           <button
             onClick={search}
-            disabled={loading || !month}
+            disabled={loading || !range.start || !range.end}
             className="rounded-xl bg-cyan-600 px-6 py-1.5 text-xs font-semibold text-white hover:bg-cyan-700 disabled:opacity-40 transition"
           >
-            {loading ? "กำลังค้นหา…" : "ค้นหา"}
+            {loading ? (
+              <span className="inline-flex items-center gap-1.5">
+                <GpsSpinner />
+                กำลังค้นหา…
+              </span>
+            ) : (
+              "ค้นหา"
+            )}
           </button>
 
-          {searchedMonth && !loading && (
+          {searchedRange && !loading && (
             <span className="text-[11px] text-gray-400">
-              ผลลัพธ์เดือน {monthLabel(searchedMonth)} · {fmt(rows.length)} คัน
+              ผลลัพธ์ {rangeLabel(searchedRange)} · {daysInRange(searchedRange)} วัน ·{" "}
+              {fmt(rows.length)} คัน
             </span>
           )}
         </div>
 
-        {/* A month missing vendors shows only the fleets those vendors carry, so
+        {/* A window missing vendors shows only the fleets those vendors carry, so
             say so rather than let it read as "these fleets had no distance".
-            Only the newest month can blame a pending ETL — an older month is
-            short simply because that vendor had not been onboarded yet. */}
-        {selectedCoverage && selectedCoverage.vendors < selectedCoverage.totalVendors && (
+            A window touching the last couple of days can blame a pending ETL —
+            an older one is short simply because that vendor was not onboarded yet. */}
+        {coverage && coverage.vendors < coverage.totalVendors && (
           <div className="mt-3 rounded-xl border border-amber-200 dark:border-amber-900/40 bg-amber-50 dark:bg-amber-950/20 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-400">
-            เดือน {monthLabel(month)} มีข้อมูลจาก {selectedCoverage.vendors} จาก{" "}
-            {selectedCoverage.totalVendors} แหล่ง GPS — fleet ที่แสดงจึงมีเฉพาะของแหล่งที่มีข้อมูล
-            {month === months[0] && " (ETL ของแหล่งที่เหลือยังโหลดไม่ครบ)"}
+            ช่วง {rangeLabel(range)} มีข้อมูลจาก {coverage.vendors} จาก{" "}
+            {coverage.totalVendors} แหล่ง GPS — fleet ที่แสดงจึงมีเฉพาะของแหล่งที่มีข้อมูล
+            {bounds.max && range.end === bounds.max && " (ETL ของแหล่งที่เหลือยังโหลดไม่ครบ)"}
           </div>
         )}
 
-        <ChipRow
-          label="Fleet"
-          options={fleetOptions}
-          selected={selectedFleets}
-          onToggle={(v) => toggleIn(setSelectedFleets, v)}
-          onClear={() => setSelectedFleets(new Set())}
-        />
+        {optionsLoading ? (
+          <>
+            <ChipRowSkeleton label="Fleet" />
+            <ChipRowSkeleton label="สาขา" />
+            <ChipRowSkeleton label="ที่มา" />
+          </>
+        ) : (
+          <>
+            <ChipRow
+              label="Fleet"
+              options={fleetOptions}
+              selected={selectedFleets}
+              onToggle={(v) => toggleIn(setSelectedFleets, v)}
+              onClear={() => setSelectedFleets(new Set())}
+            />
 
-        <ChipRow
-          label="สาขา"
-          options={branchOptions}
-          selected={selectedBranches}
-          onToggle={(v) => toggleIn(setSelectedBranches, v)}
-          onClear={() => setSelectedBranches(new Set())}
-        />
+            <ChipRow
+              label="สาขา"
+              options={branchOptions}
+              selected={selectedBranches}
+              onToggle={(v) => toggleIn(setSelectedBranches, v)}
+              onClear={() => setSelectedBranches(new Set())}
+            />
 
-        <ChipRow
-          label="ที่มา"
-          options={sourceOptions}
-          selected={selectedSources}
-          onToggle={(v) => toggleIn(setSelectedSources, v)}
-          onClear={() => setSelectedSources(new Set())}
-          hint="เลือกแล้วจะคำนวณจากแหล่งที่เลือกเท่านั้น"
-        />
+            <ChipRow
+              label="ที่มา"
+              options={sourceOptions}
+              selected={selectedSources}
+              onToggle={(v) => toggleIn(setSelectedSources, v)}
+              onClear={() => setSelectedSources(new Set())}
+              hint="เลือกแล้วจะคำนวณจากแหล่งที่เลือกเท่านั้น"
+            />
+          </>
+        )}
       </div>
 
       {error && (
@@ -552,21 +562,24 @@ export default function GpsDistancePage() {
       )}
 
       {/* Empty state */}
-      {!searchedMonth && !loading && !error && (
+      {!searchedRange && !loading && !error && (
         <div className="rounded-2xl border border-dashed border-gray-200 dark:border-white/10 px-6 py-12 text-center">
-          <p className="text-sm text-gray-400">เลือกปี-เดือน และ Fleet แล้วกด &ldquo;ค้นหา&rdquo;</p>
+          <p className="text-sm text-gray-400">เลือกช่วงวันที่ และ Fleet แล้วกด &ldquo;ค้นหา&rdquo;</p>
         </div>
       )}
 
-      {searchedMonth && !loading && rows.length === 0 && !error && (
+      {/* Loader — โครงร่างเดียวกับผลลัพธ์จริง ไม่ให้หน้าว่างระหว่างรอ */}
+      {loading && <ResultsSkeleton />}
+
+      {searchedRange && !loading && rows.length === 0 && !error && (
         <div className="rounded-2xl border border-dashed border-gray-200 dark:border-white/10 px-6 py-12 text-center">
           <p className="text-sm text-gray-400">ไม่พบข้อมูลตามเงื่อนไขที่เลือก</p>
         </div>
       )}
 
       {/* Results */}
-      {rows.length > 0 && (
-        <>
+      {!loading && rows.length > 0 && (
+        <div className="gps-fade-in flex flex-col gap-4">
           {/* KPI */}
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
             <Kpi label="ระยะทางรวม" value={fmtShort(kpi.totalKm)} unit="km" />
@@ -756,7 +769,7 @@ export default function GpsDistancePage() {
               </span>
             </div>
           </div>
-        </>
+        </div>
       )}
     </div>
   )

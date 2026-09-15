@@ -228,3 +228,50 @@
 .dark .themed-scroll::-webkit-scrollbar-thumb:hover {
   background-color: oklch(1 0 0 / 32%);
 }
+/* ── GPS loading skeleton (หน้า /gps เท่านั้น) ───────────────────────────── */
+.gps-skel {
+  position: relative;
+  overflow: hidden;
+  background-color: oklch(0.93 0.004 250);
+  border-radius: 0.5rem;
+}
+.dark .gps-skel {
+  background-color: oklch(1 0 0 / 7%);
+}
+.gps-skel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    oklch(1 0 0 / 65%) 50%,
+    transparent 100%
+  );
+  animation: gps-shimmer 1.4s ease-in-out infinite;
+}
+.dark .gps-skel::after {
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    oklch(1 0 0 / 10%) 50%,
+    transparent 100%
+  );
+}
+@keyframes gps-shimmer {
+  100% { transform: translateX(100%); }
+}
+
+.gps-fade-in {
+  animation: gps-fade-in 0.35s ease-out both;
+}
+@keyframes gps-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gps-skel::after { animation: none; }
+  .gps-fade-in { animation: none; }
+}
