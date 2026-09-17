@@ -2,11 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { BookOpen, History, X } from "lucide-react"
+import * as XLSX from "xlsx"
+import { saveAs } from "file-saver"
 import { ChipRowSkeleton, GpsSpinner, ResultsSkeleton } from "@/components/gps/gps-loader"
 import { EtlLogDialog } from "@/components/gps/etl-log-dialog"
 import { SOURCE_COLOR } from "@/lib/gps-labels"
 import {
   DateRangePicker,
+  addDays,
   dateLabel,
   daysInRange,
   rangeLabel,
@@ -52,6 +55,43 @@ function fmtShort(v: number) {
 }
 
 const FLEET_PREVIEW = 8
+
+/** Every day of the range, so the export has a column even for silent days. */
+function datesInRange(r: DateRange) {
+  const out: string[] = []
+  // The API refuses ranges longer than 400 days; the bound keeps a bad `end`
+  // from spinning here.
+  for (let d = r.start; d && d <= r.end && out.length < 400; d = addDays(d, 1)) out.push(d)
+  return out
+}
+
+/**
+ * The day columns of the export: the 1st of the start month through the last of
+ * the end month, so a week-long search still lands on a full calendar month and
+ * the columns are always วันที่ 1…สิ้นเดือน. Days outside the searched range
+ * stay blank — nothing was asked of them.
+ */
+function monthGridDates(r: DateRange) {
+  const [y, m] = r.end.slice(0, 7).split("-").map(Number)
+  // Day 0 of the next month is the last day of this one, leap years included.
+  const endOfMonth = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10)
+  return datesInRange({ start: `${r.start.slice(0, 7)}-01`, end: endOfMonth })
+}
+
+/** Thai abbreviated months, the same ones Excel's mmm prints in a Thai locale. */
+const MONTH_ABBR = [
+  "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
+  "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค.",
+]
+
+/**
+ * Day-column labels as dd-mmm ("07-ก.ย."). Written as text rather than as dates
+ * formatted with dd-mmm, so the Thai month shows up whatever locale the
+ * spreadsheet is opened in.
+ */
+function dayHeaders(dates: string[]) {
+  return dates.map((d) => `${d.slice(8, 10)}-${MONTH_ABBR[Number(d.slice(5, 7)) - 1]}`)
+}
 
 // ── KPI card ──────────────────────────────────────────────────────────────────
 
@@ -283,6 +323,10 @@ export default function GpsDistancePage() {
   const [showAllFleets, setShowAllFleets] = useState(false)
   const [logicOpen, setLogicOpen] = useState(false)
   const [etlOpen, setEtlOpen] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  // The chips can be changed without pressing ค้นหา again, so the export re-runs
+  // the query that actually produced these rows — not whatever is selected now.
+  const [searchedQuery, setSearchedQuery] = useState("")
 
   // ── Load filter options (fleet/สาขา/ที่มา follow the chosen date range) ─────
   useEffect(() => {
@@ -326,6 +370,7 @@ export default function GpsDistancePage() {
       if (j.success) {
         setRows(j.rows ?? [])
         setSearchedRange({ start: j.start, end: j.end })
+        setSearchedQuery(params.toString())
       } else {
         setError(j.message || "ค้นหาไม่สำเร็จ")
         setRows([])
@@ -406,21 +451,121 @@ export default function GpsDistancePage() {
     return { list, max }
   }, [visibleRows])
 
-  function exportCsv() {
-    const header = ["ทะเบียน", "Fleet", "สาขา", "ยี่ห้อ", "ระยะทาง_km", "วันวิ่ง", "วันมีข้อมูล", "เฉลี่ยต่อวัน_km", "สูงสุดต่อวัน_km", "แหล่งที่ใช้", "แหล่งทั้งหมด", "วันที่ซ้อนแหล่ง"]
-    const lines = visibleRows.map((r) => [
-      r.vehicleNo, r.fleet, r.branch, r.brand,
-      r.distanceKm, r.activeDays, r.dataDays, r.avgDayKm, r.maxDayKm,
-      r.usedSources.join("|"), r.allSources.join("|"), r.overlapDays,
-    ])
-    const csv = [header, ...lines].map((l) => l.map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\n")
-    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `gps-distance-${searchedRange?.start}_${searchedRange?.end}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
+  // ── Export ────────────────────────────────────────────────────────
+  // Two sheets: "distance-summary" is the read-it-first roll-up, and
+  // "distance-period" is the per-vehicle grid with one column per day of the
+  // range. The daily numbers come from a second call with daily=1 — the
+  // dashboard never shows them, so they are fetched only when someone asks for
+  // the file.
+  type DailyRow = { vehicleNo: string; days?: { d: string; km: number }[] }
+
+  async function exportExcel() {
+    if (!visibleRows.length || !searchedRange || !searchedQuery || exporting) return
+    setExporting(true)
+    setError("")
+    try {
+      const r = await fetch(`/api/gps/distance?${searchedQuery}&daily=1`, { cache: "no-store" })
+      const j = await r.json()
+      if (!j.success) throw new Error(j.message || "ดึงข้อมูลรายวันไม่สำเร็จ")
+
+      const daily = new Map<string, Map<string, number>>()
+      for (const row of (j.rows ?? []) as DailyRow[]) {
+        daily.set(row.vehicleNo, new Map((row.days ?? []).map((x) => [x.d, x.km])))
+      }
+      buildWorkbook(searchedRange, daily)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "ส่งออก Excel ไม่สำเร็จ")
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  function buildWorkbook(range: DateRange, daily: Map<string, Map<string, number>>) {
+    const grid = monthGridDates(range)
+    const headers = dayHeaders(grid)
+    const r1 = (v: number) => Math.round((Number(v) || 0) * 10) / 10
+
+    // A reading too small to survive one decimal keeps more of them — otherwise a
+    // truck that crawled 30 m reads as parked while วันวิ่ง still counts the day.
+    const dayCell = (km: number) => {
+      const rounded = r1(km)
+      return rounded === 0 && km > 0 ? Math.round(km * 1000) / 1000 : rounded
+    }
+
+    // ── Sheet distance-summary: the raw per-vehicle roll-up ────────────────
+    const wsSummary = XLSX.utils.json_to_sheet(
+      visibleRows.map((row) => ({
+        "ทะเบียน": row.vehicleNo,
+        "Fleet": row.fleet,
+        "สาขา": row.branch,
+        "ยี่ห้อ": row.brand,
+        "ระยะทาง_km": r1(row.distanceKm),
+        "วันวิ่ง": row.activeDays,
+        "วันมีข้อมูล": row.dataDays,
+        "เฉลี่ยต่อวัน_km": r1(row.avgDayKm),
+        "สูงสุดต่อวัน_km": r1(row.maxDayKm),
+        "แหล่งที่ใช้": row.usedSources.join("|"),
+        "แหล่งทั้งหมด": row.allSources.join("|"),
+        "วันที่ซ้อนแหล่ง": row.overlapDays,
+        // The period rides on every row so the raw sheet stays self-describing
+        // once it is appended to last month's or pivoted.
+        "startdate": range.start,
+        "enddate": range.end,
+      }))
+    )
+    wsSummary["!cols"] = [
+      { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 12 }, { wch: 14 }, { wch: 9 },
+      { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 20 }, { wch: 20 }, { wch: 16 },
+      { wch: 12 }, { wch: 12 },
+    ]
+    wsSummary["!autofilter"] = {
+      ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: visibleRows.length, c: 13 } }),
+    }
+
+    // ── Sheet distance-period ──────────────────────────────────
+    // Plate × day: identity + row totals, then วันที่ 1 to the end of the month as
+    // dd-mmm. Days the search did not cover carry 0 like any other quiet day.
+    // Written as an array of arrays rather than from objects so the day columns
+    // keep their order whatever the headers look like.
+    // total_km / total_day are taken from the same aggregate as
+    // distance-summary, so the two sheets never disagree; the day columns are
+    // the breakdown of that total.
+    const FIXED = ["ทะเบียน", "Fleet", "สาขา", "แหล่งทั้งหมด", "total_km", "total_day"]
+    const periodAoa: (string | number)[][] = [
+      [...FIXED, ...headers],
+      ...visibleRows.map((row) => {
+        const perDay = daily.get(row.vehicleNo)
+        return [
+          row.vehicleNo, row.fleet, row.branch, row.allSources.join("|"),
+          r1(row.distanceKm), row.activeDays,
+          ...grid.map((d) => dayCell(perDay?.get(d) ?? 0)),
+        ]
+      }),
+    ]
+    const wsPeriod = XLSX.utils.aoa_to_sheet(periodAoa)
+    wsPeriod["!cols"] = [
+      { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 22 }, { wch: 12 }, { wch: 11 },
+      ...grid.map(() => ({ wch: 9 })),
+    ]
+    // Hundreds of rows is a lot to eyeball: the filter row lets whoever opens
+    // the file slice by fleet or branch without going back to the dashboard.
+    wsPeriod["!autofilter"] = {
+      ref: XLSX.utils.encode_range({
+        s: { r: 0, c: 0 },
+        e: { r: periodAoa.length - 1, c: FIXED.length + grid.length - 1 },
+      }),
+    }
+
+    // ── Workbook ──────────────────────────────────────────────
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, wsSummary, "distance-summary")
+    XLSX.utils.book_append_sheet(wb, wsPeriod, "distance-period")
+
+    const out = XLSX.write(wb, { bookType: "xlsx", type: "array" })
+    saveAs(
+      new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
+      `gps-distance-${range.start}_${range.end}.xlsx`
+    )
   }
 
   // ── Table cell classes ────────────────────────────────────────────────────
@@ -661,10 +806,19 @@ export default function GpsDistancePage() {
                   className="rounded-xl border border-gray-200 dark:border-white/10 bg-transparent px-3 py-1.5 text-xs dark:text-white outline-none focus:border-cyan-500 placeholder:text-gray-300 dark:placeholder:text-gray-600 min-w-50"
                 />
                 <button
-                  onClick={exportCsv}
-                  className="rounded-xl border border-gray-200 dark:border-white/10 px-3 py-1.5 text-xs font-semibold text-gray-600 dark:text-gray-300 hover:border-gray-400 transition"
+                  onClick={exportExcel}
+                  disabled={exporting}
+                  title="ดาวน์โหลด Excel — ชีต distance-summary และ distance-period (รายคัน × รายวัน)"
+                  className="rounded-xl border border-gray-200 dark:border-white/10 px-3 py-1.5 text-xs font-semibold text-gray-600 dark:text-gray-300 hover:border-gray-400 disabled:opacity-40 transition"
                 >
-                  CSV
+                  {exporting ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <GpsSpinner />
+                      กำลังสร้าง…
+                    </span>
+                  ) : (
+                    "Excel"
+                  )}
                 </button>
               </div>
             </div>

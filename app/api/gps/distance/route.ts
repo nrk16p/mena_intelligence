@@ -33,6 +33,9 @@ function bad(message: string) {
  * GET /api/gps/distance?start=YYYY-MM-DD&end=YYYY-MM-DD
  * GET /api/gps/distance?month=YYYY-MM        (whole month, kept for callers that
  *                                             still think in months)
+ * GET /api/gps/distance?…&daily=1            (adds `days: [{ d, km }]` per vehicle
+ *                                             — the Excel export needs it, the
+ *                                             dashboard does not)
  */
 export async function GET(req: Request) {
   try {
@@ -66,6 +69,7 @@ export async function GET(req: Request) {
     const fleets = csv("fleet")
     const branches = csv("branch")
     const sources = csv("source")
+    const daily = searchParams.get("daily") === "1"
 
     const client = await clientPromise
     const db = client.db("gps")
@@ -96,7 +100,7 @@ export async function GET(req: Request) {
       ...(branches.length ? [{ $match: { branch: { $in: branches } } }] : []),
     ]
 
-    const pipeline = distancePipeline(collections, dateMatch, postMatch)
+    const pipeline = distancePipeline(collections, dateMatch, postMatch, { daily })
     const rows = await db.collection(collections[0]).aggregate(pipeline).toArray()
 
     return NextResponse.json({
@@ -108,6 +112,7 @@ export async function GET(req: Request) {
       branches,
       sources,
       collections,
+      daily,
       count: rows.length,
       rows,
     })

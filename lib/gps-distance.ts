@@ -51,11 +51,16 @@ function vendorStage(match: Document): Document[] {
  * @param postMatch stages appended AFTER fleet/branch are resolved across vendors.
  *                  Filtering on those fields earlier would drop a vendor's rows
  *                  merely because that vendor left the field null.
+ * @param opts.daily also return `days: [{ d, km }]` — the winning reading of each
+ *                  day, the same numbers the totals are built from. Off by
+ *                  default: it is one array per vehicle that only the Excel
+ *                  export needs, and the dashboard would carry it for nothing.
  */
 export function distancePipeline(
   collections: string[],
   match: Document,
-  postMatch: Document[] = []
+  postMatch: Document[] = [],
+  opts: { daily?: boolean } = {}
 ): Document[] {
   const [, ...rest] = collections
 
@@ -96,6 +101,11 @@ export function distancePipeline(
         usedSources: { $addToSet: "$winner" },
         sourceSets: { $addToSet: "$sources" },
         overlapDays: { $sum: { $cond: [{ $gt: [{ $size: "$sources" }, 1] }, 1, 0] } },
+        // Unordered on purpose — the rows above are sorted by km, not by date.
+        // Callers key this by date rather than by position. Left unrounded so
+        // the day values still sum to distanceKm, and so a crawl of a few metres
+        // does not reach the caller as a flat 0 while activeDays counts it.
+        ...(opts.daily ? { days: { $push: { d: "$_id.d", km: "$km" } } } : {}),
       },
     },
 
@@ -134,6 +144,7 @@ export function distancePipeline(
           },
         },
         overlapDays: 1,
+        ...(opts.daily ? { days: 1 } : {}),
       },
     },
 
