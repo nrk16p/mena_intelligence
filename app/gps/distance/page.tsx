@@ -501,12 +501,10 @@ export default function GpsDistancePage() {
         "ยี่ห้อ": row.brand,
         "ระยะทาง_km": r1(row.distanceKm),
         "วันวิ่ง": row.activeDays,
-        "วันมีข้อมูล": row.dataDays,
         "เฉลี่ยต่อวัน_km": r1(row.avgDayKm),
         "สูงสุดต่อวัน_km": r1(row.maxDayKm),
         "แหล่งที่ใช้": row.usedSources.join("|"),
         "แหล่งทั้งหมด": row.allSources.join("|"),
-        "วันที่ซ้อนแหล่ง": row.overlapDays,
         // The period rides on every row so the raw sheet stays self-describing
         // once it is appended to last month's or pivoted.
         "startdate": range.start,
@@ -515,11 +513,10 @@ export default function GpsDistancePage() {
     )
     wsSummary["!cols"] = [
       { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 12 }, { wch: 14 }, { wch: 9 },
-      { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 20 }, { wch: 20 }, { wch: 16 },
-      { wch: 12 }, { wch: 12 },
+      { wch: 16 }, { wch: 16 }, { wch: 20 }, { wch: 20 }, { wch: 12 }, { wch: 12 },
     ]
     wsSummary["!autofilter"] = {
-      ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: visibleRows.length, c: 13 } }),
+      ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: visibleRows.length, c: 11 } }),
     }
 
     // ── Sheet distance-period ──────────────────────────────────
