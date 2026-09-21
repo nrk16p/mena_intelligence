@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { AlertTriangle, CheckCircle2, Inbox, RefreshCw, X } from "lucide-react"
+import { AlertTriangle, CheckCircle2, ExternalLink, Inbox, RefreshCw, RotateCcw, X } from "lucide-react"
 import { sourceColor } from "@/lib/gps-labels"
 
 // ── Types (ตรงกับ /api/gps/etl-log) ──────────────────────────────────────────
@@ -20,12 +20,23 @@ export type EtlLogRow = {
   errorMessage: string | null
   isEmpty: boolean | null
   collections: string[]
+  /** เวลาที่มี success ของ source+วันเดียวกันตามมาทีหลัง = error แถวนี้ถูกแก้แล้ว */
+  resolvedAt: string | null
+}
+
+/** สถานะการกด "ดึงข้อมูลใหม่" ของแต่ละแถว — เก็บแยกจาก rows เพื่อให้รอดการ reload */
+type RetryState = {
+  phase: "sending" | "queued" | "failed"
+  message?: string
+  runsUrl?: string
 }
 
 type SourceSummary = {
   source: string
   runs: number
   errors: number
+  /** error ที่ยังไม่มี success ตามมา — ตัวเลขที่บอกว่า "ยังต้องตามแก้" จริงๆ */
+  openErrors: number
   lastStatus: string
   lastDateKey: string
   lastRunAt: string | null
@@ -109,12 +120,14 @@ function Stat({ label, value, tone = "" }: { label: string; value: string; tone?
   )
 }
 
-function StatusDot({ status }: { status: string }) {
+function StatusDot({ status, resolved = false }: { status: string; resolved?: boolean }) {
   const ok = status === "success"
+  // error ที่แก้แล้วไม่ควรเป็นจุดแดงเท่าเดิม — ยังอยู่ในประวัติ แต่ไม่ใช่เรื่องที่ต้องรีบ
+  const tone = ok ? "bg-emerald-500" : resolved ? "bg-gray-300 dark:bg-white/20" : "bg-rose-500"
   return (
     <span
-      title={ok ? "สำเร็จ" : "ผิดพลาด"}
-      className={`mt-1.5 inline-block size-2 shrink-0 rounded-full ${ok ? "bg-emerald-500" : "bg-rose-500"}`}
+      title={ok ? "สำเร็จ" : resolved ? "ผิดพลาด (แก้แล้ว)" : "ผิดพลาด"}
+      className={`mt-1.5 inline-block size-2 shrink-0 rounded-full ${tone}`}
     />
   )
 }
@@ -140,6 +153,10 @@ export function EtlLogDialog({ open, onClose }: { open: boolean; onClose: () => 
   const [error, setError] = useState("")
   const [now, setNow] = useState(() => Date.now())
 
+  const [canRetry, setCanRetry] = useState(false)
+  const [retries, setRetries] = useState<Map<string, RetryState>>(new Map())
+
+  const [hideResolved, setHideResolved] = useState(true)
   const [statusFilter, setStatusFilter] = useState<"all" | "success" | "error">("all")
   const [sourceFilter, setSourceFilter] = useState("")
 
@@ -157,6 +174,7 @@ export function EtlLogDialog({ open, onClose }: { open: boolean; onClose: () => 
       setBySource(j.summary?.bySource ?? [])
       setMatched(j.matched ?? 0)
       setTruncated(Boolean(j.truncated))
+      setCanRetry(Boolean(j.canRetry))
       setNow(Date.now())
     } catch (e) {
       setError(e instanceof Error ? e.message : "โหลดประวัติ ETL ไม่สำเร็จ")
@@ -164,6 +182,47 @@ export function EtlLogDialog({ open, onClose }: { open: boolean; onClose: () => 
       setLoading(false)
     }
   }, [statusFilter, sourceFilter])
+
+  /**
+   * สั่ง GitHub Actions ให้ดึงข้อมูลของ source + วันนั้นใหม่อีกครั้ง
+   *
+   * ยืนยันก่อนเสมอ — ปุ่มนี้ไม่ได้แค่โหลดหน้าใหม่ แต่ไปรัน job จริงที่ยิง API ของผู้ให้บริการ
+   * (DTC จำกัด 3 requests/นาที/IP) จึงไม่ควรกดพลาดได้
+   *
+   * ผลลัพธ์จริงของรอบใหม่จะโผล่ใน etl_log ก็ต่อเมื่อ job รันจบ ซึ่งกินเวลาเป็นนาที —
+   * จึงโหลดรายการซ้ำให้ครั้งเดียวหลัง 30 วิ แล้วปล่อยให้ผู้ใช้กดรีเฟรชเองถ้าอยากดูต่อ
+   */
+  const retry = useCallback(async (row: EtlLogRow) => {
+    const label = `${row.source} · ${dateKeyLabel(row.dateKey)}`
+    const ok = window.confirm(
+      `สั่งดึงข้อมูล ${label} ใหม่อีกครั้ง?
+
+` +
+      `ระบบจะรัน GitHub Actions ของ ${row.source} ซึ่งจะเรียก API ของผู้ให้บริการจริง`
+    )
+    if (!ok) return
+
+    const mark = (state: RetryState) =>
+      setRetries((m) => new Map(m).set(row.id, state))
+
+    mark({ phase: "sending" })
+    try {
+      const r = await fetch("/api/gps/etl-retry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source: row.source, dateKey: row.dateKey }),
+      })
+      const j = await r.json()
+      if (!j.success) {
+        mark({ phase: "failed", message: j.message ?? "สั่งดึงใหม่ไม่สำเร็จ", runsUrl: j.runsUrl })
+        return
+      }
+      mark({ phase: "queued", runsUrl: j.runsUrl })
+      window.setTimeout(() => { if (ref.current?.open) load() }, 30_000)
+    } catch (e) {
+      mark({ phase: "failed", message: e instanceof Error ? e.message : "สั่งดึงใหม่ไม่สำเร็จ" })
+    }
+  }, [load])
 
   useEffect(() => {
     const el = ref.current
@@ -177,12 +236,18 @@ export function EtlLogDialog({ open, onClose }: { open: boolean; onClose: () => 
     if (open) load()
   }, [open, load])
 
+  // เปิดใหม่ = เริ่มนับหนึ่ง ไม่ให้ป้าย "เข้าคิวแล้ว" ของรอบก่อนค้างมาหลอกตา
+  useEffect(() => {
+    if (open) setRetries(new Map())
+  }, [open])
+
   // ตัวเลขสรุปมาจาก bySource ซึ่ง API คิดจากทั้ง collection เสมอ
   // จึงไม่ขยับตามตัวกรองที่ผู้ใช้เลือกดูอยู่
   const totals = useMemo(() => {
     const runs = bySource.reduce((s, x) => s + x.runs, 0)
     const errors = bySource.reduce((s, x) => s + x.errors, 0)
-    return { runs, errors, ok: runs - errors }
+    const open = bySource.reduce((s, x) => s + (x.openErrors ?? 0), 0)
+    return { runs, errors, open, fixed: errors - open, ok: runs - errors }
   }, [bySource])
 
   const lastRunAt = useMemo(
@@ -190,15 +255,22 @@ export function EtlLogDialog({ open, onClose }: { open: boolean; onClose: () => 
     [bySource]
   )
 
+  // error ที่ถูกแก้ไปแล้วคือเรื่องที่จบแล้ว — ซ่อนเป็นค่าเริ่มต้นไม่ให้บังของที่ยังค้างจริง
+  const visibleRows = useMemo(
+    () => (hideResolved ? rows.filter((r) => !r.resolvedAt) : rows),
+    [rows, hideResolved]
+  )
+  const resolvedHidden = rows.length - visibleRows.length
+
   // จัดกลุ่มรายวัน — หลายร้อยแถวเรียงติดกันอ่านยากถ้าไม่มีหัววัน
   const groups = useMemo(() => {
     const map = new Map<string, EtlLogRow[]>()
-    for (const r of rows) {
+    for (const r of visibleRows) {
       const k = r.startedAt ? dayKey(r.startedAt) : "unknown"
       map.set(k, [...(map.get(k) ?? []), r])
     }
     return [...map.entries()]
-  }, [rows])
+  }, [visibleRows])
 
   const chip = (active: boolean) =>
     `rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition ${
@@ -246,9 +318,9 @@ export function EtlLogDialog({ open, onClose }: { open: boolean; onClose: () => 
           <Stat label="รอบทั้งหมด" value={totals.runs.toLocaleString("en-US")} />
           <Stat label="สำเร็จ" value={totals.ok.toLocaleString("en-US")} tone="text-emerald-600 dark:text-emerald-400" />
           <Stat
-            label="ผิดพลาด"
-            value={totals.errors.toLocaleString("en-US")}
-            tone={totals.errors ? "text-rose-600 dark:text-rose-400" : ""}
+            label={totals.fixed > 0 ? `ผิดพลาด (แก้แล้ว ${totals.fixed})` : "ผิดพลาด"}
+            value={totals.open.toLocaleString("en-US")}
+            tone={totals.open ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}
           />
           <Stat label="รอบล่าสุด" value={lastRunAt ? agoLabel(lastRunAt, now) : "—"} />
         </div>
@@ -273,11 +345,15 @@ export function EtlLogDialog({ open, onClose }: { open: boolean; onClose: () => 
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5">
                     <SourceBadge source={s.source} />
-                    {s.errors > 0 && (
+                    {s.openErrors > 0 ? (
                       <span className="rounded-md bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700 dark:bg-rose-900/30 dark:text-rose-400">
-                        error {s.errors}
+                        ค้าง {s.openErrors}
                       </span>
-                    )}
+                    ) : s.errors > 0 ? (
+                      <span className="rounded-md bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                        แก้แล้วครบ
+                      </span>
+                    ) : null}
                   </div>
                   <p className="mt-0.5 truncate text-[11px] text-gray-400">
                     ข้อมูลถึง {dateKeyLabel(s.lastDateKey)} · {s.runs} รอบ
@@ -305,6 +381,15 @@ export function EtlLogDialog({ open, onClose }: { open: boolean; onClose: () => 
               {sourceFilter} ✕
             </button>
           )}
+          <button
+            onClick={() => setHideResolved((v) => !v)}
+            title="error ที่มี success ของวันเดียวกันตามมาทีหลัง"
+            className={chip(hideResolved)}
+          >
+            {hideResolved ? "ซ่อนที่แก้แล้ว" : "แสดงที่แก้แล้ว"}
+            {resolvedHidden > 0 && ` (${resolvedHidden})`}
+          </button>
+
           <span className="ml-auto text-[11px] text-gray-400">
             {matched.toLocaleString("en-US")} รายการ
             {truncated && ` (แสดง ${rows.length.toLocaleString("en-US")} ล่าสุด)`}
@@ -317,14 +402,18 @@ export function EtlLogDialog({ open, onClose }: { open: boolean; onClose: () => 
           </p>
         )}
 
-        {loading && rows.length === 0 && (
+        {loading && visibleRows.length === 0 && (
           <p className="py-10 text-center text-xs text-gray-400">กำลังโหลด…</p>
         )}
 
-        {!error && !loading && rows.length === 0 && (
+        {!error && !loading && visibleRows.length === 0 && (
           <div className="flex flex-col items-center gap-2 py-10 text-gray-400">
             <Inbox size={22} />
-            <p className="text-xs">ไม่มีรายการตามเงื่อนไขที่เลือก</p>
+            <p className="text-xs">
+              {resolvedHidden > 0
+                ? `แก้ครบแล้วทั้ง ${resolvedHidden} รายการ`
+                : "ไม่มีรายการตามเงื่อนไขที่เลือก"}
+            </p>
           </div>
         )}
 
@@ -340,16 +429,18 @@ export function EtlLogDialog({ open, onClose }: { open: boolean; onClose: () => 
               </div>
 
               <ul className="mt-1 space-y-1">
-                {items.map((r) => (
+                {items.map((r) => {
+                  const rt = retries.get(r.id)
+                  return (
                   <li
                     key={r.id}
                     className={`flex items-start gap-2.5 rounded-xl border px-3 py-2 ${
-                      r.status === "error"
+                      r.status === "error" && !r.resolvedAt
                         ? "border-rose-200 bg-rose-50/50 dark:border-rose-900/40 dark:bg-rose-950/15"
                         : "border-gray-100 dark:border-white/8"
                     }`}
                   >
-                    <StatusDot status={r.status} />
+                    <StatusDot status={r.status} resolved={Boolean(r.resolvedAt)} />
 
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-1.5">
@@ -366,12 +457,26 @@ export function EtlLogDialog({ open, onClose }: { open: boolean; onClose: () => 
                         {r.status === "success" ? (
                           <CheckCircle2 size={12} className="text-emerald-500" />
                         ) : (
-                          <AlertTriangle size={12} className="text-rose-500" />
+                          <AlertTriangle
+                            size={12}
+                            className={r.resolvedAt ? "text-gray-400" : "text-rose-500"}
+                          />
+                        )}
+                        {r.resolvedAt && (
+                          <span
+                            title={`มีข้อมูลเข้ามาเมื่อ ${dayLabel(r.resolvedAt)} ${timeLabel(r.resolvedAt)}`}
+                            className="inline-flex items-center gap-0.5 rounded-md bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                          >
+                            <CheckCircle2 size={9} />
+                            แก้แล้ว · {agoLabel(r.resolvedAt, now)}
+                          </span>
                         )}
                       </div>
 
                       {r.errorMessage && (
-                        <p className="mt-1 break-words text-[11px] text-rose-600 dark:text-rose-400">
+                        <p className={`mt-1 break-words text-[11px] ${
+                          r.resolvedAt ? "text-gray-400" : "text-rose-600 dark:text-rose-400"
+                        }`}>
                           {r.errorType ? `${r.errorType}: ` : ""}
                           {r.errorMessage}
                         </p>
@@ -381,6 +486,40 @@ export function EtlLogDialog({ open, onClose }: { open: boolean; onClose: () => 
                         <p className="mt-0.5 truncate text-[10px] text-gray-400">
                           → {r.collections.join(", ")}
                         </p>
+                      )}
+
+                      {canRetry && r.status === "error" && !r.resolvedAt && (
+                        <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                          <button
+                            onClick={() => retry(r)}
+                            disabled={rt?.phase === "sending" || rt?.phase === "queued"}
+                            className="inline-flex items-center gap-1 rounded-lg border border-rose-300 px-2 py-0.5 text-[11px] font-medium text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-800 dark:text-rose-400 dark:hover:bg-rose-900/30"
+                          >
+                            <RotateCcw size={11} className={rt?.phase === "sending" ? "animate-spin" : ""} />
+                            {rt?.phase === "sending" ? "กำลังสั่ง…" : "ดึงข้อมูลใหม่"}
+                          </button>
+
+                          {rt?.phase === "queued" && (
+                            <span className="font-medium text-[11px] text-emerald-600 dark:text-emerald-400">
+                              เข้าคิวแล้ว · รอ GitHub Actions รัน
+                            </span>
+                          )}
+
+                          {rt?.phase === "failed" && (
+                            <span className="text-[11px] text-rose-600 dark:text-rose-400">{rt.message}</span>
+                          )}
+
+                          {rt?.runsUrl && (
+                            <a
+                              href={rt.runsUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-0.5 text-[11px] text-gray-500 underline-offset-2 hover:underline dark:text-gray-400"
+                            >
+                              ดูบน GitHub <ExternalLink size={10} />
+                            </a>
+                          )}
+                        </div>
                       )}
                     </div>
 
@@ -393,7 +532,8 @@ export function EtlLogDialog({ open, onClose }: { open: boolean; onClose: () => 
                       </p>
                     </div>
                   </li>
-                ))}
+                  )
+                })}
               </ul>
             </div>
           ))}
