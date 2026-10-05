@@ -1,6 +1,8 @@
 "use client"
 
 import React, { useState, useMemo, useEffect, useRef } from "react"
+import * as XLSX from "xlsx"
+import { saveAs } from "file-saver"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -127,6 +129,94 @@ function buildTree(rows: RawRow[]): SupplierEntry[] {
 
   suppliers.sort((a, b) => b.total_cost - a.total_cost)
   return suppliers
+}
+
+// ── Excel export ───────────────────────────────────────────────────────────────
+
+const r2 = (v: number) => Math.round(v * 100) / 100
+
+// Thousands separators on every numeric cell so the sheet reads like the page.
+function formatNumbers(ws: XLSX.WorkSheet) {
+  for (const [addr, cell] of Object.entries(ws)) {
+    if (addr.startsWith("!")) continue
+    const c = cell as XLSX.CellObject
+    if (c.t === "n") c.z = Number.isInteger(c.v) ? "#,##0" : "#,##0.00"
+  }
+}
+
+function withAutofilter(ws: XLSX.WorkSheet, rows: number, cols: number) {
+  ws["!autofilter"] = {
+    ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows - 1, c: cols - 1 } }),
+  }
+}
+
+function exportExcel(suppliers: SupplierEntry[], years: string[], fileTag: string) {
+  // Sheet 1 — one row per supplier, years across.
+  const supHeader = [
+    "อันดับ", "ซัพพลายเออร์", "จำนวนกลุ่มสินค้า", "จำนวนรหัสสินค้า",
+    ...years.map(y => `${y} (บาท)`), "รวม (บาท)", "จำนวนรับ",
+  ]
+  const supRows = suppliers.map((s, i) => [
+    i + 1,
+    s.ซัพพลายเออร์,
+    s.groups.length,
+    s.groups.reduce((n, g) => n + g.products.length, 0),
+    ...years.map(y => r2(s.yearly[y] ?? 0)),
+    r2(s.total_cost),
+    r2(s.total_qty),
+  ])
+  const totalRow = [
+    "", "รวมทุกซัพพลายเออร์", "", "",
+    ...years.map(y => r2(suppliers.reduce((n, s) => n + (s.yearly[y] ?? 0), 0))),
+    r2(suppliers.reduce((n, s) => n + s.total_cost, 0)),
+    r2(suppliers.reduce((n, s) => n + s.total_qty, 0)),
+  ]
+  const wsSup = XLSX.utils.aoa_to_sheet([supHeader, ...supRows, totalRow])
+  wsSup["!cols"] = [
+    { wch: 7 }, { wch: 44 }, { wch: 15 }, { wch: 15 },
+    ...years.map(() => ({ wch: 14 })), { wch: 16 }, { wch: 12 },
+  ]
+  // Filter covers the supplier rows only, so sorting never drags the total row in.
+  withAutofilter(wsSup, supRows.length + 1, supHeader.length)
+  formatNumbers(wsSup)
+
+  // Sheet 2 — flat detail: supplier repeated on every line so it filters/pivots cleanly.
+  const detHeader = [
+    "ซัพพลายเออร์", "กลุ่มสินค้า", "รหัสสินค้า", "ชื่อสินค้า",
+    ...years.flatMap(y => [`${y} (บาท)`, `${y} จำนวน`]),
+    "รวม (บาท)", "จำนวนรับ", "ราคาเฉลี่ย/หน่วย",
+  ]
+  const detRows = suppliers.flatMap(s =>
+    s.groups.flatMap(g =>
+      g.products.map(p => [
+        s.ซัพพลายเออร์,
+        g.กลุ่มสินค้า,
+        p.รหัสสินค้า,
+        p.ชื่อสินค้า,
+        ...years.flatMap(y => [r2(p.yearly[y] ?? 0), r2(p.yearly_qty[y] ?? 0)]),
+        r2(p.total_cost),
+        r2(p.total_qty),
+        p.total_qty ? r2(p.total_cost / p.total_qty) : 0,
+      ])
+    )
+  )
+  const wsDet = XLSX.utils.aoa_to_sheet([detHeader, ...detRows])
+  wsDet["!cols"] = [
+    { wch: 36 }, { wch: 24 }, { wch: 16 }, { wch: 40 },
+    ...years.flatMap(() => [{ wch: 13 }, { wch: 10 }]),
+    { wch: 15 }, { wch: 11 }, { wch: 14 },
+  ]
+  withAutofilter(wsDet, detRows.length + 1, detHeader.length)
+  formatNumbers(wsDet)
+
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, wsSup, "ซัพพลายเออร์")
+  XLSX.utils.book_append_sheet(wb, wsDet, "รายละเอียดสินค้า")
+  const out = XLSX.write(wb, { bookType: "xlsx", type: "array" })
+  saveAs(
+    new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
+    `supplier-analysis_${fileTag}.xlsx`
+  )
 }
 
 // ── Supplier Multi-Autocomplete ────────────────────────────────────────────────
@@ -576,6 +666,7 @@ export default function SupplierAnalysisPage() {
   const [loading,    setLoading]    = useState(false)
   const [error,      setError]      = useState("")
   const [hasSearched,setHasSearched]= useState(false)
+  const [searchedRange, setSearchedRange] = useState({ start: String(CUR_YEAR - 2), end: String(CUR_YEAR) })
 
   // Load dropdown options once on mount
   useEffect(() => {
@@ -606,6 +697,7 @@ export default function SupplierAnalysisPage() {
       const json = await res.json()
       if (!json.success) throw new Error(json.error || "API error")
       setRows(json.data)
+      setSearchedRange({ start: startYear, end: endYear })
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -613,7 +705,12 @@ export default function SupplierAnalysisPage() {
     }
   }
 
-  const years    = useMemo(() => yearRange(Number(startYear), Number(endYear)), [startYear, endYear])
+  // Columns follow the range the data was fetched for, not the dropdowns, so
+  // changing a year without re-searching can't mislabel the table or the export.
+  const years    = useMemo(
+    () => yearRange(Number(searchedRange.start), Number(searchedRange.end)),
+    [searchedRange],
+  )
   const suppliers = useMemo(() => buildTree(rows), [rows])
 
   // Dynamic column width: fewer years → wider, more years → narrower
@@ -758,6 +855,17 @@ export default function SupplierAnalysisPage() {
             <span className="ml-auto text-sm font-extrabold text-indigo-800 tabular-nums">
               รวมทั้งหมด ฿{fmt(grandTotal)}
             </span>
+            <button
+              type="button"
+              onClick={() => exportExcel(suppliers, years, `${searchedRange.start}-${searchedRange.end}`)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors"
+              title="ดาวน์โหลด Excel: ชีตแรก 1 แถวต่อซัพพลายเออร์ · ชีตสองรายละเอียดรายรหัสสินค้า"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4" />
+              </svg>
+              Export Excel
+            </button>
           </div>
 
           {/* Column headers */}
