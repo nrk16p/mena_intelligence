@@ -160,7 +160,7 @@ function SourcePanel({ data, computed }: { data: Snapshot; computed: Date | null
   const items: [string, string, string, boolean][] = [
     ["PR อนุมัติ / รออนุมัติ", dayTime(bkk(s.pr_at)), "ATMS ทุก 1 ชม. 07:15–20:15", ageH(bkk(s.pr_at)) > 2],
     ["PO", dayTime(bkk(s.po_at)), "ATMS ทุก 4 ชม.", ageH(bkk(s.po_at)) > 5],
-    ["รับของ (DD)", dayTime(bkk(s.dd_at)), "ATMS ทุก 4 ชม.", ageH(bkk(s.dd_at)) > 5],
+    ["รับของ (DD) ล่าสุด", dayTime(bkk(s.dd_at)), "ใบรับของใบล่าสุดที่ดึงมาได้", false],
     ["ตัดจ่ายแล้ว (WD)", dayTime(bkk(s.wd_at)), "datawarehouse รอบโหลดล่าสุด", ageH(bkk(s.wd_at)) > 26],
     ["งบ 2569", dayTime(bkk(s.budget_at)), `${s.budget_lines} บรรทัด`, false],
     ["ทะเบียน ML / MS / ร่วม", s.plates_from ? `GPM ${monthLabel(s.plates_from)}` : "—", "เดือนล่าสุดที่มีไฟล์", false],
