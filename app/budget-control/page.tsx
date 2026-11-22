@@ -12,9 +12,11 @@ type OpenLine = { group: string; category: Category; plate: string; dd: string; 
 type PlateRow = { plate: string; group: string; wd: number; dd_open: number; pr_open: number; pr_pending: number }
 type Snapshot = {
   branch: string; month: string; cut: string; computed_at: string; pace: number
-  sources: { wd_at: string | null; pr_at: string | null; po_at: string | null; dd_at: string | null; budget_at: string | null; plates_from: string | null; budget_lines: number }
+  sources: { wd_at: string | null; pr_at: string | null; po_at: string | null; dd_at: string | null; budget_at: string | null; plates_from: string | null; daily_to?: string | null; budget_lines: number }
   rows: Row[]; pending_prs: Pending[]; dd_open_lines: OpenLine[]; by_plate: PlateRow[]
+  owner_switched?: Switched[]
 }
+type Switched = { plate: string; changes: { from: string; group: string }[] }
 
 const CATS: Category[] = ["ซ่อม", "PM", "ยาง"]
 const CAT_LABEL: Record<Category, string> = { ซ่อม: "ซ่อม/อะไหล่", PM: "PM", ยาง: "ยาง" }
@@ -27,6 +29,7 @@ const short = (n: number) => {
   const a = Math.abs(n), s = n < 0 ? "−" : ""
   return a >= 1e6 ? `${s}${(a / 1e6).toFixed(2)}M` : a >= 1e3 ? `${s}${Math.round(a / 1e3)}k` : `${s}${Math.round(a)}`
 }
+const ddmm = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`
 const monthLabel = (m: string) => `${TH_MONTH[Number(m.slice(5, 7)) - 1]} ${String(Number(m.slice(0, 4)) + 543).slice(2)}`
 /** Source stamps are naive UTC strings ('YYYY-MM-DD HH:MM:SS'); show Bangkok time. */
 function bkk(v: string | null | undefined): Date | null {
@@ -138,7 +141,7 @@ export default function BudgetControlPage() {
           {tab === "pivot" && <Pivot rows={data.rows} />}
           {tab === "pending" && <PendingTable data={data} />}
           {tab === "dd" && <DdTable lines={data.dd_open_lines} />}
-          {tab === "plate" && <PlateTable rows={data.by_plate} />}
+          {tab === "plate" && <PlateTable rows={data.by_plate} switched={data.owner_switched ?? []} />}
         </>
       )}
     </div>
@@ -163,7 +166,9 @@ function SourcePanel({ data, computed }: { data: Snapshot; computed: Date | null
     ["รับของ (DD) ล่าสุด", dayTime(bkk(s.dd_at)), "ใบรับของใบล่าสุดที่ดึงมาได้", false],
     ["ตัดจ่ายแล้ว (WD)", dayTime(bkk(s.wd_at)), "datawarehouse รอบโหลดล่าสุด", ageH(bkk(s.wd_at)) > 26],
     ["งบ 2569", dayTime(bkk(s.budget_at)), `${s.budget_lines} บรรทัด`, false],
-    ["ทะเบียน ML / MS / ร่วม", s.plates_from ? `GPM ${monthLabel(s.plates_from)}` : "—", "เดือนล่าสุดที่มีไฟล์", false],
+    s.daily_to
+      ? ["รถบริษัท / รถร่วม", `รถรายวันถึง ${ddmm(s.daily_to)}`, `คนขับ พจร. = รถร่วม ตามวันของแต่ละรายการ · ไม่อยู่ในรายงานใช้ GPM ${s.plates_from ? monthLabel(s.plates_from) : ""}`, false]
+      : ["ทะเบียน ML / MS / ร่วม", s.plates_from ? `GPM ${monthLabel(s.plates_from)}` : "—", "เดือนล่าสุดที่มีไฟล์", false],
   ]
   return (
     <div role="dialog" aria-label="แหล่งข้อมูล"
@@ -387,7 +392,7 @@ function DdTable({ lines }: { lines: OpenLine[] }) {
   )
 }
 
-function PlateTable({ rows }: { rows: PlateRow[] }) {
+function PlateTable({ rows, switched }: { rows: PlateRow[]; switched: Switched[] }) {
   const [q, setQ] = useState("")
   const shown = rows.filter((r) => !q || r.plate.replace(/\s/g, "").includes(q.replace(/\s/g, "")))
   return (
@@ -410,6 +415,20 @@ function PlateTable({ rows }: { rows: PlateRow[] }) {
             </tr>
           ))}
         </TableBox>
+      )}
+      {switched.length > 0 && (
+        <details className="rounded-xl border border-gray-200 bg-white p-3.5 text-[14px] dark:border-white/8 dark:bg-[#0d0f18]">
+          <summary className="cursor-pointer font-semibold text-gray-800 dark:text-gray-200">รถที่เปลี่ยนบริษัท/ร่วมกลางเดือน · {switched.length} คัน</summary>
+          <p className="mt-1 text-[12px] text-gray-500 dark:text-gray-400">ยอดแบ่งตามวันจริง · คนขับ พจร. วันเดียวนับเป็นรถบริษัท</p>
+          <ul className="mt-2 divide-y divide-gray-100 dark:divide-white/5">
+            {switched.map((s) => (
+              <li key={s.plate} className="flex flex-wrap gap-x-3 py-1.5">
+                <span className="w-28 font-medium">{s.plate}</span>
+                <span className="text-gray-600 dark:text-gray-400">{s.changes.map((c) => `${ddmm(c.from)} ${GROUP_LABEL[c.group] ?? c.group}`).join(" → ")}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
     </div>
   )
