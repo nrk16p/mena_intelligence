@@ -12,6 +12,7 @@ const SECTION_KEYS = [
   { key: "maintenance",  label: "Maintenance" },
   { key: "safety",       label: "Safety" },
   { key: "gps",          label: "GPS" },
+  { key: "budget",       label: "ควบคุมงบประมาณ" },
 ]
 
 type Group = {

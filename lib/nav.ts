@@ -40,6 +40,7 @@ export const OPEN_TYPES: PageType[] = ["ติดตาม", "KPI"]
 export const NAV_SECTIONS: NavSection[] = [
   {
     key: "exec", label: "ผู้บริหาร", icon: BarChart3, pages: [
+      { href: "/budget-control", label: "ควบคุมงบประมาณ", type: "ติดตาม", perm: "budget", icon: Calculator, aka: "Budget Control งบ PR WD DD" },
       { href: "/fleet-report", label: "ภาพรวมฟลีท", type: "ติดตาม", perm: "vehicle", icon: FileText, aka: "Fleet Report" },
       { href: "/cost-report", label: "รายงานประจำเดือน (MM)", type: "สาเหตุ", perm: "ops", icon: BarChart3, aka: "MM Report cost group" },
     ],

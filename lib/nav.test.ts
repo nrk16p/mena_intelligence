@@ -26,8 +26,8 @@ describe("nav config", () => {
     for (const h of hrefs) expect(fs.existsSync(path.join(APP, h, "page.tsx")), h).toBe(true)
   })
 
-  it("covers every page the old menu had (32 reports + 2 admin)", () => {
-    expect(ALL_PAGES.length).toBe(34)
+  it("covers every page the old menu had (32 reports + 2 admin) plus ควบคุมงบประมาณ", () => {
+    expect(ALL_PAGES.length).toBe(35)
   })
 
   it("each page's perm matches the group its layout checks", () => {
