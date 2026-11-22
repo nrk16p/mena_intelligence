@@ -232,7 +232,7 @@ export function Sidebar({
               </div>
             )}
 
-            <div className="flex flex-col gap-1">
+            {sections.length > 0 && <div className="flex flex-col gap-1">
               <p className="px-3 text-[12px] font-semibold text-gray-500 dark:text-gray-400">แผนก</p>
               {sections.map((s) => {
                 const open = openSection === s.key
@@ -277,7 +277,7 @@ export function Sidebar({
                   </div>
                 )
               })}
-            </div>
+            </div>}
           </div>
         )}
       </nav>
