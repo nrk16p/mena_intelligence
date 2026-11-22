@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
-import { ChevronRight, Info, RefreshCw } from "lucide-react"
+import { ChevronLeft, ChevronRight, Info, RefreshCw, Search } from "lucide-react"
 
 // ── Snapshot shape (written by mena-backend-services job `budget-control`) ──
 type Category = "ซ่อม" | "PM" | "ยาง"
@@ -20,14 +20,59 @@ type Switched = { plate: string; changes: { from: string; group: string }[] }
 
 const CATS: Category[] = ["ซ่อม", "PM", "ยาง"]
 const CAT_LABEL: Record<Category, string> = { ซ่อม: "ซ่อม/อะไหล่", PM: "PM", ยาง: "ยาง" }
-const GROUP_LABEL: Record<string, string> = { "ML|บริษัท": "ML บริษัท", "MS|บริษัท": "MS บริษัท", "ML|ร่วม": "ML ร่วม", "MS|ร่วม": "MS ร่วม", "อื่น": "ทะเบียนนอก GPM โม่" }
-const GROUP_ORDER = ["ML|บริษัท", "MS|บริษัท", "ML|ร่วม", "MS|ร่วม", "อื่น"]
+const GROUP_LABEL: Record<string, string> = { "ML|บริษัท": "ML บริษัท", "MS|บริษัท": "MS บริษัท", "ML|ร่วม": "ML ร่วม", "MS|ร่วม": "MS ร่วม",  }
+const GROUP_ORDER = ["ML|บริษัท", "MS|บริษัท", "ML|ร่วม", "MS|ร่วม"]
 const TH_MONTH = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
 
 const fmt = (n: number) => (n < 0 ? "−" : "") + Math.abs(Math.round(n)).toLocaleString("en-US")
 const short = (n: number) => {
   const a = Math.abs(n), s = n < 0 ? "−" : ""
   return a >= 1e6 ? `${s}${(a / 1e6).toFixed(2)}M` : a >= 1e3 ? `${s}${Math.round(a / 1e3)}k` : `${s}${Math.round(a)}`
+}
+/** Plates outside the GPM mixer list (group "อื่น") are not shown anywhere on this page. */
+const dropOutside = (s: Snapshot | null): Snapshot | null => {
+  if (!s) return s
+  const keep = <T extends { group: string }>(a: T[]) => a.filter((x) => x.group !== "อื่น")
+  return { ...s, rows: keep(s.rows), pending_prs: keep(s.pending_prs), dd_open_lines: keep(s.dd_open_lines), by_plate: keep(s.by_plate),
+    owner_switched: s.owner_switched?.map((w) => ({ ...w, changes: w.changes.filter((c) => c.group !== "อื่น") })).filter((w) => w.changes.length > 1) }
+}
+const PAGE = 50
+const glabel = (g: string) => GROUP_LABEL[g] ?? g
+const PR_TEXT = (p: Pending) => `${p.code} ${p.plate} ${glabel(p.group)} ${p.requester} ${p.note}`
+const DD_TEXT = (l: OpenLine) => `${l.plate} ${glabel(l.group)} ${l.item} ${l.dd} ${l.pr}`
+const PLATE_TEXT = (r: PlateRow) => `${r.plate} ${glabel(r.group)}`
+const squash = (v: string) => v.replace(/\s/g, "").toLowerCase()
+/** Search + paging shared by the list tabs. */
+function usePaged<T>(items: T[], text: (x: T) => string) {
+  const [q, setQ] = useState("")
+  const [page, setPage] = useState(0)
+  const hit = useMemo(() => { const k = squash(q); return k ? items.filter((x) => squash(text(x)).includes(k)) : items }, [items, q, text])
+  const pages = Math.max(1, Math.ceil(hit.length / PAGE))
+  const p = Math.min(page, pages - 1)
+  return { q, setQ: (v: string) => { setQ(v); setPage(0) }, hit, rows: hit.slice(p * PAGE, p * PAGE + PAGE), page: p, pages, setPage }
+}
+function SearchBox({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
+  return (
+    <label className="flex w-full max-w-sm items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 dark:border-white/10 dark:bg-[#0d0f18]">
+      <Search size={16} aria-hidden="true" className="text-gray-400" />
+      <span className="sr-only">ค้นหา</span>
+      <input type="search" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className="h-10 flex-1 bg-transparent text-[14px] outline-none dark:text-white" />
+    </label>
+  )
+}
+function Pager({ page, pages, total, setPage }: { page: number; pages: number; total: number; setPage: (n: number) => void }) {
+  if (total <= PAGE) return <p className="text-[13px] text-gray-500 dark:text-gray-400">{total} รายการ</p>
+  const btn = "inline-flex h-9 min-w-9 items-center justify-center rounded-lg border border-gray-200 px-2 text-[13px] disabled:opacity-40 dark:border-white/10"
+  return (
+    <nav aria-label="หน้า" className="flex flex-wrap items-center justify-between gap-2 text-[13px] text-gray-600 dark:text-gray-400">
+      <span>{page * PAGE + 1}–{Math.min(total, (page + 1) * PAGE)} จาก {total}</span>
+      <span className="flex items-center gap-1">
+        <button type="button" className={btn} disabled={page === 0} onClick={() => setPage(page - 1)} aria-label="ก่อนหน้า"><ChevronLeft size={16} /></button>
+        <span className="px-2">หน้า {page + 1} / {pages}</span>
+        <button type="button" className={btn} disabled={page >= pages - 1} onClick={() => setPage(page + 1)} aria-label="ถัดไป"><ChevronRight size={16} /></button>
+      </span>
+    </nav>
+  )
 }
 const ddmm = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`
 const monthLabel = (m: string) => `${TH_MONTH[Number(m.slice(5, 7)) - 1]} ${String(Number(m.slice(0, 4)) + 543).slice(2)}`
@@ -63,7 +108,7 @@ export default function BudgetControlPage() {
         if (!alive) return
         if (!j.success) throw new Error(j.error || "โหลดข้อมูลไม่สำเร็จ")
         setMonths(j.months ?? [])
-        setData(j.data)
+        setData(dropOutside(j.data))
         setState("ok")
       })
       .catch((e: Error) => { if (alive) { setError(e.message); setState("error") } })
@@ -290,7 +335,7 @@ function PivotLine({ label, c, kind, open, onToggle }: { label: string; c: Cell;
 }
 
 function Pivot({ rows }: { rows: Row[] }) {
-  const [closed, setClosed] = useState<Record<string, boolean>>({ "อื่น": true, "ML|ร่วม": true, "MS|ร่วม": true })
+  const [closed, setClosed] = useState<Record<string, boolean>>({ "ML|ร่วม": true, "MS|ร่วม": true })
   const groups = GROUP_ORDER.filter((g) => rows.some((r) => r.group === g))
   const company = groups.filter((g) => g.endsWith("บริษัท"))
   return (
@@ -344,10 +389,14 @@ function PendingTable({ data }: { data: Snapshot }) {
     for (const r of data.rows) m.set(`${r.group}|${r.category}`, r.budget - r.wd - r.dd_open - r.pr_open)
     return m
   }, [data.rows])
+  const pg = usePaged(data.pending_prs, PR_TEXT)
   if (!data.pending_prs.length) return <Empty>ไม่มี PR รออนุมัติ</Empty>
   return (
+    <div className="space-y-3">
+    <SearchBox value={pg.q} onChange={pg.setQ} placeholder="ค้นหา PR ทะเบียน ผู้ขอ หรือหมายเหตุ" />
+    {!pg.hit.length ? <Empty>ไม่พบรายการที่ค้นหา</Empty> : <>
     <TableBox minW={980} head={["PR", "วันที่", "ทะเบียน", "กลุ่ม", "ประเภท", "ยอด", "อนุมัติแล้ว", "คงเหลือกลุ่มนี้ → ถ้าอนุมัติใบนี้"]} alignRightFrom={5}>
-      {data.pending_prs.map((p) => {
+      {pg.rows.map((p) => {
         const before = remain.get(`${p.group}|${p.category}`)
         const company = p.group.endsWith("บริษัท")
         return (
@@ -368,14 +417,21 @@ function PendingTable({ data }: { data: Snapshot }) {
         )
       })}
     </TableBox>
+    <Pager page={pg.page} pages={pg.pages} total={pg.hit.length} setPage={pg.setPage} />
+    </>}
+    </div>
   )
 }
 
 function DdTable({ lines }: { lines: OpenLine[] }) {
+  const pg = usePaged(lines, DD_TEXT)
   if (!lines.length) return <Empty>ไม่มีของค้างเบิก</Empty>
   return (
+    <div className="space-y-3">
+    <SearchBox value={pg.q} onChange={pg.setQ} placeholder="ค้นหาทะเบียน รายการ DD หรือ PR" />
+    {!pg.hit.length ? <Empty>ไม่พบรายการที่ค้นหา</Empty> : <>
     <TableBox minW={1040} head={["ทะเบียน", "กลุ่ม", "รายการ", "DD", "PR", "รับเมื่อ", "รับ", "ค้างเบิก", "ยอดค้าง"]} alignRightFrom={6}>
-      {lines.map((l, i) => (
+      {pg.rows.map((l, i) => (
         <tr key={`${l.dd}-${i}`} className="border-t border-gray-100 hover:bg-gray-50 dark:border-white/5 dark:hover:bg-white/5">
           <td className="px-3.5 py-2 font-medium">{l.plate}</td>
           <td className="px-3.5 py-2">{GROUP_LABEL[l.group] ?? l.group}</td>
@@ -389,21 +445,20 @@ function DdTable({ lines }: { lines: OpenLine[] }) {
         </tr>
       ))}
     </TableBox>
+    <Pager page={pg.page} pages={pg.pages} total={pg.hit.length} setPage={pg.setPage} />
+    </>}
+    </div>
   )
 }
 
 function PlateTable({ rows, switched }: { rows: PlateRow[]; switched: Switched[] }) {
-  const [q, setQ] = useState("")
-  const shown = rows.filter((r) => !q || r.plate.replace(/\s/g, "").includes(q.replace(/\s/g, "")))
+  const pg = usePaged(rows, PLATE_TEXT)
   return (
     <div className="space-y-3">
-      <label className="flex max-w-xs items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 dark:border-white/10 dark:bg-[#0d0f18]">
-        <span className="sr-only">ค้นหาทะเบียน</span>
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="ค้นหาทะเบียน เช่น 71-3911" className="h-10 flex-1 bg-transparent text-[14px] outline-none dark:text-white" />
-      </label>
-      {!shown.length ? <Empty>ไม่พบทะเบียนนี้</Empty> : (
+      <SearchBox value={pg.q} onChange={pg.setQ} placeholder="ค้นหาทะเบียน เช่น 71-3911 หรือกลุ่ม ML" />
+      {!pg.hit.length ? <Empty>ไม่พบทะเบียนนี้</Empty> : (<>
         <TableBox minW={820} head={["ทะเบียน", "กลุ่ม", "ตัดจ่ายแล้ว", "รับของแล้วรอเบิก", "PR อนุมัติ", "รวมใช้ไป", "PR รออนุมัติ"]} alignRightFrom={2}>
-          {shown.slice(0, 300).map((r) => (
+          {pg.rows.map((r) => (
             <tr key={r.plate} className="border-t border-gray-100 hover:bg-gray-50 dark:border-white/5 dark:hover:bg-white/5">
               <td className="px-3.5 py-2 font-medium">{r.plate}</td>
               <td className="px-3.5 py-2">{GROUP_LABEL[r.group] ?? r.group}</td>
@@ -415,7 +470,8 @@ function PlateTable({ rows, switched }: { rows: PlateRow[]; switched: Switched[]
             </tr>
           ))}
         </TableBox>
-      )}
+        <Pager page={pg.page} pages={pg.pages} total={pg.hit.length} setPage={pg.setPage} />
+      </>)}
       {switched.length > 0 && (
         <details className="rounded-xl border border-gray-200 bg-white p-3.5 text-[14px] dark:border-white/8 dark:bg-[#0d0f18]">
           <summary className="cursor-pointer font-semibold text-gray-800 dark:text-gray-200">รถที่เปลี่ยนบริษัท/ร่วมกลางเดือน · {switched.length} คัน</summary>
