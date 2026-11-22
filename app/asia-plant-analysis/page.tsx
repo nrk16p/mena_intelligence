@@ -322,6 +322,10 @@ export default function AsiaPlantAnalysisPage() {
       <div>
         <h1 className="text-xl font-bold text-gray-900 dark:text-white">Asia Plant Analysis</h1>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">วิเคราะห์ประสิทธิภาพการวิ่งรายแพล้นท์ · Jan-May 2026</p>
+        <p role="note" className="mt-3 inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-[13px] text-amber-900 dark:border-amber-800/50 dark:bg-amber-950/40 dark:text-amber-200">
+          <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full bg-amber-600" />
+          ข้อมูลชุดคงที่ ม.ค.–พ.ค. 2569 ไม่อัปเดตอัตโนมัติ
+        </p>
       </div>
 
       {/* Tabs */}

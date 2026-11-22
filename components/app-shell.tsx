@@ -2,9 +2,11 @@
 
 import { usePathname } from "next/navigation"
 import { useState, useEffect } from "react"
-import { Menu } from "lucide-react"
+import { Menu, Search } from "lucide-react"
 import { Sidebar } from "./sidebar"
 import { AiChatWidget } from "./ai-chat-widget"
+import { CommandPalette } from "./command-palette"
+import { openPalette } from "./nav-prefs"
 
 export function AppShell({
   children,
@@ -51,15 +53,25 @@ export function AppShell({
           <div className="flex items-center gap-3 mb-4">
             <button
               onClick={() => setSidebarOpen(true)}
+              aria-label="เปิดเมนู"
               className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 dark:border-white/10 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/8 transition-colors"
             >
               <Menu size={16} />
             </button>
-            <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">Mena Intel</span>
+            <span className="flex-1 text-sm font-semibold text-gray-700 dark:text-gray-300">Mena Intel</span>
+            <button
+              type="button"
+              onClick={openPalette}
+              aria-label="ค้นหาหน้า"
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 dark:border-white/10 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/8 transition-colors"
+            >
+              <Search size={16} />
+            </button>
           </div>
         )}
         {children}
       </main>
+      <CommandPalette allowedGroups={allowedGroups} />
       <AiChatWidget />
     </>
   )

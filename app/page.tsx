@@ -6,11 +6,9 @@ import HomeClient from "@/components/home-client"
 
 export default async function HomePage() {
   const session = await getServerSession(authOptions)
-  if (session?.user?.email) {
-    const { isAdmin, allowedGroups } = await getUserPermissions(session.user.email)
-    if (!isAdmin && allowedGroups.length === 0) {
-      redirect("/pending-access")
-    }
+  const { isAdmin, allowedGroups } = await getUserPermissions(session?.user?.email)
+  if (session?.user?.email && !isAdmin && allowedGroups.length === 0) {
+    redirect("/pending-access")
   }
-  return <HomeClient />
+  return <HomeClient allowedGroups={allowedGroups} />
 }

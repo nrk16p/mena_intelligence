@@ -1,19 +1,12 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useSession } from "next-auth/react"
-import {
-  BarChart3,
-  Calculator,
-  Fuel,
-  Truck,
-  Trophy,
-  PackageSearch,
-  ClipboardList,
-  ArrowUpRight,
-  Wrench,
-} from "lucide-react"
+import { ArrowUpRight, Pin, Search } from "lucide-react"
+import { TypeTag } from "./type-tag"
+import { openPalette, usePins } from "./nav-prefs"
+import { ALL_PAGES, PAGE_TYPES, visibleSections, type NavPage } from "@/lib/nav"
 
 // ── Weather ────────────────────────────────────────────────────
 type Weather = { temp: number; code: number; humidity: number; wind: number }
@@ -97,243 +90,96 @@ function TopBar() {
   )
 }
 
-// ── Module definitions ─────────────────────────────────────────
-type Mod = {
-  href: string
-  label: string
-  description: string
-  icon: React.ElementType
-  status: "active" | "soon"
-}
+// ── Pages this user may open, by department ───────────────────
 
-type Group = {
-  key: string
-  label: string
-  color: string        // Tailwind color name for accent
-  borderColor: string
-  iconBg: string
-  iconColor: string
-  tagBg: string
-  mods: Mod[]
-}
-
-const GROUPS: Group[] = [
-  {
-    key: "vehicle",
-    label: "Vehicle",
-    color: "blue",
-    borderColor: "border-blue-500",
-    iconBg: "bg-blue-50 dark:bg-blue-950/50",
-    iconColor: "text-blue-600 dark:text-blue-400",
-    tagBg: "bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400",
-    mods: [
-      { href: "/truck-distance", label: "Truck Distance", description: "Distance trends per truck, utilization & performance.", icon: Truck, status: "active" },
-    ],
-  },
-  {
-    key: "fuel",
-    label: "Fuel",
-    color: "orange",
-    borderColor: "border-orange-500",
-    iconBg: "bg-orange-50 dark:bg-orange-950/50",
-    iconColor: "text-orange-600 dark:text-orange-400",
-    tagBg: "bg-orange-50 text-orange-600 dark:bg-orange-950/50 dark:text-orange-400",
-    mods: [
-      { href: "/fuel", label: "Fuel Management", description: "Track consumption, cost, and efficiency across the fleet.", icon: Fuel, status: "active" },
-    ],
-  },
-  {
-    key: "ops",
-    label: "Ops",
-    color: "emerald",
-    borderColor: "border-emerald-500",
-    iconBg: "bg-emerald-50 dark:bg-emerald-950/50",
-    iconColor: "text-emerald-600 dark:text-emerald-400",
-    tagBg: "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400",
-    mods: [
-      { href: "/repair-cost", label: "Repair Cost", description: "Allocate repair expenses with fleet balancing logic.", icon: Calculator, status: "active" },
-    ],
-  },
-  {
-    key: "mixer",
-    label: "Mixer",
-    color: "amber",
-    borderColor: "border-amber-500",
-    iconBg: "bg-amber-50 dark:bg-amber-950/50",
-    iconColor: "text-amber-600 dark:text-amber-400",
-    tagBg: "bg-amber-50 text-amber-600 dark:bg-amber-950/50 dark:text-amber-400",
-    mods: [
-      { href: "/asia-incentive", label: "Asia Incentive", description: "Driver incentives — trips, working days & cubic meters.", icon: Trophy, status: "active" },
-    ],
-  },
-  {
-    key: "procurement",
-    label: "Procurement",
-    color: "violet",
-    borderColor: "border-violet-500",
-    iconBg: "bg-violet-50 dark:bg-violet-950/50",
-    iconColor: "text-violet-600 dark:text-violet-400",
-    tagBg: "bg-violet-50 text-violet-600 dark:bg-violet-950/50 dark:text-violet-400",
-    mods: [
-      { href: "/stock-budget-ladkrabang", label: "Stock Budget", description: "Budget vs actual cost for Ladkrabang warehouse.", icon: PackageSearch, status: "active" },
-      { href: "/stock-result-summary", label: "Stock Summary", description: "Variance reporting and cost breakdowns.", icon: ClipboardList, status: "active" },
-      { href: "#", label: "Fleet Analytics", description: "Cost-per-km, anomaly detection & optimization.", icon: BarChart3, status: "soon" },
-    ],
-  },
-  {
-    key: "maintenance",
-    label: "Maintenance",
-    color: "rose",
-    borderColor: "border-rose-500",
-    iconBg: "bg-rose-50 dark:bg-rose-950/50",
-    iconColor: "text-rose-600 dark:text-rose-400",
-    tagBg: "bg-rose-50 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400",
-    mods: [
-      { href: "/repair-daily", label: "Repair Daily Log", description: "Daily maintenance records for VS and Garage teams.", icon: Wrench, status: "active" },
-    ],
-  },
-]
-
-// ── Module card ────────────────────────────────────────────────
-function ModCard({ mod, group }: { mod: Mod; group: Group }) {
-  const Icon = mod.icon
-  const isSoon = mod.status === "soon"
-
-  const inner = (
-    <div className={`
-      group relative flex flex-col h-full rounded-2xl border bg-white dark:bg-[#13151f]
-      overflow-hidden transition-all duration-200
-      ${isSoon
-        ? "border-gray-100 dark:border-white/5 opacity-50 cursor-default"
-        : `border-gray-200 dark:border-white/8 hover:border-gray-300 dark:hover:border-white/16
-           hover:shadow-xl hover:shadow-gray-200/60 dark:hover:shadow-black/40 hover:-translate-y-1 cursor-pointer`
-      }
-    `}>
-      {/* Color accent top bar */}
-      <div className={`h-0.5 w-full bg-gradient-to-r ${
-        group.color === "blue"    ? "from-blue-400 to-blue-600" :
-        group.color === "orange"  ? "from-orange-400 to-orange-600" :
-        group.color === "emerald" ? "from-emerald-400 to-emerald-600" :
-        group.color === "amber"   ? "from-amber-400 to-amber-600" :
-        group.color === "violet"  ? "from-violet-400 to-violet-600" :
-        group.color === "rose"    ? "from-rose-400 to-rose-600" :
-        "from-gray-300 to-gray-400"
-      }`} />
-
-      <div className="flex flex-col flex-1 p-5">
-        {/* Icon + status */}
-        <div className="flex items-start justify-between mb-4">
-          <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${group.iconBg}`}>
-            <Icon size={18} className={group.iconColor} />
-          </div>
-          {isSoon ? (
-            <span className="rounded-full bg-gray-100 dark:bg-white/6 px-2.5 py-0.5 text-[10px] font-medium text-gray-400">
-              Soon
-            </span>
-          ) : (
-            <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-medium ${group.tagBg}`}>
-              {group.label}
-            </span>
-          )}
-        </div>
-
-        <h3 className="text-[14px] font-semibold text-gray-900 dark:text-white mb-1.5 leading-snug">
-          {mod.label}
-        </h3>
-        <p className="text-[12px] text-gray-500 dark:text-gray-400 leading-relaxed flex-1">
-          {mod.description}
-        </p>
-
-        {!isSoon && (
-          <div className="mt-4 flex items-center justify-between">
-            <div className="flex items-center gap-1.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-[11px] text-gray-400 dark:text-gray-500">Live</span>
-            </div>
-            <span className="flex items-center gap-0.5 text-[12px] font-medium text-gray-300 dark:text-gray-600 group-hover:text-gray-800 dark:group-hover:text-white transition-colors">
-              Open <ArrowUpRight size={12} className="transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-            </span>
-          </div>
-        )}
-      </div>
+function PageCard({ page, pinned, onTogglePin }: { page: NavPage; pinned: boolean; onTogglePin: (h: string) => void }) {
+  const Icon = page.icon
+  return (
+    <div className="group relative">
+      <Link
+        href={page.href}
+        className="flex h-full min-h-[64px] items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 pr-11
+          transition-colors hover:border-emerald-300 dark:border-white/8 dark:bg-[#0d0f18] dark:hover:border-emerald-700"
+      >
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gray-50 text-gray-500 dark:bg-white/5 dark:text-gray-400">
+          <Icon size={16} aria-hidden="true" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[14px] font-semibold leading-snug text-gray-900 dark:text-white">{page.label}</span>
+          <TypeTag type={page.type} className="mt-1" />
+        </span>
+        <ArrowUpRight size={14} aria-hidden="true" className="shrink-0 text-gray-300 transition-colors group-hover:text-gray-700 dark:text-gray-600 dark:group-hover:text-white" />
+      </Link>
+      <button
+        type="button"
+        onClick={() => onTogglePin(page.href)}
+        aria-label={pinned ? `เลิกปักหมุด ${page.label}` : `ปักหมุด ${page.label}`}
+        title={pinned ? "เลิกปักหมุด" : "ปักหมุดไว้บนเมนู"}
+        className={`absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-md transition-opacity
+          hover:bg-gray-100 dark:hover:bg-white/10 focus-visible:opacity-100
+          ${pinned ? "text-emerald-600 opacity-100 dark:text-emerald-400" : "text-gray-400 opacity-0 group-hover:opacity-100"}`}
+      >
+        <Pin size={13} />
+      </button>
     </div>
   )
-
-  return isSoon ? <div>{inner}</div> : <Link href={mod.href} className="flex">{inner}</Link>
 }
 
 // ── Page ───────────────────────────────────────────────────────
-export default function HomeClient() {
-  return (
-    <div className="max-w-5xl mx-auto pb-20 space-y-10">
+export default function HomeClient({ allowedGroups }: { allowedGroups: string[] }) {
+  const sections = useMemo(() => visibleSections(allowedGroups), [allowedGroups])
+  const { pins, toggle, isPinned } = usePins()
+  const allowed = new Set(sections.flatMap((s) => s.pages.map((p) => p.href)))
+  const pinned = pins.map((h) => ALL_PAGES.find((p) => p.href === h)).filter((p): p is NavPage => !!p && allowed.has(p.href))
+  const total = allowed.size
 
-      {/* Top bar */}
+  return (
+    <div className="mx-auto max-w-6xl space-y-8 pb-20">
       <TopBar />
 
-      {/* Hero */}
-      <div className="relative rounded-3xl overflow-hidden border border-gray-200 dark:border-white/8 bg-white dark:bg-[#0d0f18] px-8 py-10">
-        {/* Decorative gradient blob */}
-        <div className="pointer-events-none absolute -top-20 -right-20 h-72 w-72 rounded-full bg-emerald-400/10 dark:bg-emerald-500/8 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-16 -left-16 h-56 w-56 rounded-full bg-blue-400/8 dark:bg-blue-500/6 blur-3xl" />
+      <button
+        type="button"
+        onClick={openPalette}
+        className="flex min-h-[48px] w-full items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 text-left text-[14px] text-gray-500
+          hover:border-gray-300 dark:border-white/10 dark:bg-[#0d0f18] dark:text-gray-400"
+      >
+        <Search size={16} aria-hidden="true" />
+        <span className="flex-1">ค้นหาหน้า · {total} หน้าที่คุณเข้าได้</span>
+        <kbd className="rounded border border-gray-200 px-1.5 text-[12px] dark:border-white/10">⌘K</kbd>
+      </button>
 
-        <div className="relative">
-          <div className="inline-flex items-center gap-2 rounded-full border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-white/4 px-3.5 py-1.5 mb-5">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400 tracking-wide">
-              Internal Platform · Mena Transport
-            </span>
+      {pinned.length > 0 && (
+        <section aria-labelledby="pinned-h" className="space-y-3">
+          <h2 id="pinned-h" className="text-[15px] font-semibold text-gray-900 dark:text-white">ปักหมุด</h2>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {pinned.map((p) => <PageCard key={p.href} page={p} pinned onTogglePin={toggle} />)}
           </div>
+        </section>
+      )}
 
-          <h1 className="text-5xl font-bold tracking-tight leading-[1.1] text-gray-950 dark:text-white mb-4">
-            Operational
-            <br />
-            <span className="bg-gradient-to-r from-emerald-500 to-emerald-400 bg-clip-text text-transparent">
-              Intelligence
-            </span>
-          </h1>
+      {sections.length === 0 && (
+        <p className="rounded-xl border border-dashed border-gray-300 p-6 text-[14px] text-gray-600 dark:border-white/15 dark:text-gray-400">
+          ยังไม่มีหน้าที่คุณเข้าได้ แจ้งผู้ดูแลระบบให้เพิ่มสิทธิ์
+        </p>
+      )}
 
-          <p className="text-[15px] text-gray-500 dark:text-gray-400 max-w-md leading-relaxed mb-8">
-            Fleet analytics, driver incentives, procurement, and maintenance — unified for Mena Transport operations.
-          </p>
-
-          {/* Stats */}
-          <div className="flex flex-wrap gap-3">
-            {[
-              { label: "Modules", value: "6" },
-              { label: "Stock Records", value: "435K+" },
-              { label: "Data", value: "Live" },
-            ].map(s => (
-              <div key={s.label} className="flex items-baseline gap-2 rounded-xl border border-gray-100 dark:border-white/8 bg-gray-50 dark:bg-white/3 px-4 py-2">
-                <span className="text-[15px] font-bold text-gray-900 dark:text-white">{s.value}</span>
-                <span className="text-[12px] text-gray-400 dark:text-gray-500">{s.label}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Module groups */}
-      <div className="space-y-8">
-        {GROUPS.map(group => (
-          <section key={group.key}>
-            {/* Group header */}
-            <div className="flex items-center gap-3 mb-4">
-              <div className={`h-3 w-3 rounded-full border-2 ${group.borderColor}`} />
-              <span className="text-[11px] font-bold uppercase tracking-widest text-gray-400 dark:text-gray-500">
-                {group.label}
-              </span>
-              <div className="flex-1 h-px bg-gray-100 dark:bg-white/6" />
+      {sections.map((s) => {
+        const Icon = s.icon
+        const ordered = PAGE_TYPES.flatMap((t) => s.pages.filter((p) => p.type === t))
+        return (
+          <section key={s.key} aria-labelledby={`sec-${s.key}`} className="space-y-3">
+            <div className="flex items-center gap-2.5">
+              <Icon size={16} aria-hidden="true" className="text-gray-500 dark:text-gray-400" />
+              <h2 id={`sec-${s.key}`} className="text-[15px] font-semibold text-gray-900 dark:text-white">{s.label}</h2>
+              <span className="text-[13px] text-gray-500 dark:text-gray-400">{s.pages.length} หน้า</span>
+              <div className="h-px flex-1 bg-gray-200 dark:bg-white/8" />
             </div>
-
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {group.mods.map(mod => (
-                <ModCard key={mod.href} mod={mod} group={group} />
-              ))}
+              {ordered.map((p) => <PageCard key={p.href} page={p} pinned={isPinned(p.href)} onTogglePin={toggle} />)}
             </div>
           </section>
-        ))}
-      </div>
-
+        )
+      })}
     </div>
   )
 }
