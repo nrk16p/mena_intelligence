@@ -6,7 +6,7 @@ import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, X
 
 // ── Doc shape (written by mena-backend-services job `budget-age-split`) ──
 type AgeSplitRow = {
-  fleet: "ML" | "MS"; customer: string; age_band: string
+  fleet: string; customer: string; age_band: string
   cost_3y: number; truck_months: number; share: number
   budget_year: number; budget_ytd: number; actual_ytd: number; ratio: number | null; per_truck_year: number
 }
@@ -20,7 +20,14 @@ type AgeSplitDoc = {
   missing_checked_at?: string
 }
 
-const FLEETS = ["ML", "MS"] as const
+const FLEETS = ["ML", "MS", "TR-SCCC", "TR-SC", "TR-FEED", "BOX-9.5", "BOX-7.5"]
+const MIXERS = ["ML", "MS"]
+// สสบ groups follow the budget accounts 624101 / 624110 / 624114 / 624112 / 624113; they have no customer level
+const FLEET_LABEL: Record<string, string> = {
+  ML: "ML บริษัท", MS: "MS บริษัท",
+  "TR-SCCC": "Trailer SCCC ปูนผง", "TR-SC": "Trailer Side curtain", "TR-FEED": "Trailer อาหารสัตว์ BTG/TFG",
+  "BOX-9.5": "รถตู้เย็น 9.5 ม.", "BOX-7.5": "รถตู้เย็น 7.5 ม.",
+}
 const CUSTOMERS = ["Scco", "Cpac", "Asia", "อื่น", "ไม่ระบุ"]
 const BANDS = ["0–5", "6–10", "11–15", "16+"]
 const TH_MONTH = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
@@ -115,14 +122,15 @@ function MissingAge({ doc, hasRows }: { doc: AgeSplitDoc; hasRows: boolean }) {
 }
 
 function SourceLine({ doc, rows }: { doc: AgeSplitDoc; rows: AgeSplitRow[] }) {
-  const total = rows.reduce((a, r) => a + r.cost_3y, 0)
-  const known = rows.filter((r) => r.customer !== "ไม่ระบุ").reduce((a, r) => a + r.cost_3y, 0)
+  const mixer = rows.filter((r) => MIXERS.includes(r.fleet))
+  const total = mixer.reduce((a, r) => a + r.cost_3y, 0)
+  const known = mixer.filter((r) => r.customer !== "ไม่ระบุ").reduce((a, r) => a + r.cost_3y, 0)
   const src = Object.entries(doc.age_source ?? {}).filter(([, n]) => n > 0)
   const nSrc = src.reduce((a, [, n]) => a + n, 0)
   return (
     <p className="text-[13px] text-gray-600 dark:text-gray-400">
       ค่าซ่อม/อะไหล่ รถบริษัท{doc.window ? ` ย้อน 3 ปี ${monthLabel(doc.window.from)} – ${monthLabel(doc.window.to)}` : ""}
-      {" · "}จับคู่ลูกค้าได้ {total ? pct(known / total) : "—"}
+      {" · "}โม่จับคู่ลูกค้าได้ {total ? pct(known / total) : "—"}
       {src.length > 0 && <> · อายุรถจาก {src.map(([k, n]) => `${AGE_SOURCE[k] ?? k} ${Math.round((n / nSrc) * 100)}%`).join(", ")}</>}
       {" · "}ตัดถึง {dayLabel(doc.cut)}
     </p>
@@ -187,8 +195,12 @@ function AgePivot({ rows, cut }: { rows: AgeSplitRow[]; cut: string }) {
             const fOpen = !closed[f]
             return (
               <Rows key={f}>
-                <Line_ label={`${f} บริษัท`} s={sum(fr)} kind="fleet" open={fOpen} onToggle={() => toggle(f)} />
-                {fOpen && CUSTOMERS.filter((c) => fr.some((r) => r.customer === c)).map((c) => {
+                <Line_ label={FLEET_LABEL[f] ?? f} s={sum(fr)} kind="fleet" open={fOpen} onToggle={() => toggle(f)} />
+                {fOpen && !MIXERS.includes(f) && BANDS.map((b) => {
+                  const br = fr.filter((r) => r.age_band === b)
+                  return br.length ? <Line_ key={b} label={`${b} ปี`} s={sum(br)} kind="customer" /> : null
+                })}
+                {fOpen && MIXERS.includes(f) && CUSTOMERS.filter((c) => fr.some((r) => r.customer === c)).map((c) => {
                   const cr = fr.filter((r) => r.customer === c)
                   const key = `${f}|${c}`
                   const cOpen = !closed[key]
@@ -217,9 +229,10 @@ function Rows({ children }: { children: React.ReactNode }) {
 function PerTruckChart({ rows }: { rows: AgeSplitRow[] }) {
   const data = BANDS.map((b) => {
     const p: Record<string, string | number | null> = { band: `${b} ปี` }
-    for (const f of FLEETS) {
-      const s = sum(rows.filter((r) => r.fleet === f && r.age_band === b))
-      p[f] = s.tm > 0 ? Math.round((s.cost / s.tm) * 12) : null
+    const lines: [string, (f: string) => boolean][] = [["ML", (f) => f === "ML"], ["MS", (f) => f === "MS"], ["Trailer", (f) => f.startsWith("TR-")], ["ตู้เย็น", (f) => f.startsWith("BOX-")]]
+    for (const [key, on] of lines) {
+      const s = sum(rows.filter((r) => on(r.fleet) && r.age_band === b))
+      p[key] = s.tm > 0 ? Math.round((s.cost / s.tm) * 12) : null
     }
     return p
   })
@@ -237,6 +250,8 @@ function PerTruckChart({ rows }: { rows: AgeSplitRow[] }) {
             <Legend wrapperStyle={{ fontSize: 12 }} />
             <Line type="monotone" dataKey="ML" stroke="#10B981" strokeWidth={2} dot={{ r: 3 }} connectNulls />
             <Line type="monotone" dataKey="MS" stroke="#3B82F6" strokeWidth={2} dot={{ r: 3 }} connectNulls />
+            {rows.some((r) => r.fleet.startsWith("TR-")) && <Line type="monotone" dataKey="Trailer" stroke="#F59E0B" strokeWidth={2} dot={{ r: 3 }} connectNulls />}
+            {rows.some((r) => r.fleet.startsWith("BOX-")) && <Line type="monotone" dataKey="ตู้เย็น" stroke="#A78BFA" strokeWidth={2} dot={{ r: 3 }} connectNulls />}
           </LineChart>
         </ResponsiveContainer>
       </div>
