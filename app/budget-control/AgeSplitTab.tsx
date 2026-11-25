@@ -18,6 +18,7 @@ type AgeSplitDoc = {
   age_source?: Record<string, number>
   missing_age?: { plate: string; cost: number }[]
   missing_checked_at?: string
+  data_gaps?: { month: string; wd: boolean; ops: boolean }[]
 }
 
 const FLEETS = ["ML", "MS", "TR-SCCC", "TR-SC", "TR-FEED", "BOX-9.5", "BOX-7.5"]
@@ -93,6 +94,7 @@ export default function AgeSplitTab() {
   return (
     <div className="space-y-4">
       {!!doc.missing_age?.length && <MissingAge doc={doc} hasRows={rows.length > 0} />}
+      {!!doc.data_gaps?.length && <DataGaps gaps={doc.data_gaps} />}
       {rows.length > 0 && (
         <>
           <SourceLine doc={doc} rows={rows} />
@@ -101,6 +103,19 @@ export default function AgeSplitTab() {
         </>
       )}
     </div>
+  )
+}
+
+function DataGaps({ gaps }: { gaps: NonNullable<AgeSplitDoc["data_gaps"]> }) {
+  const what = (g: (typeof gaps)[number]) => (!g.wd && !g.ops ? "ไม่มีใบเบิกและรายงานรถ" : !g.wd ? "ไม่มีใบเบิก" : "ไม่มีรายงานรถ")
+  return (
+    <section role="note" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-[14px] text-amber-900 dark:border-amber-800/50 dark:bg-amber-950/40 dark:text-amber-200">
+      <p className="font-semibold">มี {gaps.length} เดือนที่ข้อมูลไม่ครบ สัดส่วนและยอดใช้จริงของเดือนเหล่านี้อาจต่ำกว่าจริง</p>
+      <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[13px]">
+        {gaps.slice(0, 24).map((g) => <li key={g.month}>{monthLabel(g.month)} · {what(g)}</li>)}
+        {gaps.length > 24 && <li>และอีก {gaps.length - 24} เดือน</li>}
+      </ul>
+    </section>
   )
 }
 
