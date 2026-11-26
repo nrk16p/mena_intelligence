@@ -11,8 +11,8 @@
    "id": "ML",
    "label": "ML · Mixer 10 ล้อ",
    "branch": "ศลบ",
-   "trucks": 308,
-   "trend_priced": 3,
+   "trucks": 305,
+   "trend_priced": 0,
    "repair": [
     2531964.82,
     2800001.52,
@@ -58,23 +58,23 @@
    "bands": [
     {
      "band": "0–5",
-     "trucks": 86,
-     "share": 0.1015
+     "trucks": 83,
+     "share": 0.098058
     },
     {
      "band": "6–10",
      "trucks": 73,
-     "share": 0.225351
+     "share": 0.226214
     },
     {
      "band": "11–15",
      "trucks": 127,
-     "share": 0.578638
+     "share": 0.580854
     },
     {
      "band": "16+",
      "trucks": 22,
-     "share": 0.094512
+     "share": 0.094874
     }
    ],
    "fleets": [
@@ -82,43 +82,43 @@
      "fleet": "Scco ML",
      "trucks": 84,
      "avg_age": 12.3,
-     "repair_share": 0.347608
+     "repair_share": 0.34894
     },
     {
      "fleet": "Asia",
      "trucks": 118,
      "avg_age": 7.7,
-     "repair_share": 0.313678
+     "repair_share": 0.314879
     },
     {
      "fleet": "Cpac ML",
      "trucks": 57,
      "avg_age": 7.4,
-     "repair_share": 0.160187
+     "repair_share": 0.160801
     },
     {
      "fleet": "Fast",
      "trucks": 23,
      "avg_age": 9.7,
-     "repair_share": 0.090022
+     "repair_share": 0.090367
     },
     {
      "fleet": "UMO",
      "trucks": 14,
      "avg_age": 9.2,
-     "repair_share": 0.046021
+     "repair_share": 0.046198
     },
     {
      "fleet": "Kpac ML",
      "trucks": 6,
      "avg_age": 16.8,
-     "repair_share": 0.025663
+     "repair_share": 0.025761
     },
     {
      "fleet": "อื่น ๆ",
-     "trucks": 6,
-     "avg_age": 8.7,
-     "repair_share": 0.016821
+     "trucks": 3,
+     "avg_age": 17.0,
+     "repair_share": 0.013054
     }
    ]
   },

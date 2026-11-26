@@ -13,7 +13,7 @@ Inputs are files, nothing here touches a database:
 
   python3 scripts/budget-fleet-snapshot.py tyc.json vm.json "KPI 2026 - ฝ่ายยานยนต์ สระบุรี_ลาดกระบัง .xlsx" 2026-11-25
 """
-import collections, json, sys
+import collections, json, re, sys
 import pandas as pd
 
 YEAR = 2026
@@ -40,7 +40,14 @@ def cost(t, y):
 # ── company trucks → budget group + fleet ──
 SKIP = {'รถขาย', 'รถว่าง', 'nan', 'None', ''}
 OTHER_ML = {'ที.เอ็น.ซีเมนต์บล็อค', 'Acon', 'มหาทรัพย์ซีเมนต์', 'จิรโชติ', 'RP'}
+# ATMS placeholders (JRC001-01-01, RP001-01-01, TPI.00-0000, สบ.00-0000 …) are not trucks.
+# A '(2)' suffix is another ATMS record of the same plate and still passes here.
+def is_real_plate(p):
+    s = re.sub(r'\s', '', str(p or ''))
+    return bool(re.fullmatch(r'[ก-ฮ]{1,3}\.\d{2}-\d{4}(\(\d+\))?', s)) and '.00-' not in s
+
 def group_of(v):
+    if not is_real_plate(v.get('ทะเบียน')): return None
     if v.get('ประเภทรถร่วม') != 'รถมีนา' or str(v.get('ฟลีท')) in SKIP or not v.get('ปี'): return None
     t, f, s = v.get('ประเภทยานพาหนะ') or '', v.get('ฟลีท'), v.get('สาขา')
     if t not in fit: return None
