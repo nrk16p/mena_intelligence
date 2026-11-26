@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useEffect, useMemo, useState } from "react"
 import { ChevronLeft, ChevronRight, Info, RefreshCw, Search } from "lucide-react"
 import AgeSplitTab from "./AgeSplitTab"
+import FleetBudgetTab from "./FleetBudgetTab"
 
 // ── Snapshot shape (written by mena-backend-services job `budget-control`) ──
 type Category = "ซ่อม" | "PM" | "ยาง"
@@ -97,7 +98,7 @@ export default function BudgetControlPage() {
   const [data, setData] = useState<Snapshot | null>(null)
   const [state, setState] = useState<"loading" | "ok" | "error">("loading")
   const [error, setError] = useState("")
-  const [tab, setTab] = useState<"pivot" | "pending" | "dd" | "plate" | "age">("pivot")
+  const [tab, setTab] = useState<"pivot" | "pending" | "dd" | "plate" | "age" | "fleet">("pivot")
   const [srcOpen, setSrcOpen] = useState(false)
   const [reload, setReload] = useState(0)
 
@@ -178,6 +179,7 @@ export default function BudgetControlPage() {
               ["dd", `รับของแล้วรอเบิก · ${data.dd_open_lines.length}`],
               ["plate", "รายคัน"],
               ["age", "ปันตามอายุรถ"],
+              ["fleet", "งบรายฟลีท"],
             ] as const).map(([k, label]) => (
               <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)}
                 className={`min-h-[36px] rounded-lg px-3.5 text-[13px] ${tab === k ? "bg-white font-semibold text-emerald-800 ring-1 ring-emerald-200 dark:bg-[#14161f] dark:text-emerald-300 dark:ring-emerald-800/50" : "text-gray-600 dark:text-gray-400"}`}>
@@ -190,6 +192,7 @@ export default function BudgetControlPage() {
           {tab === "dd" && <DdTable lines={data.dd_open_lines} />}
           {tab === "plate" && <PlateTable rows={data.by_plate} switched={data.owner_switched ?? []} />}
           {tab === "age" && <AgeSplitTab />}
+          {tab === "fleet" && <FleetBudgetTab />}
         </>
       )}
     </div>
