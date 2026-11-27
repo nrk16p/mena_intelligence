@@ -40,6 +40,13 @@ describe("parsePrItems", () => {
   it("reads group and line total, skips grand total", () => {
     expect(parsePrItems(viewPage)).toEqual([{ group: "ระบบเกียร์", total: 40_000 }, { group: "ยางรถยนต์", total: 5_000 }])
   })
+  it("keeps a line with a blank group (counted as ซ่อม later, like the job)", () => {
+    const html = viewPage.replace("<td>ยางรถยนต์</td>", "<td></td>")
+    expect(parsePrItems(html)?.[1]).toEqual({ group: null, total: 5_000 })
+  })
+  it("null when the page has no item table, so a layout change is not read as 'no items'", () => {
+    expect(parsePrItems("<html><table><tr><th>x</th></tr></table></html>")).toBeNull()
+  })
 })
 
 describe("guards", () => {
@@ -111,6 +118,22 @@ describe("readPr with a fake ATMS", () => {
     delete process.env.ATMS_USERNAME
     const { f } = fake(() => res(""))
     await expect(readPr("TSPR26110001", f)).rejects.toMatchObject({ kind: "not_configured" })
+  })
+
+  it("a PR whose view page lost its item table is an error, not a guess", async () => {
+    const { f } = fake((url) => (url.includes("index?") ? res(listPage([ROW])) : url.endsWith("/view/id/12345") ? res("<html>changed</html>") : res("<html>ok</html>", 200, { "set-cookie": "PHPSESSID=abc" })))
+    await expect(readPr("TSPR26110001", f)).rejects.toMatchObject({ kind: "unavailable" })
+  })
+
+  it("remembers a refused login for a minute instead of retrying on every click", async () => {
+    let posts = 0
+    const { f } = fake((url, init) => {
+      if (init.method === "POST") posts++
+      return url.endsWith("/inv/purchase.request/index") ? res(loginPage) : res("", 200, { "set-cookie": "PHPSESSID=x" })
+    })
+    await expect(readPr("TSPR26110001", f)).rejects.toMatchObject({ kind: "login_failed" })
+    await expect(readPr("TSPR26110001", f)).rejects.toMatchObject({ kind: "login_failed" })
+    expect(posts).toBe(1)
   })
 
   it("says login failed when ATMS keeps showing the login page", async () => {

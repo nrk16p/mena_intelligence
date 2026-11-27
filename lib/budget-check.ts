@@ -101,6 +101,7 @@ export function checkPr(pr: PrDoc, snap: Snapshot | null, plateMap: PlateMapEntr
     const c = itemCategory(i.group)
     split.set(c, (split.get(c) ?? 0) + i.total)
   }
+  for (const [k, v] of split) split.set(k, Math.round(v))
   if (![...split.values()].some((v) => v > 0)) return notice("not_budget", "PR ใบนี้มีแต่น้ำมัน ไม่กินงบซ่อม PM ยาง")
 
   const month = pr.date.slice(0, 7)
@@ -123,12 +124,12 @@ export function checkPr(pr: PrDoc, snap: Snapshot | null, plateMap: PlateMapEntr
     if (!amount) continue
     const row = snap.rows.find((r) => r.group === group && r.category === category)
     if (!row || row.budget <= 0) { missing.push(category); continue }
-    const used = row.pr_approved
-    const before = row.budget - used
+    const used = Math.round(row.pr_approved)
+    const before = Math.round(row.budget) - used
     const after = before - amount
     const othersPending = Math.max(row.pr_pending - (mine?.split?.[category] ?? 0), 0)
     const state: LineState = after < 0 ? "over" : after - othersPending < 0 ? "ok_pending_over" : "ok"
-    lines.push({ category, amount, budget: row.budget, used, before, after, othersPending, state, remark: remarkLine(month, pr.date, fleet, category, before, amount) })
+    lines.push({ category, amount, budget: Math.round(row.budget), used, before, after, othersPending, state, remark: remarkLine(month, pr.date, fleet, category, before, amount) })
     otherLeg.push({ category, before: row.budget - row.wd })
   }
   const miss = missing.length ? { code: "no_budget_row" as const, message: `ยังไม่ได้ตั้งงบ ${missing.join(", ")} ของ ${fleet} เดือนนี้` } : null
@@ -160,6 +161,9 @@ export function fleetBudgetFor(file: FleetBudgetFile, groupId: string, atmsFleet
   return { ซ่อม: g.repair[m] * f.repair_share, PM: g.pm[m] * byCount, ยาง: g.tyre[m] * byCount }
 }
 
+/** false until the budget-control job that stores PR approved per plate has run for this snapshot. */
+export const hasFleetTotals = (snap: Pick<Snapshot, "by_plate">) => snap.by_plate.some((r) => r.pr_approved_cat !== undefined)
+
 /** Lines for one fleet: same maths as the group lines, with the fleet's own budget, approved total and pending PRs. */
 export function checkPrFleet(
   pr: PrDoc,
@@ -176,13 +180,14 @@ export function checkPrFleet(
     const c = itemCategory(i.group)
     split.set(c, (split.get(c) ?? 0) + i.total)
   }
+  for (const [k, v] of split) split.set(k, Math.round(v))
   const month = pr.date.slice(0, 7)
   const lines: CheckLine[] = []
   for (const category of CATEGORIES) {
     const amount = split.get(category)
-    const b = budget[category]
+    const b = Math.round(budget[category] ?? 0)
     if (!amount || !b || b <= 0) continue
-    const used = snap.by_plate.filter((r) => fleetPlates.has(normPlate(r.plate))).reduce((s, r) => s + (r.pr_approved_cat?.[category] ?? 0), 0)
+    const used = Math.round(snap.by_plate.filter((r) => fleetPlates.has(normPlate(r.plate))).reduce((s, r) => s + (r.pr_approved_cat?.[category] ?? 0), 0))
     const othersPending = pendingPlates
       .filter((p) => p.code !== pr.code && fleetPlates.has(normPlate(p.plate)))
       .reduce((s, p) => s + (p.split?.[category] ?? 0), 0)

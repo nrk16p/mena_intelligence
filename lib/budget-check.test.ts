@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { checkPr, checkPrFleet, docKind, fleetBudgetFor, fleetLabel, itemCategory, isStockPlate, normPlate, remarkLine, type PrDoc, type Snapshot } from "./budget-check"
+import { checkPr, checkPrFleet, docKind, fleetBudgetFor, fleetLabel, hasFleetTotals, itemCategory, isStockPlate, normPlate, remarkLine, type PrDoc, type Snapshot } from "./budget-check"
 
 const snap = (over: Partial<Snapshot> = {}): Snapshot => ({
   month: "2026-11",
@@ -162,5 +162,17 @@ describe("per fleet", () => {
     expect(lines).toHaveLength(1)
     expect(lines[0]).toMatchObject({ budget: 300_000, used: 250_000, before: 50_000, after: 5_000, othersPending: 40_000, state: "ok_pending_over" })
     expect(lines[0].remark).toBe("งบ 11/69 Asia ML ซ่อม (01/11/69–25/11/69) | คงเหลือ 50,000 | PR นี้ 45,000 | หลังอนุมัติเหลือ 5,000")
+  })
+})
+
+describe("review fixes", () => {
+  it("rounds satang before comparing, so a tiny overrun never reads -0", () => {
+    const r = checkPr(pr({ total: 300_000.4, items: [{ group: "ระบบเกียร์", total: 300_000.4 }] }), snap(), null)
+    expect(r.lines[0]).toMatchObject({ amount: 300_000, after: 0, state: "ok" })
+    expect(r.lines[0].remark).not.toContain("-0")
+  })
+  it("hasFleetTotals is false for a snapshot written before per-plate totals existed", () => {
+    expect(hasFleetTotals({ by_plate: [{ plate: "a", group: "ML|บริษัท" }] })).toBe(false)
+    expect(hasFleetTotals({ by_plate: [{ plate: "a", group: "ML|บริษัท", pr_approved_cat: {} }] })).toBe(true)
   })
 })

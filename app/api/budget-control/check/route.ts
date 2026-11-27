@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { getUserPermissions } from "@/lib/permissions"
 import clientPromise from "@/lib/mongo"
 import { AtmsError, readPr } from "@/lib/atms-doc"
-import { checkPr, checkPrFleet, docKind, fleetBudgetFor, fleetLabel, normPlate, OTHER_ML, type FleetBudgetFile, type PlateMapEntry, type Snapshot } from "@/lib/budget-check"
+import { checkPr, checkPrFleet, docKind, fleetBudgetFor, fleetLabel, hasFleetTotals, normPlate, OTHER_ML, type FleetBudgetFile, type PlateMapEntry, type Snapshot } from "@/lib/budget-check"
 import fleetBudget from "@/app/budget-control/fleet-budget-2569.json"
 
 // เช็กงบจากเลข PR: read one PR live from ATMS, compare with the budget-control snapshot (buy leg) and
@@ -59,7 +59,9 @@ export async function GET(req: NextRequest) {
       const groupId = result.group.split("|")[0]
       const name = fleetLabel(groupId === "ML" && OTHER_ML.has(atmsFleet) ? "อื่น ๆ" : atmsFleet, groupId)
       const budget = atmsFleet ? fleetBudgetFor(fleetBudget as FleetBudgetFile, groupId, atmsFleet, month) : null
-      if (!budget) {
+      if (!hasFleetTotals({ by_plate: snap.by_plate ?? [] })) {
+        fleet = { name: atmsFleet ? name : "—", lines: [], reason: "ยอดงบรายฟลีทยังไม่พร้อม รอรอบคำนวณถัดไป (ทุกชั่วโมง 07:25–20:25)" }
+      } else if (!budget) {
         fleet = { name: atmsFleet ? name : "—", lines: [], reason: atmsFleet ? `ยังไม่มีงบรายฟลีทของ ${name} เดือนนี้` : `ไม่พบฟลีทของทะเบียน ${pr.plate} ใน ATMS` }
       } else {
         const names = groupId === "ML" && OTHER_ML.has(atmsFleet) ? [...OTHER_ML] : [atmsFleet]

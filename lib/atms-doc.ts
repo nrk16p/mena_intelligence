@@ -85,14 +85,14 @@ export function parsePrListRow(html: string, code: string): (Omit<PrDoc, "items"
   return null
 }
 
-/** Item lines of a PR view page: product group and line total. */
-export function parsePrItems(html: string): PrDoc["items"] {
+/** Item lines of a PR view page: product group and line total. null = no item table on the page (layout changed). */
+export function parsePrItems(html: string): PrDoc["items"] | null {
   const t = parseTables(html).find((x) => x.heads.includes("กลุ่มสินค้า") && x.heads.includes("รวม") && x.heads.includes("amount"))
-  if (!t) return []
+  if (!t) return null
   const g = t.heads.indexOf("กลุ่มสินค้า"), tot = t.heads.indexOf("รวม")
   return t.rows
-    .filter((cells) => cells.length >= t.heads.length - 1 && cells[g]?.text && !/grand total/i.test(cells[0]?.text ?? ""))
-    .map((cells) => ({ group: cells[g].text || null, total: num(cells[tot]?.text ?? "") }))
+    .filter((cells) => cells.length >= t.heads.length - 1 && !/grand total/i.test(cells.map((c) => c.text).join(" ")))
+    .map((cells) => ({ group: cells[g]?.text || null, total: num(cells[tot]?.text ?? "") }))
 }
 
 // ---------- network ----------
@@ -100,13 +100,18 @@ export function parsePrItems(html: string): PrDoc["items"] {
 type Fetch = typeof fetch
 let session: { cookie: string; at: number } | null = null
 let queue: Promise<unknown> = Promise.resolve()
+let failedAt = 0 // a refused login is remembered for a minute so repeated clicks cannot lock the account
+const FAIL_MS = 60_000
 
 function cookiesFrom(res: Response, jar: Map<string, string>) {
   const list = (res.headers as Headers & { getSetCookie?: () => string[] }).getSetCookie?.() ?? []
   for (const c of list) {
     const [pair] = c.split(";")
     const i = pair.indexOf("=")
-    if (i > 0) jar.set(pair.slice(0, i).trim(), pair.slice(i + 1).trim())
+    if (i <= 0) continue
+    const k = pair.slice(0, i).trim(), v = pair.slice(i + 1).trim()
+    if (!v || v === "deleted" || /max-age=0/i.test(c)) jar.delete(k)
+    else jar.set(k, v)
   }
 }
 const jarString = (jar: Map<string, string>) => [...jar].map(([k, v]) => `${k}=${v}`).join("; ")
@@ -123,15 +128,19 @@ async function login(f: Fetch): Promise<string> {
   const user = process.env.ATMS_USERNAME, pass = process.env.ATMS_PASSWORD
   if (!user || !pass) throw new AtmsError("not_configured", "ATMS_USERNAME / ATMS_PASSWORD not set")
   const jar = new Map<string, string>()
-  cookiesFrom(await call(f, BASE + LOGIN, { method: "GET" }), jar)
+  const seed = await call(f, BASE + LOGIN, { method: "GET" })
+  cookiesFrom(seed, jar)
+  await seed.body?.cancel()
   const res = await call(f, BASE + LOGIN, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded", cookie: jarString(jar) },
     body: new URLSearchParams({ username: user, password: pass, submit: "login", next: "" }).toString(),
   })
   cookiesFrom(res, jar)
+  await res.body?.cancel()
   const check = await call(f, `${BASE}/inv/purchase.request/index`, { method: "GET", headers: { cookie: jarString(jar) } })
   const loc = check.headers.get("location") ?? ""
+  if (check.status >= 300 && check.status < 400) await check.body?.cancel()
   if (check.status >= 300 && check.status < 400 && loc.includes("account/user/login")) throw new AtmsError("login_failed", "ATMS login refused")
   if (check.status === 200 && isLoginPage(await check.text())) throw new AtmsError("login_failed", "ATMS login refused")
   return jarString(jar)
@@ -142,11 +151,20 @@ export async function atmsGet(path: string, params: Record<string, string> = {},
   assertAllowed(path)
   const run = async () => {
     for (let attempt = 0; attempt < 2; attempt++) {
-      if (!session || Date.now() - session.at > SESSION_MS) session = { cookie: await login(f), at: Date.now() }
+      if (!session || Date.now() - session.at > SESSION_MS) {
+        if (Date.now() - failedAt < FAIL_MS) throw new AtmsError("login_failed", "ATMS login refused a moment ago")
+        try {
+          session = { cookie: await login(f), at: Date.now() }
+        } catch (e) {
+          if (e instanceof AtmsError && e.kind === "login_failed") failedAt = Date.now()
+          throw e
+        }
+      }
       const qs = new URLSearchParams(params).toString()
       const res = await call(f, `${BASE}${path}${qs ? `?${qs}` : ""}`, { method: "GET", headers: { cookie: session.cookie } })
       const loc = res.headers.get("location") ?? ""
       const html = res.status === 200 ? await res.text() : ""
+      if (res.status !== 200) await res.body?.cancel()
       if ((res.status >= 300 && res.status < 400 && loc.includes("account/user/login")) || (res.status === 200 && isLoginPage(html))) {
         session = null
         continue
@@ -169,11 +187,14 @@ export async function readPr(code: string, f: Fetch = fetch): Promise<PrDoc | nu
   const view = await atmsGet(`/inv/purchase.request/view/id/${row.id}`, {}, f)
   const head: Omit<PrDoc, "items"> = { code: row.code, date: row.date, department: row.department, plate: row.plate, total: row.total,
     requester: row.requester, note: row.note, approved: row.approved, levelsDone: row.levelsDone }
-  return { ...head, items: parsePrItems(view) }
+  const items = parsePrItems(view)
+  if (items === null) throw new AtmsError("unavailable", "PR view page has no item table")
+  return { ...head, items }
 }
 
 /** test hook */
 export function _resetAtmsSession() {
   session = null
+  failedAt = 0
   queue = Promise.resolve()
 }
