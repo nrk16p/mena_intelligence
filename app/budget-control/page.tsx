@@ -8,18 +8,18 @@ import CheckTab from "./CheckTab"
 import FleetBudgetTab from "./FleetBudgetTab"
 import PrBudgetTab from "./PrBudgetTab"
 import fleetBudget from "./fleet-budget-2569.json"
-import { CATEGORIES, fleetPivot, type FleetBudgetFile, type PlateCats } from "@/lib/budget-check"
+import { CATEGORIES, fleetPivot, type FleetBudgetFile, type FleetCellIn } from "@/lib/budget-check"
 
 // ── Snapshot shape (written by mena-backend-services job `budget-control`) ──
 type Category = "ซ่อม" | "PM" | "ยาง"
 type Row = { group: string; category: Category; budget: number; wd: number; wd_yesterday: number; dd_open: number; pr_open: number; pr_approved: number; pr_pending: number }
 type Pending = { code: string; date: string; plate: string; group: string; category: Category; total: number; levels_done: number; requester: string; note: string }
 type OpenLine = { group: string; category: Category; plate: string; dd: string; pr: string; received: string; item: string; qty: number; open_qty: number; open_amount: number }
-type PlateRow = { plate: string; group: string; wd: number; dd_open: number; pr_open: number; pr_pending: number; fleet?: string | null; cat?: PlateCats["cat"] }
+type PlateRow = { plate: string; group: string; wd: number; dd_open: number; pr_open: number; pr_pending: number; fleet?: string | null }
 type Snapshot = {
   branch: string; month: string; cut: string; computed_at: string; pace: number
   sources: { wd_at: string | null; pr_at: string | null; po_at: string | null; dd_at: string | null; budget_at: string | null; plates_from: string | null; daily_to?: string | null; budget_lines: number }
-  rows: Row[]; pending_prs: Pending[]; dd_open_lines: OpenLine[]; by_plate: PlateRow[]
+  rows: Row[]; pending_prs: Pending[]; dd_open_lines: OpenLine[]; by_plate: PlateRow[]; by_fleet?: FleetCellIn[]
   owner_switched?: Switched[]
 }
 type Switched = { plate: string; changes: { from: string; group: string }[] }
@@ -195,7 +195,7 @@ export default function BudgetControlPage() {
             ))}
           </div>
           {tab === "pivot" && <Pivot rows={data.rows} />}
-          {tab === "fleetpivot" && <FleetPivot plates={data.by_plate} month={data.month} />}
+          {tab === "fleetpivot" && <FleetPivot cells={data.by_fleet} month={data.month} />}
           {tab === "pending" && <PendingTable data={data} />}
           {tab === "prsum" && <PrBudgetTab month={data.month} cut={data.cut} rows={data.rows} pending={data.pending_prs} />}
           {tab === "check" && <CheckTab />}
@@ -394,10 +394,10 @@ function Pivot({ rows }: { rows: Row[] }) {
     </div>
   )
 }
-function FleetPivot({ plates, month }: { plates: PlateRow[]; month: string }) {
-  const rows = useMemo(() => fleetPivot(plates, fleetBudget as FleetBudgetFile, month), [plates, month])
+function FleetPivot({ cells, month }: { cells: FleetCellIn[] | undefined; month: string }) {
+  const rows = useMemo(() => fleetPivot(cells ?? [], fleetBudget as FleetBudgetFile, month), [cells, month])
   const [open, setOpen] = useState<Record<string, boolean>>({})
-  if (!plates.some((p) => p.cat)) {
+  if (!cells) {
     return <p className="rounded-xl border border-gray-200 bg-white p-4 text-[14px] text-gray-700 dark:border-white/8 dark:bg-[#0d0f18] dark:text-gray-300">ยอดรายฟลีทยังไม่พร้อม รอรอบคำนวณถัดไป (ทุกชั่วโมง 07:25–20:25)</p>
   }
   const cellOf = (r: (typeof rows)[number]) => CATEGORIES.reduce((a, c) => ({ budget: a.budget + r.cats[c].budget, wd: a.wd + r.cats[c].wd, dd: a.dd + r.cats[c].dd, pr: a.pr + r.cats[c].pr, pend: a.pend + r.cats[c].pend }), { budget: 0, wd: 0, dd: 0, pr: 0, pend: 0 })

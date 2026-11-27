@@ -186,14 +186,14 @@ describe("fleetPivot", () => {
       { id: "MS", trucks: 10, repair: Array(12).fill(100_000), pm: Array(12).fill(0), tyre: Array(12).fill(0), fleets: [{ fleet: "Cpac MS", trucks: 10, repair_share: 1 }] },
     ],
   }
-  const cat = (wd: number, dd = 0, pr = 0, pend = 0) => ({ wd, dd_open: dd, pr_open: pr, pr_pending: pend })
-  it("sums company plates by ATMS fleet and joins the fleet budget", () => {
+  const cell = (group: string, fleet: string, category: "ซ่อม" | "PM" | "ยาง", wd: number, dd = 0, pr = 0, pend = 0) => ({ group, fleet, category, wd, dd_open: dd, pr_open: pr, pr_pending: pend })
+  it("sums company cells by ATMS fleet and joins the fleet budget", () => {
     const rows = fleetPivot([
-      { plate: "a", group: "ML|บริษัท", fleet: "Asia", cat: { ซ่อม: cat(100, 10, 20, 5) } },
-      { plate: "b", group: "ML|บริษัท", fleet: "Asia", cat: { ซ่อม: cat(50), ยาง: cat(7) } },
-      { plate: "c", group: "ML|บริษัท", fleet: "Acon", cat: { ซ่อม: cat(9) } },
-      { plate: "d", group: "ML|ร่วม", fleet: "Asia", cat: { ซ่อม: cat(999) } },
-      { plate: "e", group: "ML|บริษัท", fleet: null, cat: { ซ่อม: cat(3) } },
+      cell("ML|บริษัท", "Asia", "ซ่อม", 150, 10, 20, 5),
+      cell("ML|บริษัท", "Asia", "ยาง", 7),
+      cell("ML|บริษัท", "Acon", "ซ่อม", 9),
+      cell("ML|ร่วม", "Asia", "ซ่อม", 999),
+      cell("ML|บริษัท", "", "ซ่อม", 3),
     ], file, "2026-11")
     const asia = rows.find((r) => r.fleet === "Asia ML")!
     expect(asia.cats.ซ่อม).toEqual({ budget: 300_000, wd: 150, dd: 10, pr: 20, pend: 5 })
