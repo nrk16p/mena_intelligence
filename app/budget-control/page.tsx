@@ -499,9 +499,9 @@ function TwoLegs({ cells, month, groupIds }: { cells: FleetCellIn[] | undefined;
   if (!cells || (cells.length > 0 && !cells.some((c) => c.pr_approved !== undefined))) {
     return <p className="rounded-xl border border-gray-200 bg-white p-4 text-[14px] text-gray-700 dark:border-white/8 dark:bg-[#0d0f18] dark:text-gray-300">ยอดซื้อรายฟลีทยังไม่พร้อม รอรอบคำนวณถัดไป (ทุกชั่วโมง 07:25–20:25)</p>
   }
-  type C = { budget: number; buy: number; wd: number; dd: number }
-  const add = (a: C, b: C): C => ({ budget: a.budget + b.budget, buy: a.buy + b.buy, wd: a.wd + b.wd, dd: a.dd + b.dd })
-  const zero: C = { budget: 0, buy: 0, wd: 0, dd: 0 }
+  type C = { budget: number; buy: number; pend: number; wd: number; dd: number }
+  const add = (a: C, b: C): C => ({ budget: a.budget + b.budget, buy: a.buy + b.buy, pend: a.pend + b.pend, wd: a.wd + b.wd, dd: a.dd + b.dd })
+  const zero: C = { budget: 0, buy: 0, pend: 0, wd: 0, dd: 0 }
   const ofRow = (r: (typeof rows)[number]) => CATEGORIES.reduce((a, c) => add(a, r.cats[c]), zero)
   const groups = [...new Set(rows.map((r) => r.groupId))]
   const left = (b: number, v: number) => (
@@ -520,6 +520,8 @@ function TwoLegs({ cells, month, groupIds }: { cells: FleetCellIn[] | undefined;
       <td className={TD}>{c.budget ? fmt(c.budget) : "—"}</td>
       <td className={`${TD} border-l border-gray-100 dark:border-white/5`}>{fmt(c.buy)} <span className="text-[12px] text-gray-500">{pct(c.budget, c.buy)}</span></td>
       {left(c.budget, c.buy)}
+      <td className={`${TD} text-amber-700 dark:text-amber-400`}>{c.pend ? fmt(c.pend) : "—"}</td>
+      {left(c.budget, c.buy + c.pend)}
       <td className={`${TD} border-l border-gray-100 dark:border-white/5`}>{fmt(c.wd)} <span className="text-[12px] text-gray-500">{pct(c.budget, c.wd)}</span></td>
       {left(c.budget, c.wd)}
       <td className={`${TD} border-l border-gray-100 dark:border-white/5`}>{c.dd ? fmt(c.dd) : "—"}</td>
@@ -531,18 +533,20 @@ function TwoLegs({ cells, month, groupIds }: { cells: FleetCellIn[] | undefined;
         งบเดือนเดียวกันเทียบสองขา ไม่เอามาบวกกัน · <b className="text-amber-700 dark:text-amber-400">ซื้อ</b> = PR ที่อนุมัติในเดือน (PR → PO → DD) · <b className="text-emerald-700 dark:text-emerald-400">ใช้</b> = WD เบิกใส่รถ · <b>ของรอเบิก</b> = รับเข้าคลังแล้ว (DD) ยังไม่ได้ทำ WD ถ้าโตขึ้นเรื่อย ๆ แปลว่าสต๊อกบวม
       </p>
       <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white dark:border-white/8 dark:bg-[#0d0f18]">
-        <table className="w-full min-w-[980px] border-collapse text-[14px]">
+        <table className="w-full min-w-[1180px] border-collapse text-[14px]">
           <thead>
             <tr className="bg-gray-50 text-[12px] text-gray-600 dark:bg-white/3 dark:text-gray-400">
               <th scope="col" rowSpan={2} className="px-3.5 py-2.5 text-left font-semibold">ฟลีท / ประเภท</th>
               <th scope="col" rowSpan={2} className={TH}>งบเดือน</th>
-              <th scope="colgroup" colSpan={2} className="border-l border-gray-200 px-3.5 pt-2.5 text-center font-semibold text-amber-800 dark:border-white/10 dark:text-amber-300">งบซื้อ · นับจาก PR</th>
+              <th scope="colgroup" colSpan={4} className="border-l border-gray-200 px-3.5 pt-2.5 text-center font-semibold text-amber-800 dark:border-white/10 dark:text-amber-300">งบซื้อ · นับจาก PR</th>
               <th scope="colgroup" colSpan={2} className="border-l border-gray-200 px-3.5 pt-2.5 text-center font-semibold text-emerald-800 dark:border-white/10 dark:text-emerald-300">งบใช้ · นับจาก WD</th>
               <th scope="colgroup" className="border-l border-gray-200 px-3.5 pt-2.5 text-center font-semibold dark:border-white/10">สต๊อก</th>
             </tr>
             <tr className="bg-gray-50 text-[12px] text-gray-600 dark:bg-white/3 dark:text-gray-400">
               <th scope="col" className={`${TH} border-l border-gray-200 dark:border-white/10`}>ซื้อแล้ว</th>
               <th scope="col" className={TH}>เหลือ / เกิน</th>
+              <th scope="col" className={TH}>PR รออนุมัติ</th>
+              <th scope="col" className={TH}>ถ้า PR รอผ่าน</th>
               <th scope="col" className={`${TH} border-l border-gray-200 dark:border-white/10`}>ใช้แล้ว</th>
               <th scope="col" className={TH}>เหลือ / เกิน</th>
               <th scope="col" className={`${TH} border-l border-gray-200 dark:border-white/10`}>ของรอเบิก (DD ค้าง)</th>
