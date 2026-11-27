@@ -102,7 +102,8 @@ export default function BudgetControlPage() {
   const [data, setData] = useState<Snapshot | null>(null)
   const [state, setState] = useState<"loading" | "ok" | "error">("loading")
   const [error, setError] = useState("")
-  const [tab, setTab] = useState<"pivot" | "pending" | "dd" | "plate" | "age" | "fleet" | "prsum" | "check" | "fleetpivot">("pivot")
+  const [tab, setTab] = useState<"overview" | "pending" | "dd" | "plate" | "age" | "fleet" | "prsum" | "check">("overview")
+  const [view, setView] = useState<"group" | "fleet">("group")
   const [srcOpen, setSrcOpen] = useState(false)
   const [reload, setReload] = useState(0)
 
@@ -133,27 +134,34 @@ export default function BudgetControlPage() {
           </nav>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">ควบคุมงบประมาณ</h1>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="inline-flex min-h-[40px] items-center rounded-full border border-gray-200 bg-white px-4 text-[14px] dark:border-white/10 dark:bg-[#0d0f18]">ศลบ</span>
-          <label className="sr-only" htmlFor="bc-month">เดือน</label>
-          <select id="bc-month" value={data?.month ?? month} onChange={(e) => { setState("loading"); setMonth(e.target.value) }}
-            className="min-h-[40px] rounded-full border border-gray-200 bg-white px-4 text-[14px] dark:border-white/10 dark:bg-[#0d0f18] dark:text-white">
-            {(months.length ? months : data ? [data.month] : []).map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}
-          </select>
-          {data && (
-            <div className="relative">
-              <button type="button" onClick={() => setSrcOpen((o) => !o)} aria-expanded={srcOpen}
-                className="inline-flex min-h-[40px] items-center gap-2 rounded-full border border-gray-200 bg-white px-4 text-[13px] text-gray-700 dark:border-white/10 dark:bg-[#0d0f18] dark:text-gray-300">
-                <span aria-hidden="true" className={`h-2 w-2 rounded-full ${stale ? "bg-amber-500" : "bg-emerald-500"}`} />
-                {stale ? `ข้อมูลค้าง ${Math.floor(ageH(computed))} ชม.` : `อัปเดตล่าสุด ${hhmm(computed)}`}
-                {data.pace < 1 && !stale && <span className="text-gray-500">· ทุก 1 ชม.</span>}
-                <ChevronRight size={13} aria-hidden="true" className={`transition-transform motion-reduce:transition-none ${srcOpen ? "rotate-90" : ""}`} />
-              </button>
-              {srcOpen && <SourcePanel data={data} computed={computed} />}
-            </div>
-          )}
-        </div>
       </header>
+
+      <section aria-label="ตัวกรอง" className="flex flex-wrap items-center gap-x-5 gap-y-3 rounded-2xl border border-gray-200 bg-white px-4 py-3 dark:border-white/8 dark:bg-[#0d0f18]">
+        <div className="flex items-center gap-2">
+          <span className="text-[12px] text-gray-500 dark:text-gray-400">สาขา</span>
+          <div role="radiogroup" aria-label="สาขา" className="inline-flex gap-0.5 rounded-xl bg-gray-100 p-1 dark:bg-white/5">
+            <span role="radio" aria-checked="true" className="rounded-lg bg-white px-3.5 py-1.5 text-[13px] font-semibold text-emerald-800 ring-1 ring-emerald-200 dark:bg-[#14161f] dark:text-emerald-300 dark:ring-emerald-800/50">ลาดกระบัง · ศลบ</span>
+            <span role="radio" aria-checked="false" aria-disabled="true" title="job คุมงบยังคำนวณแค่ ศลบ" className="cursor-not-allowed px-3.5 py-1.5 text-[13px] text-gray-400 dark:text-gray-500">สระบุรี · สสบ <span className="text-[11px]">ยังไม่มีข้อมูล</span></span>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <span id="bc-month-label" className="text-[12px] text-gray-500 dark:text-gray-400">เดือน</span>
+          <MonthStepper value={data?.month ?? month} months={months.length ? months : data ? [data.month] : []} onChange={(m) => { setState("loading"); setMonth(m) }} />
+        </div>
+        <div className="flex-1" />
+        {data && (
+          <div className="relative">
+            <button type="button" onClick={() => setSrcOpen((o) => !o)} aria-expanded={srcOpen}
+              className="inline-flex min-h-[38px] items-center gap-2 rounded-full border border-gray-200 bg-white px-4 text-[13px] text-gray-700 dark:border-white/10 dark:bg-[#0d0f18] dark:text-gray-300">
+              <span aria-hidden="true" className={`h-2 w-2 rounded-full ${stale ? "bg-amber-500" : "bg-emerald-500"}`} />
+              {stale ? `ข้อมูลค้าง ${Math.floor(ageH(computed))} ชม.` : `อัปเดต ${hhmm(computed)}`}
+              {data.pace < 1 && !stale && <span className="text-gray-500">· ทุก 1 ชม.</span>}
+              <ChevronRight size={13} aria-hidden="true" className={`transition-transform motion-reduce:transition-none ${srcOpen ? "rotate-90" : ""}`} />
+            </button>
+            {srcOpen && <SourcePanel data={data} computed={computed} />}
+          </div>
+        )}
+      </section>
 
       {state === "loading" && <Skeleton />}
       {state === "error" && (
@@ -176,26 +184,44 @@ export default function BudgetControlPage() {
             </p>
           )}
           <Summary data={data} />
-          <div role="tablist" aria-label="มุมมอง" className="inline-flex max-w-full flex-wrap gap-0.5 rounded-xl bg-gray-100 p-1 dark:bg-white/5">
-            {([
-              ["pivot", "ตามกลุ่ม"],
-              ["fleetpivot", "ตามฟลีท"],
-              ["pending", `PR รออนุมัติ · ${data.pending_prs.length}`],
-              ["prsum", "สรุปงบจาก PR"],
-              ["check", "เช็กงบจากเลข PR"],
-              ["dd", `รับของแล้วรอเบิก · ${data.dd_open_lines.length}`],
-              ["plate", "รายคัน"],
-              ["age", "ปันตามอายุรถ"],
-              ["fleet", "งบรายฟลีท"],
-            ] as const).map(([k, label]) => (
-              <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)}
-                className={`min-h-[36px] rounded-lg px-3.5 text-[13px] ${tab === k ? "bg-white font-semibold text-emerald-800 ring-1 ring-emerald-200 dark:bg-[#14161f] dark:text-emerald-300 dark:ring-emerald-800/50" : "text-gray-600 dark:text-gray-400"}`}>
-                {label}
-              </button>
-            ))}
-          </div>
-          {tab === "pivot" && <Pivot rows={data.rows} />}
-          {tab === "fleetpivot" && <FleetPivot cells={data.by_fleet} month={data.month} />}
+          <nav aria-label="มุมมอง" className="overflow-x-auto border-b border-gray-200 dark:border-white/10">
+            <div role="tablist" className="flex min-w-max items-end gap-6 px-1">
+              {([
+                ["ภาพรวม", [["overview", "งบคงเหลือ", null]]],
+                ["ขาซื้อ · PR", [["pending", "รออนุมัติ", { n: data.pending_prs.length, tone: "amber" }], ["prsum", "สรุปงบจาก PR", null], ["check", "เช็กงบจากเลข PR", null]]],
+                ["ขาใช้ · ของ / รถ", [["dd", "รับของแล้วรอเบิก", { n: data.dd_open_lines.length, tone: "gray" }], ["plate", "รายคัน", null]]],
+                ["ตั้งงบ", [["age", "ปันตามอายุรถ", null], ["fleet", "งบรายฟลีท", null]]],
+              ] as const).map(([cap, items], gi) => (
+                <div key={cap} className={`flex flex-col ${gi ? "border-l border-gray-200 pl-6 dark:border-white/10" : ""}`}>
+                  <span className="mb-0.5 text-[11px] font-semibold tracking-wide text-gray-400 dark:text-gray-500">{cap}</span>
+                  <div className="flex gap-1">
+                    {items.map(([k, label, badge]) => (
+                      <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)}
+                        className={`-mb-px inline-flex min-h-[40px] items-center gap-1.5 whitespace-nowrap border-b-2 px-2.5 text-[14px] ${tab === k ? "border-emerald-700 font-semibold text-emerald-800 dark:border-emerald-400 dark:text-emerald-300" : "border-transparent text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"}`}>
+                        {label}
+                        {badge && badge.n > 0 && (
+                          <span className={`rounded-full px-1.5 text-[11px] font-semibold ${badge.tone === "amber" ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300" : "bg-gray-200 text-gray-700 dark:bg-white/10 dark:text-gray-300"}`}>{badge.n}</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </nav>
+          {tab === "overview" && (
+            <div className="flex flex-wrap items-center gap-3">
+              <div role="radiogroup" aria-label="แบ่งตาม" className="inline-flex gap-0.5 rounded-xl bg-gray-100 p-1 dark:bg-white/5">
+                {([["group", "ตามกลุ่ม"], ["fleet", "ตามฟลีท"]] as const).map(([k, label]) => (
+                  <button key={k} type="button" role="radio" aria-checked={view === k} onClick={() => setView(k)}
+                    className={`min-h-[34px] rounded-lg px-3.5 text-[13px] ${view === k ? "bg-white font-semibold text-emerald-800 ring-1 ring-emerald-200 dark:bg-[#14161f] dark:text-emerald-300 dark:ring-emerald-800/50" : "text-gray-600 dark:text-gray-400"}`}>{label}</button>
+                ))}
+              </div>
+              <span className="text-[13px] text-gray-500 dark:text-gray-400">{view === "group" ? "ML / MS บริษัท และรถร่วม" : "รถบริษัทแยกตามฟลีทใน ATMS เช่น Asia ML, Scco ML"}</span>
+            </div>
+          )}
+          {tab === "overview" && view === "group" && <Pivot rows={data.rows} />}
+          {tab === "overview" && view === "fleet" && <FleetPivot cells={data.by_fleet} month={data.month} />}
           {tab === "pending" && <PendingTable data={data} />}
           {tab === "prsum" && <PrBudgetTab month={data.month} cut={data.cut} rows={data.rows} pending={data.pending_prs} />}
           {tab === "check" && <CheckTab />}
@@ -404,7 +430,7 @@ function FleetPivot({ cells, month }: { cells: FleetCellIn[] | undefined; month:
   const groups = [...new Set(rows.map((r) => r.groupId))]
   return (
     <div className="grid gap-2">
-      <p className="text-[13px] text-gray-500 dark:text-gray-400">รถบริษัทแยกตามฟลีทใน ATMS · งบจากแท็บงบรายฟลีท (ซ่อมปันตามอายุรถ PM กับยางปันตามจำนวนคัน) · ยอดใช้ตามทะเบียนของเดือน คอลัมน์และวิธีคิดเหมือนแท็บตามกลุ่ม</p>
+      <p className="text-[12px] text-gray-500 dark:text-gray-400">งบจากแท็บงบรายฟลีท (ซ่อมปันตามอายุรถ PM กับยางปันตามจำนวนคัน) · วิธีคิดเหมือนตามกลุ่ม</p>
       <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white dark:border-white/8 dark:bg-[#0d0f18]">
         <table className="w-full min-w-[1080px] border-collapse text-[14px]">
           <thead>
@@ -441,6 +467,23 @@ function FleetPivot({ cells, month }: { cells: FleetCellIn[] | undefined; month:
           </tbody>
         </table>
       </div>
+    </div>
+  )
+}
+function MonthStepper({ value, months, onChange }: { value: string; months: string[]; onChange: (m: string) => void }) {
+  const list = [...new Set(months)].sort() // oldest → newest
+  const i = list.indexOf(value)
+  const prev = i > 0 ? list[i - 1] : null
+  const next = i >= 0 && i < list.length - 1 ? list[i + 1] : null
+  const btn = "grid h-[38px] w-[36px] place-items-center text-gray-500 hover:bg-gray-50 disabled:cursor-not-allowed disabled:text-gray-300 dark:hover:bg-white/5 dark:disabled:text-gray-600"
+  return (
+    <div className="inline-flex items-center overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-white/10 dark:bg-[#0d0f18]">
+      <button type="button" className={btn} disabled={!prev} onClick={() => prev && onChange(prev)} aria-label={prev ? `เดือนก่อนหน้า ${monthLabel(prev)}` : "ไม่มีเดือนก่อนหน้า"}><ChevronLeft size={16} aria-hidden="true" /></button>
+      <select aria-labelledby="bc-month-label" value={value} onChange={(e) => onChange(e.target.value)}
+        className="h-[38px] appearance-none border-x border-gray-200 bg-transparent px-3.5 text-center text-[14px] font-semibold text-gray-900 dark:border-white/10 dark:text-white">
+        {[...list].reverse().map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}
+      </select>
+      <button type="button" className={btn} disabled={!next} onClick={() => next && onChange(next)} aria-label={next ? `เดือนถัดไป ${monthLabel(next)}` : "ไม่มีเดือนถัดไป"}><ChevronRight size={16} aria-hidden="true" /></button>
     </div>
   )
 }
