@@ -1,6 +1,8 @@
 "use client"
 
 import Link from "next/link"
+import { useSession } from "next-auth/react"
+import { isBiUser } from "@/lib/bi"
 import { useEffect, useMemo, useState } from "react"
 import { ChevronLeft, ChevronRight, Info, RefreshCw, Search } from "lucide-react"
 import AgeSplitTab from "./AgeSplitTab"
@@ -105,6 +107,8 @@ export default function BudgetControlPage() {
   const [error, setError] = useState("")
   const [tab, setTab] = useState<"overview" | "legs" | "pending" | "dd" | "plate" | "age" | "fleet" | "prsum" | "check">("overview")
   const [view, setView] = useState<"group" | "fleet">("group")
+  const { data: session } = useSession()
+  const bi = isBiUser(session?.user?.email) // BI preview: new views only for the BI team until opened to everyone
   const [srcOpen, setSrcOpen] = useState(false)
   const [reload, setReload] = useState(0)
 
@@ -190,11 +194,11 @@ export default function BudgetControlPage() {
           <nav aria-label="มุมมอง" className="overflow-x-auto border-b border-gray-200 dark:border-white/10">
             <div role="tablist" className="flex min-w-max items-end gap-6 px-1">
               {([
-                ["ภาพรวม", [["overview", "งบคงเหลือ", null], ["legs", "ซื้อ · ใช้ · สต๊อก", null]]],
-                ["ขาซื้อ · PR", [["pending", "รออนุมัติ", { n: data.pending_prs.length, tone: "amber" }], ["prsum", "สรุปงบจาก PR", null], ["check", "เช็กงบจากเลข PR", null]]],
+                ["ภาพรวม", [["overview", "งบคงเหลือ", null], ["legs", "ซื้อ · ใช้ · สต๊อก", "bi"]]],
+                ["ขาซื้อ · PR", [["pending", "รออนุมัติ", { n: data.pending_prs.length, tone: "amber" }], ["prsum", "สรุปงบจาก PR", null], ["check", "เช็กงบจากเลข PR", "bi"]]],
                 ["ขาใช้ · ของ / รถ", [["dd", "รับของแล้วรอเบิก", { n: data.dd_open_lines.length, tone: "gray" }], ["plate", "รายคัน", null]]],
-                ["ตั้งงบ", [["age", "ปันตามอายุรถ", null], ["fleet", "งบรายฟลีท", null]]],
-              ] as const).map(([cap, items], gi) => (
+                ["ตั้งงบ", [["age", "ปันตามอายุรถ", null], ["fleet", "งบรายฟลีท", "bi"]]],
+              ] as const).map(([cap, all], gi) => [cap, all.filter((it) => bi || it[2] !== "bi"), gi] as const).filter(([, items]) => items.length).map(([cap, items, gi]) => (
                 <div key={cap} className={`flex flex-col ${gi ? "border-l border-gray-200 pl-6 dark:border-white/10" : ""}`}>
                   <span className="mb-0.5 text-[11px] font-semibold tracking-wide text-gray-400 dark:text-gray-500">{cap}</span>
                   <div className="flex gap-1">
@@ -202,7 +206,8 @@ export default function BudgetControlPage() {
                       <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)}
                         className={`-mb-px inline-flex min-h-[40px] items-center gap-1.5 whitespace-nowrap border-b-2 px-2.5 text-[14px] ${tab === k ? "border-emerald-700 font-semibold text-emerald-800 dark:border-emerald-400 dark:text-emerald-300" : "border-transparent text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"}`}>
                         {label}
-                        {badge && badge.n > 0 && (
+                        {badge === "bi" && <span className="rounded bg-violet-100 px-1 text-[10px] font-bold text-violet-800 dark:bg-violet-900/40 dark:text-violet-300">BI</span>}
+                        {badge && badge !== "bi" && badge.n > 0 && (
                           <span className={`rounded-full px-1.5 text-[11px] font-semibold ${badge.tone === "amber" ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300" : "bg-gray-200 text-gray-700 dark:bg-white/10 dark:text-gray-300"}`}>{badge.n}</span>
                         )}
                       </button>
@@ -212,7 +217,7 @@ export default function BudgetControlPage() {
               ))}
             </div>
           </nav>
-          {tab === "overview" && (
+          {tab === "overview" && bi && (
             <div className="flex flex-wrap items-center gap-3">
               <div role="radiogroup" aria-label="แบ่งตาม" className="inline-flex gap-0.5 rounded-xl bg-gray-100 p-1 dark:bg-white/5">
                 {([["group", "ตามกลุ่ม"], ["fleet", "ตามฟลีท"]] as const).map(([k, label]) => (
@@ -223,8 +228,8 @@ export default function BudgetControlPage() {
               <span className="text-[13px] text-gray-500 dark:text-gray-400">{view === "group" ? "ML / MS บริษัท และรถร่วม" : "รถบริษัทแยกตามฟลีทใน ATMS เช่น Asia ML, Scco ML"}</span>
             </div>
           )}
-          {tab === "overview" && view === "group" && <Pivot rows={data.rows} />}
-          {tab === "overview" && view === "fleet" && <FleetPivot cells={data.by_fleet} month={data.month} />}
+          {tab === "overview" && (view === "group" || !bi) && <Pivot rows={data.rows} />}
+          {tab === "overview" && bi && view === "fleet" && <FleetPivot cells={data.by_fleet} month={data.month} />}
           {tab === "legs" && <TwoLegs cells={data.by_fleet} month={data.month} />}
           {tab === "pending" && <PendingTable data={data} />}
           {tab === "prsum" && <PrBudgetTab month={data.month} cut={data.cut} rows={data.rows} pending={data.pending_prs} />}

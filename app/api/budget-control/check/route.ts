@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth/next"
 import { authOptions } from "@/lib/auth"
 import { getUserPermissions } from "@/lib/permissions"
 import clientPromise from "@/lib/mongo"
+import { isBiUser } from "@/lib/bi"
 import { AtmsError, readPr } from "@/lib/atms-doc"
 import { checkPr, checkPrFleet, docKind, fleetBudgetFor, fleetLabel, hasFleetTotals, normPlate, type FleetBudgetFile, type PlateMapEntry, type Snapshot } from "@/lib/budget-check"
 import fleetBudget from "@/app/budget-control/fleet-budget-2569.json"
@@ -19,6 +20,7 @@ export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   const { allowedGroups } = await getUserPermissions(session?.user?.email)
   if (!session || !allowedGroups.includes("budget")) return fail(403, "Forbidden")
+  if (!isBiUser(session.user?.email)) return fail(403, "หน้านี้ยังทดลองอยู่ เปิดให้เฉพาะทีม BI")
 
   const doc = docKind(req.nextUrl.searchParams.get("doc") ?? "")
   if (!doc) return fail(400, "เลขเอกสารไม่ถูกรูปแบบ ตัวอย่าง LBPR26110482")
