@@ -208,6 +208,9 @@ export function checkPrFleet(
 // ---------- ตามฟลีท tab ----------
 export type FleetCell = { budget: number; wd: number; dd: number; pr: number; pend: number; buy: number }
 export type FleetCellIn = { group: string; fleet: string; category: Category; wd: number; dd_open: number; pr_open: number; pr_pending: number; pr_approved?: number }
+/** ATMS fleets left out of the per-fleet views (user 27/11/69: รถขาย ML เอาออก). */
+export const HIDDEN_FLEETS = new Set(["รถขาย", "รถขายแล้ว"])
+
 export type FleetPivotRow = { groupId: string; fleet: string; cats: Record<Category, FleetCell> }
 const emptyFleetCell = (): FleetCell => ({ budget: 0, wd: 0, dd: 0, pr: 0, pend: 0, buy: 0 })
 
@@ -235,6 +238,7 @@ export function fleetPivot(byFleet: FleetCellIn[], file: FleetBudgetFile, month:
     const partner = x.group.endsWith("ร่วม")
     const fleetId = x.group.split("|")[0]
     if (!groupIds.includes(fleetId)) continue
+    if (HIDDEN_FLEETS.has(x.fleet)) continue // sold trucks: not a fleet anyone manages
     if (!x.group.endsWith("บริษัท") && !(partners && partner)) continue
     const groupId = partner ? `${fleetId} ร่วม` : fleetId
     const name = !x.fleet ? "ไม่ระบุฟลีท" : fleetLabel(x.fleet, fleetId)

@@ -208,6 +208,10 @@ describe("fleetPivot", () => {
     expect(p.cats.ซ่อม).toMatchObject({ budget: 0, wd: 99, buy: 5 })
     expect(rows[rows.length - 1].groupId).toBe("ML ร่วม")
   })
+  it("sold trucks (รถขาย) are left out of the per-fleet views", () => {
+    const rows = fleetPivot([cell("ML|บริษัท", "รถขาย", "ซ่อม", 4728), cell("ML|บริษัท", "Asia", "ซ่อม", 1)], file, "2026-11", true)
+    expect(rows.some((r) => r.fleet.startsWith("รถขาย"))).toBe(false)
+  })
   it("buy leg = PR approved this month per fleet", () => {
     const rows = fleetPivot([{ ...cell("ML|บริษัท", "Asia", "ซ่อม", 0, 0, 20), pr_approved: 70 }], file, "2026-11")
     expect(rows.find((r) => r.fleet === "Asia ML")!.cats.ซ่อม).toMatchObject({ buy: 70, pr: 20 })
