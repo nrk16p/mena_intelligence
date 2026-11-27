@@ -9,7 +9,7 @@ describe("vendorHealth", () => {
       { source: "songdee", firstDate: "2026-01-01", lastDate: "2026-11-26", lastNonZero: "2026-11-26" },
       { source: "terminus", firstDate: "2026-01-01", lastDate: "2026-11-25", lastNonZero: "2026-11-25" },
       { source: "besttech", firstDate: "2026-05-26", lastDate: "2026-11-01", lastNonZero: "2026-11-01" },
-      { source: "hino", firstDate: "2026-01-01", lastDate: "2026-11-15", lastNonZero: "2026-10-08" },
+      { source: "nostra", firstDate: "2026-01-01", lastDate: "2026-11-15", lastNonZero: "2026-10-08" },
       { source: "dtc", firstDate: "2026-01-01", lastDate: "2026-11-26", lastNonZero: "2026-11-24" },
     ],
     MAX
@@ -27,8 +27,8 @@ describe("vendorHealth", () => {
   })
 
   it("stale wins over zero; zero days are counted from the last real reading", () => {
-    expect(by.hino.status).toBe("stale")
-    expect(by.hino.zeroDays).toBe(38)
+    expect(by.nostra.status).toBe("stale")
+    expect(by.nostra.zeroDays).toBe(38)
   })
 
   it("a couple of quiet days is not an all-zero feed", () => {
@@ -37,10 +37,19 @@ describe("vendorHealth", () => {
 
   it("flags a live feed whose readings are all zero", () => {
     const [h] = vendorHealth(
-      [{ source: "hino", firstDate: "2026-01-01", lastDate: MAX, lastNonZero: "2026-11-10" }],
+      [{ source: "dtc", firstDate: "2026-01-01", lastDate: MAX, lastNonZero: "2026-11-10" }],
       MAX
     )
     expect(h.status).toBe("zero")
+  })
+
+  it("a cancelled vendor is retired, never stale, and does not hold the window back", () => {
+    const [h] = vendorHealth(
+      [{ source: "hino", firstDate: "2026-01-01", lastDate: "2026-11-15", lastNonZero: "2026-10-08" }],
+      MAX
+    )
+    expect(h.status).toBe("retired")
+    expect(completeThrough([h, by.songdee], MAX)).toBe(MAX)
   })
 
   it("completeThrough ignores stalled feeds", () => {

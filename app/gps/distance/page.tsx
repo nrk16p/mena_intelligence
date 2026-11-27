@@ -45,7 +45,7 @@ type VendorHealth = {
   lagDays:     number
   zeroDays:    number
   gapDays:     number
-  status:      "ok" | "stale" | "zero"
+  status:      "ok" | "stale" | "zero" | "retired"
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -67,6 +67,8 @@ function fmtShort(v: number) {
 const FLEET_PREVIEW = 8
 
 function vendorNote(v: VendorHealth) {
+  if (v.status === "retired")
+    return `ยกเลิกบริการ — ใช้ข้อมูลถึง ${dateLabel(v.lastNonZero || v.lastDate)}`
   if (v.status === "stale")
     return `หยุดส่งหลัง ${dateLabel(v.lastDate)} (${v.lagDays} วัน)` +
       (v.zeroDays >= 3 && v.lastNonZero ? ` · ค่าเป็น 0 ตั้งแต่หลัง ${dateLabel(v.lastNonZero)}` : "")
@@ -79,15 +81,20 @@ function vendorNote(v: VendorHealth) {
  *  reading as "those trucks did not drive". Healthy feeds stay grey and quiet. */
 function VendorHealthRow({ vendors }: { vendors: VendorHealth[] }) {
   if (vendors.length === 0) return null
-  const problems = vendors.filter((v) => v.status !== "ok" || v.gapDays > 0).length
+  const problems = vendors.filter(
+    (v) => v.status === "stale" || v.status === "zero" || (v.status === "ok" && v.gapDays > 0)
+  ).length
   return (
     <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px]">
       <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
         สถานะแหล่ง GPS
       </span>
       {vendors.map((v) => {
-        const bad = v.status !== "ok"
-        const dot = bad ? "bg-red-500" : v.gapDays > 0 ? "bg-amber-500" : "bg-emerald-500"
+        const retired = v.status === "retired"
+        const bad = v.status === "stale" || v.status === "zero"
+        const dot = retired
+          ? "bg-gray-300 dark:bg-gray-600"
+          : bad ? "bg-red-500" : v.gapDays > 0 ? "bg-amber-500" : "bg-emerald-500"
         return (
           <span
             key={v.source}
@@ -96,7 +103,7 @@ function VendorHealthRow({ vendors }: { vendors: VendorHealth[] }) {
             <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
             <span className="font-medium">{v.source}</span>
             <span>{vendorNote(v)}</span>
-            {v.gapDays > 0 && (
+            {!retired && v.gapDays > 0 && (
               <span className="text-amber-600 dark:text-amber-400">· ขาด {v.gapDays} วันในช่วงนี้</span>
             )}
           </span>

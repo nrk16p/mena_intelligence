@@ -28,7 +28,16 @@ export const MAX_DAY_KM = 1500
 /** Vendors normally land by D+1, terminus by D+2; later than this is a stall. */
 export const STALE_AFTER_DAYS = 3
 
-export type VendorStatus = "ok" | "stale" | "zero"
+/**
+ * Vendors whose service was cancelled → last day their readings can be trusted.
+ * HINO CONNECT: cancelled; from 2026-10-09 the API answered with 0 km for every
+ * truck, so those rows are ignored rather than counted as "parked".
+ */
+export const RETIRED_SOURCES: Record<string, string> = {
+  hino: "2026-10-08",
+}
+
+export type VendorStatus = "ok" | "stale" | "zero" | "retired"
 
 export type VendorHealth = {
   source: string
@@ -60,8 +69,9 @@ export function vendorHealth(
   return feeds.map((f) => {
     const lagDays = dayDiff(f.lastDate, maxDate)
     const zeroDays = f.lastNonZero ? dayDiff(f.lastNonZero, f.lastDate) : dayDiff(f.firstDate, f.lastDate) + 1
-    const status: VendorStatus =
-      lagDays > STALE_AFTER_DAYS ? "stale" : zeroDays >= STALE_AFTER_DAYS ? "zero" : "ok"
+    const status: VendorStatus = RETIRED_SOURCES[f.source]
+      ? "retired"
+      : lagDays > STALE_AFTER_DAYS ? "stale" : zeroDays >= STALE_AFTER_DAYS ? "zero" : "ok"
     return { ...f, lagDays, zeroDays, status }
   })
 }
@@ -72,7 +82,8 @@ export function vendorHealth(
  * to its last day (BESTTECH stopped at 2026-11-01 and dragged the default with it).
  */
 export function completeThrough(health: VendorHealth[], maxDate: string) {
-  const live = health.filter((h) => h.status !== "stale" && h.lastDate).map((h) => h.lastDate).sort()
+  const live = health
+    .filter((h) => h.status !== "stale" && h.status !== "retired" && h.lastDate).map((h) => h.lastDate).sort()
   return live[0] ?? maxDate
 }
 
@@ -80,9 +91,10 @@ export function completeThrough(health: VendorHealth[], maxDate: string) {
 // total_distance_km), so normalise it before anything is unioned.
 const RAW_KM = { $ifNull: ["$distance_km", { $ifNull: ["$total_distance_km", 0] }] }
 
-function vendorStage(match: Document): Document[] {
+function vendorStage(collection: string, match: Document): Document[] {
+  const lastGood = RETIRED_SOURCES[sourceOf(collection)]
   return [
-    { $match: match },
+    { $match: lastGood ? { $and: [match, { date_key: { $lte: lastGood } }] } : match },
     {
       $project: {
         _id: 0,
@@ -127,11 +139,11 @@ export function distancePipeline(
   postMatch: Document[] = [],
   opts: { daily?: boolean } = {}
 ): Document[] {
-  const [, ...rest] = collections
+  const [first, ...rest] = collections
 
   return [
-    ...vendorStage(match),
-    ...rest.map((name) => ({ $unionWith: { coll: name, pipeline: vendorStage(match) } })),
+    ...vendorStage(first, match),
+    ...rest.map((name) => ({ $unionWith: { coll: name, pipeline: vendorStage(name, match) } })),
 
     // Feeds $first below, so the winning vendor is known per day.
     { $sort: { km: -1 } },

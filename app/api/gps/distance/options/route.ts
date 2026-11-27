@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server"
 import type { Db } from "mongodb"
 import clientPromise from "@/lib/mongo"
-import { completeThrough as completeThroughOf, distanceCollections, sourceOf, vendorHealth } from "@/lib/gps-distance"
+import {
+  RETIRED_SOURCES,
+  completeThrough as completeThroughOf,
+  distanceCollections,
+  sourceOf,
+  vendorHealth,
+} from "@/lib/gps-distance"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 30
@@ -90,18 +96,23 @@ export async function GET(req: Request) {
     }
 
     const range = { date_key: { $gte: start, $lte: end } }
+    // A retired vendor only counts inside the days it was still trusted.
+    const rangeOf = (c: string) => {
+      const lastGood = RETIRED_SOURCES[sourceOf(c)]
+      return lastGood ? { date_key: { $gte: start, $lte: lastGood < end ? lastGood : end } } : range
+    }
 
     const [fleetLists, branchLists, presence, dayLists] =
       start && end
         ? await Promise.all([
-            Promise.all(collections.map((c) => db.collection(c).distinct("fleet", range))),
-            Promise.all(collections.map((c) => db.collection(c).distinct("branch", range))),
+            Promise.all(collections.map((c) => db.collection(c).distinct("fleet", rangeOf(c)))),
+            Promise.all(collections.map((c) => db.collection(c).distinct("branch", rangeOf(c)))),
             Promise.all(
               collections.map((c) =>
-                db.collection(c).find(range, { projection: { _id: 1 }, limit: 1 }).next()
+                db.collection(c).find(rangeOf(c), { projection: { _id: 1 }, limit: 1 }).next()
               )
             ),
-            Promise.all(collections.map((c) => db.collection(c).distinct("date_key", range))),
+            Promise.all(collections.map((c) => db.collection(c).distinct("date_key", rangeOf(c)))),
           ])
         : [[], [], [], []]
 
@@ -138,7 +149,13 @@ export async function GET(req: Request) {
       fleets: uniqueSorted(fleetLists),
       branches: uniqueSorted(branchLists),
       sources,
-      coverage: { vendors: sources.length, totalVendors: collections.length },
+      // A retired vendor is not "missing" from a window after its service ended.
+      coverage: {
+        vendors: sources.length,
+        totalVendors: collections.filter(
+          (c, i) => !RETIRED_SOURCES[sourceOf(c)] || Boolean(presence[i])
+        ).length,
+      },
       vendors: vendors.map((v) => ({ ...v, gapDays: gaps[v.source] ?? 0 })),
       collections,
     })
