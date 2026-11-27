@@ -28,8 +28,15 @@ type Switched = { plate: string; changes: { from: string; group: string }[] }
 
 const CATS: Category[] = ["ซ่อม", "PM", "ยาง"]
 const CAT_LABEL: Record<Category, string> = { ซ่อม: "ซ่อม/อะไหล่", PM: "PM", ยาง: "ยาง" }
-const GROUP_LABEL: Record<string, string> = { "ML|บริษัท": "ML บริษัท", "MS|บริษัท": "MS บริษัท", "ML|ร่วม": "ML ร่วม", "MS|ร่วม": "MS ร่วม",  }
-const GROUP_ORDER = ["ML|บริษัท", "MS|บริษัท", "ML|ร่วม", "MS|ร่วม"]
+const TRAILERS = ["TR-SCCC", "TR-SC", "TR-FEED", "BOX-9.5", "BOX-7.5"]
+const TRAILER_NAME: Record<string, string> = { "TR-SCCC": "Trailer SCCC ปูนผง", "TR-SC": "Trailer Side curtain", "TR-FEED": "Trailer อาหารสัตว์", "BOX-9.5": "ตู้เย็น 9.5 ม.", "BOX-7.5": "ตู้เย็น 7.5 ม." }
+const GROUP_LABEL: Record<string, string> = {
+  "ML|บริษัท": "ML บริษัท", "MS|บริษัท": "MS บริษัท", "ML|ร่วม": "ML ร่วม", "MS|ร่วม": "MS ร่วม",
+  ...Object.fromEntries(TRAILERS.flatMap((t) => [[`${t}|บริษัท`, `${TRAILER_NAME[t]} บริษัท`], [`${t}|ร่วม`, `${TRAILER_NAME[t]} ร่วม`]])),
+}
+/** budget groups of each branch, in display order */
+const BRANCH_GROUPS: Record<string, string[]> = { ศลบ: ["ML", "MS"], สสบ: TRAILERS }
+const GROUP_ORDER = [...["ML", "MS", ...TRAILERS].map((g) => `${g}|บริษัท`), ...["ML", "MS", ...TRAILERS].map((g) => `${g}|ร่วม`)]
 const TH_MONTH = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."]
 
 const fmt = (n: number) => (n < 0 ? "−" : "") + Math.abs(Math.round(n)).toLocaleString("en-US")
@@ -100,6 +107,7 @@ const sumCells = (rows: Row[]): Cell => rows.reduce((a, r) => ({ budget: a.budge
 // ── Page ───────────────────────────────────────────────────────
 export default function BudgetControlPage() {
   // open on this month (Bangkok); a later month may already have a snapshot (budget only) but is not the default
+  const [branch, setBranch] = useState<"ศลบ" | "สสบ">("ศลบ")
   const [month, setMonth] = useState<string>(() => new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 7))
   const [months, setMonths] = useState<string[]>([])
   const [data, setData] = useState<Snapshot | null>(null)
@@ -114,7 +122,7 @@ export default function BudgetControlPage() {
 
   useEffect(() => {
     let alive = true
-    fetch(`/api/budget-control?branch=${encodeURIComponent("ศลบ")}${month ? `&month=${month}` : ""}`, { cache: "no-store" })
+    fetch(`/api/budget-control?branch=${encodeURIComponent(branch)}${month ? `&month=${month}` : ""}`, { cache: "no-store" })
       .then((r) => r.json())
       .then((j) => {
         if (!alive) return
@@ -127,7 +135,7 @@ export default function BudgetControlPage() {
       })
       .catch((e: Error) => { if (alive) { setError(e.message); setState("error") } })
     return () => { alive = false }
-  }, [month, reload])
+  }, [branch, month, reload])
 
   const computed = bkk(data?.computed_at ?? null)
   const stale = data && data.pace < 1 && ageH(computed) > 2
@@ -147,8 +155,11 @@ export default function BudgetControlPage() {
         <div className="flex items-center gap-2">
           <span className="text-[12px] text-gray-500 dark:text-gray-400">สาขา</span>
           <div role="radiogroup" aria-label="สาขา" className="inline-flex gap-0.5 rounded-xl bg-gray-100 p-1 dark:bg-white/5">
-            <span role="radio" aria-checked="true" className="rounded-lg bg-white px-3.5 py-1.5 text-[13px] font-semibold text-emerald-800 ring-1 ring-emerald-200 dark:bg-[#14161f] dark:text-emerald-300 dark:ring-emerald-800/50">ลาดกระบัง · ศลบ</span>
-            <span role="radio" aria-checked="false" aria-disabled="true" title="job คุมงบยังคำนวณแค่ ศลบ" className="cursor-not-allowed px-3.5 py-1.5 text-[13px] text-gray-400 dark:text-gray-500">สระบุรี · สสบ <span className="text-[11px]">ยังไม่มีข้อมูล</span></span>
+            {([["ศลบ", "ลาดกระบัง · ศลบ"], ["สสบ", "สระบุรี · สสบ"]] as const).map(([k, label]) => (
+              <button key={k} type="button" role="radio" aria-checked={branch === k}
+                onClick={() => { if (branch !== k) { setState("loading"); setData(null); setBranch(k) } }}
+                className={`rounded-lg px-3.5 py-1.5 text-[13px] ${branch === k ? "bg-white font-semibold text-emerald-800 ring-1 ring-emerald-200 dark:bg-[#14161f] dark:text-emerald-300 dark:ring-emerald-800/50" : "text-gray-600 dark:text-gray-400"}`}>{label}</button>
+            ))}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -225,12 +236,12 @@ export default function BudgetControlPage() {
                     className={`min-h-[34px] rounded-lg px-3.5 text-[13px] ${view === k ? "bg-white font-semibold text-emerald-800 ring-1 ring-emerald-200 dark:bg-[#14161f] dark:text-emerald-300 dark:ring-emerald-800/50" : "text-gray-600 dark:text-gray-400"}`}>{label}</button>
                 ))}
               </div>
-              <span className="text-[13px] text-gray-500 dark:text-gray-400">{view === "group" ? "ML / MS บริษัท และรถร่วม" : "รถบริษัทแยกตามฟลีทใน ATMS เช่น Asia ML, Scco ML"}</span>
+              <span className="text-[13px] text-gray-500 dark:text-gray-400">{view === "group" ? (data.branch === "สสบ" ? "เทรลเลอร์ ตู้เย็น บริษัท และรถร่วม" : "ML / MS บริษัท และรถร่วม") : "รถบริษัทแยกตามฟลีทใน ATMS เช่น Asia ML, Scco ML"}</span>
             </div>
           )}
           {tab === "overview" && (view === "group" || !bi) && <Pivot rows={data.rows} />}
-          {tab === "overview" && bi && view === "fleet" && <FleetPivot cells={data.by_fleet} month={data.month} />}
-          {tab === "legs" && <TwoLegs cells={data.by_fleet} month={data.month} />}
+          {tab === "overview" && bi && view === "fleet" && <FleetPivot cells={data.by_fleet} month={data.month} groupIds={BRANCH_GROUPS[data.branch] ?? ["ML", "MS"]} />}
+          {tab === "legs" && <TwoLegs cells={data.by_fleet} month={data.month} groupIds={BRANCH_GROUPS[data.branch] ?? ["ML", "MS"]} />}
           {tab === "pending" && <PendingTable data={data} />}
           {tab === "prsum" && <PrBudgetTab month={data.month} cut={data.cut} rows={data.rows} pending={data.pending_prs} />}
           {tab === "check" && <CheckTab />}
@@ -295,7 +306,7 @@ function Summary({ data }: { data: Snapshot }) {
     <section aria-label="สรุปรถบริษัท" className="space-y-4 rounded-xl border border-gray-200 bg-white p-5 dark:border-white/8 dark:bg-[#0d0f18]">
       <div className="flex flex-wrap items-end gap-x-12 gap-y-4">
         <div title="งบ − ตัดจ่ายแล้ว − รับของแล้วรอเบิก − PR อนุมัติ (ยังไม่รับของ)">
-          <p className="text-[13px] text-gray-500 dark:text-gray-400">คงเหลือ · รถบริษัท ML+MS</p>
+          <p className="text-[13px] text-gray-500 dark:text-gray-400">คงเหลือ · รถบริษัท {data.branch === "สสบ" ? "เทรลเลอร์ + ตู้เย็น" : "ML+MS"}</p>
           <p className={`text-[40px] font-bold leading-tight ${rem < 0 ? "text-red-700 dark:text-red-400" : "text-gray-900 dark:text-white"}`}>{fmt(rem)}</p>
           <p className="text-[13px] text-gray-600 dark:text-gray-300">
             ใช้ <strong className={pct > 1 ? "text-red-700 dark:text-red-400" : ""}>{Math.round(pct * 100)}%</strong>
@@ -429,8 +440,8 @@ function Pivot({ rows }: { rows: Row[] }) {
     </div>
   )
 }
-function FleetPivot({ cells, month }: { cells: FleetCellIn[] | undefined; month: string }) {
-  const rows = useMemo(() => fleetPivot(cells ?? [], fleetBudget as FleetBudgetFile, month), [cells, month])
+function FleetPivot({ cells, month, groupIds }: { cells: FleetCellIn[] | undefined; month: string; groupIds: string[] }) {
+  const rows = useMemo(() => fleetPivot(cells ?? [], fleetBudget as FleetBudgetFile, month, false, groupIds), [cells, month, groupIds])
   const [open, setOpen] = useState<Record<string, boolean>>({})
   if (!cells) {
     return <p className="rounded-xl border border-gray-200 bg-white p-4 text-[14px] text-gray-700 dark:border-white/8 dark:bg-[#0d0f18] dark:text-gray-300">ยอดรายฟลีทยังไม่พร้อม รอรอบคำนวณถัดไป (ทุกชั่วโมง 07:25–20:25)</p>
@@ -481,8 +492,8 @@ function FleetPivot({ cells, month }: { cells: FleetCellIn[] | undefined; month:
 }
 /** สองขา: buy (PR approved this month) and use (WD) each against the same monthly budget, never added together;
  *  stock = received (DD) but not yet issued to a truck. Per fleet, totals per group. */
-function TwoLegs({ cells, month }: { cells: FleetCellIn[] | undefined; month: string }) {
-  const rows = useMemo(() => fleetPivot(cells ?? [], fleetBudget as FleetBudgetFile, month, true), [cells, month])
+function TwoLegs({ cells, month, groupIds }: { cells: FleetCellIn[] | undefined; month: string; groupIds: string[] }) {
+  const rows = useMemo(() => fleetPivot(cells ?? [], fleetBudget as FleetBudgetFile, month, true, groupIds), [cells, month, groupIds])
   const [open, setOpen] = useState<Record<string, boolean>>({})
   // a month with no transactions yet has no cells at all: that is ready (budget only), not "missing"
   if (!cells || (cells.length > 0 && !cells.some((c) => c.pr_approved !== undefined))) {

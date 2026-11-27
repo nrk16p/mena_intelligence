@@ -149,7 +149,11 @@ export type FleetBudgetFile = {
 }
 
 /** "Asia" + ML → "Asia ML"; names that already end in ML/MS stay as they are ("Scco ML", "Asia MS"). */
-export const fleetLabel = (name: string, groupId: string) => (/\s(ML|MS)$/.test(name) ? name : `${name} ${groupId}`)
+/** ML/MS fleets read "Asia ML"; trailer and box fleets (สสบ) keep their ATMS name. งานทั่วไป(สระบุรี) is shown as งานทั่วไป. */
+export const fleetLabel = (name: string, groupId: string) => {
+  const n = name === "งานทั่วไป(สระบุรี)" ? "งานทั่วไป" : name
+  return groupId !== "ML" && groupId !== "MS" ? n : /\s(ML|MS)$/.test(n) ? n : `${n} ${groupId}`
+}
 
 /** Monthly fleet budget per category, or null when the file has no such fleet or year. */
 export function fleetBudgetFor(file: FleetBudgetFile, groupId: string, atmsFleet: string, month: string): Partial<Record<Category, number>> | null {
@@ -211,14 +215,14 @@ const emptyFleetCell = (): FleetCell => ({ budget: 0, wd: 0, dd: 0, pr: 0, pend:
  *  snapshot's group × fleet × category cells (group on the day the money was booked). Fleets with a budget but no
  *  activity yet still get a row; money on plates with no ATMS fleet goes to "ไม่ระบุฟลีท". */
 /** With `partners`, partner trucks come too, as groups "ML ร่วม" / "MS ร่วม" (no budget of their own). */
-export function fleetPivot(byFleet: FleetCellIn[], file: FleetBudgetFile, month: string, partners = false): FleetPivotRow[] {
+export function fleetPivot(byFleet: FleetCellIn[], file: FleetBudgetFile, month: string, partners = false, groupIds: string[] = ["ML", "MS"]): FleetPivotRow[] {
   const out = new Map<string, FleetPivotRow>()
   const row = (groupId: string, fleet: string) => {
     const k = `${groupId}|${fleet}`
     return out.get(k) ?? out.set(k, { groupId, fleet, cats: { ซ่อม: emptyFleetCell(), PM: emptyFleetCell(), ยาง: emptyFleetCell() } }).get(k)!
   }
   if (Number(month.slice(0, 4)) === file.year) {
-    for (const g of file.groups.filter((x) => x.id === "ML" || x.id === "MS")) {
+    for (const g of file.groups.filter((x) => groupIds.includes(x.id))) {
       for (const f of g.fleets) {
         const b = fleetBudgetFor(file, g.id, f.fleet, month)
         if (!b) continue
@@ -229,8 +233,9 @@ export function fleetPivot(byFleet: FleetCellIn[], file: FleetBudgetFile, month:
   }
   for (const x of byFleet) {
     const partner = x.group.endsWith("ร่วม")
-    if (!x.group.endsWith("บริษัท") && !(partners && partner)) continue
     const fleetId = x.group.split("|")[0]
+    if (!groupIds.includes(fleetId)) continue
+    if (!x.group.endsWith("บริษัท") && !(partners && partner)) continue
     const groupId = partner ? `${fleetId} ร่วม` : fleetId
     const name = !x.fleet ? "ไม่ระบุฟลีท" : fleetLabel(x.fleet, fleetId)
     const c = row(groupId, name).cats[x.category]
@@ -238,7 +243,7 @@ export function fleetPivot(byFleet: FleetCellIn[], file: FleetBudgetFile, month:
     c.wd += x.wd; c.dd += x.dd_open; c.pr += x.pr_open; c.pend += x.pr_pending; c.buy += x.pr_approved ?? 0
   }
   const total = (r: FleetPivotRow) => CATEGORIES.reduce((s, c) => s + r.cats[c].budget, 0)
-  const order = (g: string) => ["ML", "MS", "ML ร่วม", "MS ร่วม"].indexOf(g)
+  const order = (g: string) => [...groupIds, ...groupIds.map((x) => `${x} ร่วม`)].indexOf(g)
   const used = (r: FleetPivotRow) => CATEGORIES.reduce((s, c) => s + r.cats[c].wd + r.cats[c].buy, 0)
   return [...out.values()].sort((a, b) => order(a.groupId) - order(b.groupId) || total(b) - total(a) || used(b) - used(a) || a.fleet.localeCompare(b.fleet))
 }

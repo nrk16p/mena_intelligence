@@ -191,6 +191,14 @@ describe("fleetPivot", () => {
     ],
   }
   const cell = (group: string, fleet: string, category: "ซ่อม" | "PM" | "ยาง", wd: number, dd = 0, pr = 0, pend = 0) => ({ group, fleet, category, wd, dd_open: dd, pr_open: pr, pr_pending: pend })
+  it("สสบ groups: trailer fleets keep their ATMS name and join the fleet budget", () => {
+    const f2 = { year: 2026, groups: [{ id: "TR-SC", trucks: 42, repair: Array(12).fill(420_000), pm: Array(12).fill(0), tyre: Array(12).fill(0), fleets: [{ fleet: "งานทั่วไป", trucks: 42, repair_share: 1 }] }] }
+    const rows = fleetPivot([cell("TR-SC|บริษัท", "งานทั่วไป(สระบุรี)", "ซ่อม", 1000), cell("ML|บริษัท", "Asia", "ซ่อม", 5)], f2, "2026-11", false, ["TR-SC"])
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ groupId: "TR-SC", fleet: "งานทั่วไป" })
+    expect(rows[0].cats.ซ่อม).toMatchObject({ budget: 420_000, wd: 1000 })
+    expect(fleetLabel("SCCC", "TR-SCCC")).toBe("SCCC")
+  })
   it("partners: separate ML ร่วม group with no budget, only when asked", () => {
     const cells = [cell("ML|บริษัท", "Asia", "ซ่อม", 10), { ...cell("ML|ร่วม", "Asia", "ซ่อม", 99), pr_approved: 5 }]
     expect(fleetPivot(cells, file, "2026-11").some((r) => r.groupId === "ML ร่วม")).toBe(false)
