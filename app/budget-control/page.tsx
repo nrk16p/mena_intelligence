@@ -479,7 +479,8 @@ function FleetPivot({ cells, month }: { cells: FleetCellIn[] | undefined; month:
 function TwoLegs({ cells, month }: { cells: FleetCellIn[] | undefined; month: string }) {
   const rows = useMemo(() => fleetPivot(cells ?? [], fleetBudget as FleetBudgetFile, month), [cells, month])
   const [open, setOpen] = useState<Record<string, boolean>>({})
-  if (!cells || !cells.some((c) => c.pr_approved !== undefined)) {
+  // a month with no transactions yet has no cells at all: that is ready (budget only), not "missing"
+  if (!cells || (cells.length > 0 && !cells.some((c) => c.pr_approved !== undefined))) {
     return <p className="rounded-xl border border-gray-200 bg-white p-4 text-[14px] text-gray-700 dark:border-white/8 dark:bg-[#0d0f18] dark:text-gray-300">ยอดซื้อรายฟลีทยังไม่พร้อม รอรอบคำนวณถัดไป (ทุกชั่วโมง 07:25–20:25)</p>
   }
   type C = { budget: number; buy: number; wd: number; dd: number }
