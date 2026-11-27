@@ -97,7 +97,8 @@ const sumCells = (rows: Row[]): Cell => rows.reduce((a, r) => ({ budget: a.budge
 
 // ── Page ───────────────────────────────────────────────────────
 export default function BudgetControlPage() {
-  const [month, setMonth] = useState<string>("")
+  // open on this month (Bangkok); a later month may already have a snapshot (budget only) but is not the default
+  const [month, setMonth] = useState<string>(() => new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 7))
   const [months, setMonths] = useState<string[]>([])
   const [data, setData] = useState<Snapshot | null>(null)
   const [state, setState] = useState<"loading" | "ok" | "error">("loading")
@@ -115,6 +116,8 @@ export default function BudgetControlPage() {
         if (!alive) return
         if (!j.success) throw new Error(j.error || "โหลดข้อมูลไม่สำเร็จ")
         setMonths(j.months ?? [])
+        // no snapshot for this month yet (e.g. the 1st before 07:25): show the newest one instead
+        if (!j.data && j.months?.length && !j.months.includes(month)) { setMonth(j.months[0]); return }
         setData(dropOutside(j.data))
         setState("ok")
       })
