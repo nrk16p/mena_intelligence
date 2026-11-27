@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { getUserPermissions } from "@/lib/permissions"
 import clientPromise from "@/lib/mongo"
 import { AtmsError, readPr } from "@/lib/atms-doc"
-import { checkPr, checkPrFleet, docKind, fleetBudgetFor, normPlate, OTHER_ML, type FleetBudgetFile, type PlateMapEntry, type Snapshot } from "@/lib/budget-check"
+import { checkPr, checkPrFleet, docKind, fleetBudgetFor, fleetLabel, normPlate, OTHER_ML, type FleetBudgetFile, type PlateMapEntry, type Snapshot } from "@/lib/budget-check"
 import fleetBudget from "@/app/budget-control/fleet-budget-2569.json"
 
 // เช็กงบจากเลข PR: read one PR live from ATMS, compare with the budget-control snapshot (buy leg) and
@@ -57,10 +57,10 @@ export async function GET(req: NextRequest) {
       const vm = await atms.findOne({ ทะเบียน: { $in: [...new Set([pr.plate, pl])] } }, { projection: { _id: 0, ฟลีท: 1 }, maxTimeMS: 5000 })
       const atmsFleet = vm ? String(vm["ฟลีท"] ?? "") : ""
       const groupId = result.group.split("|")[0]
-      const name = groupId === "ML" && OTHER_ML.has(atmsFleet) ? "อื่น ๆ" : atmsFleet
+      const name = fleetLabel(groupId === "ML" && OTHER_ML.has(atmsFleet) ? "อื่น ๆ" : atmsFleet, groupId)
       const budget = atmsFleet ? fleetBudgetFor(fleetBudget as FleetBudgetFile, groupId, atmsFleet, month) : null
       if (!budget) {
-        fleet = { name: name || "—", lines: [], reason: atmsFleet ? `ยังไม่มีงบรายฟลีทของ ${name} เดือนนี้` : `ไม่พบฟลีทของทะเบียน ${pr.plate} ใน ATMS` }
+        fleet = { name: atmsFleet ? name : "—", lines: [], reason: atmsFleet ? `ยังไม่มีงบรายฟลีทของ ${name} เดือนนี้` : `ไม่พบฟลีทของทะเบียน ${pr.plate} ใน ATMS` }
       } else {
         const names = groupId === "ML" && OTHER_ML.has(atmsFleet) ? [...OTHER_ML] : [atmsFleet]
         const rows = await atms.find({ ฟลีท: { $in: names }, ประเภทรถร่วม: "รถมีนา" }, { projection: { _id: 0, ทะเบียน: 1 } }).limit(1000).maxTimeMS(5000).toArray()

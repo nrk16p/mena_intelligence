@@ -145,6 +145,9 @@ export type FleetBudgetFile = {
 }
 export const OTHER_ML = new Set(["ที.เอ็น.ซีเมนต์บล็อค", "Acon", "มหาทรัพย์ซีเมนต์", "จิรโชติ", "RP"])
 
+/** "Asia" + ML → "Asia ML"; names that already end in ML/MS stay as they are ("Scco ML", "Asia MS"). */
+export const fleetLabel = (name: string, groupId: string) => (/\s(ML|MS)$/.test(name) ? name : `${name} ${groupId}`)
+
 /** Monthly fleet budget per category, or null when the file has no such fleet or year. */
 export function fleetBudgetFor(file: FleetBudgetFile, groupId: string, atmsFleet: string, month: string): Partial<Record<Category, number>> | null {
   if (Number(month.slice(0, 4)) !== file.year) return null
