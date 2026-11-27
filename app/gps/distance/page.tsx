@@ -38,6 +38,16 @@ type SortKey = "vehicleNo" | "fleet" | "branch" | "distanceKm" | "activeDays" | 
 
 type Coverage = { vendors: number; totalVendors: number }
 
+type VendorHealth = {
+  source:      string
+  lastDate:    string
+  lastNonZero: string
+  lagDays:     number
+  zeroDays:    number
+  gapDays:     number
+  status:      "ok" | "stale" | "zero"
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmt(v: number, digits = 0) {
@@ -55,6 +65,51 @@ function fmtShort(v: number) {
 }
 
 const FLEET_PREVIEW = 8
+
+function vendorNote(v: VendorHealth) {
+  if (v.status === "stale")
+    return `หยุดส่งหลัง ${dateLabel(v.lastDate)} (${v.lagDays} วัน)` +
+      (v.zeroDays >= 3 && v.lastNonZero ? ` · ค่าเป็น 0 ตั้งแต่หลัง ${dateLabel(v.lastNonZero)}` : "")
+  if (v.status === "zero")
+    return v.lastNonZero ? `ระยะทางเป็น 0 ทุกคันหลัง ${dateLabel(v.lastNonZero)}` : "ระยะทางเป็น 0 ทุกคัน"
+  return `ถึง ${dateLabel(v.lastDate)}`
+}
+
+/** One line per vendor feed, so a stalled or all-zero feed is named instead of
+ *  reading as "those trucks did not drive". Healthy feeds stay grey and quiet. */
+function VendorHealthRow({ vendors }: { vendors: VendorHealth[] }) {
+  if (vendors.length === 0) return null
+  const problems = vendors.filter((v) => v.status !== "ok" || v.gapDays > 0).length
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px]">
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+        สถานะแหล่ง GPS
+      </span>
+      {vendors.map((v) => {
+        const bad = v.status !== "ok"
+        const dot = bad ? "bg-red-500" : v.gapDays > 0 ? "bg-amber-500" : "bg-emerald-500"
+        return (
+          <span
+            key={v.source}
+            className={`inline-flex items-center gap-1.5 ${bad ? "text-red-600 dark:text-red-400" : "text-gray-500 dark:text-gray-400"}`}
+          >
+            <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
+            <span className="font-medium">{v.source}</span>
+            <span>{vendorNote(v)}</span>
+            {v.gapDays > 0 && (
+              <span className="text-amber-600 dark:text-amber-400">· ขาด {v.gapDays} วันในช่วงนี้</span>
+            )}
+          </span>
+        )
+      })}
+      {problems > 0 && (
+        <span className="text-gray-400">
+          — รถที่มีแต่แหล่งที่มีปัญหาจะแสดงระยะทางต่ำกว่าจริงในช่วงนั้น
+        </span>
+      )}
+    </div>
+  )
+}
 
 /** Every day of the range, so the export has a column even for silent days. */
 function datesInRange(r: DateRange) {
@@ -299,6 +354,7 @@ export default function GpsDistancePage() {
   // Filter options
   const [bounds, setBounds]         = useState<{ min: string; max: string }>({ min: "", max: "" })
   const [coverage, setCoverage]     = useState<Coverage | null>(null)
+  const [vendors, setVendors]       = useState<VendorHealth[]>([])
   const [fleetOptions, setFleetOptions] = useState<string[]>([])
   const [branchOptions, setBranchOptions] = useState<string[]>([])
   const [sourceOptions, setSourceOptions] = useState<string[]>([])
@@ -340,6 +396,7 @@ export default function GpsDistancePage() {
         if (cancelled || !j.success) return
         setBounds({ min: j.minDate ?? "", max: j.maxDate ?? "" })
         setCoverage(j.coverage ?? null)
+        setVendors(j.vendors ?? [])
         setFleetOptions(j.fleets ?? [])
         setBranchOptions(j.branches ?? [])
         setSourceOptions(j.sources ?? [])
@@ -660,6 +717,8 @@ export default function GpsDistancePage() {
             {bounds.max && range.end === bounds.max && " (ETL ของแหล่งที่เหลือยังโหลดไม่ครบ)"}
           </div>
         )}
+
+        <VendorHealthRow vendors={vendors} />
 
         {optionsLoading ? (
           <>

@@ -351,5 +351,10 @@ const completeThrough = lastWithData[0] ?? maxDate
 3. **อย่า hardcode รายชื่อ collection** — ใช้ regex `^distance_` เพื่อรองรับ vendor ใหม่
 4. **อย่าลืม `total_distance_km`** ของ songdee ตอนเพิ่มการคำนวณใหม่
 5. **วันล่าสุดมักยังไม่ครบทุกเจ้า** — ตรวจ `coverage` / `completeThrough` ก่อนสรุปว่า fleet ไหนหายไป
-6. **แก้ pipeline ที่ `lib/gps-distance.ts` ที่เดียว** — ทั้ง endpoint รายเดือนและช่วงวันที่ใช้ร่วมกัน
+6. **ค่ารายวัน > 1,500 กม. หรือติดลบ ถูกตัดทิ้ง** (`MAX_DAY_KM`) — ไมล์กล่องเพี้ยน (เคยเจอ cartrack 4,224 กม./วัน)
+   วันนั้นจึงใช้ค่าของเจ้าอื่นแทน ถ้าไม่มีเจ้าอื่นจะนับเป็น 0
+7. **สถานะแหล่ง GPS** — `options` คืน `vendors[]` ราย vendor: `stale` = หยุดส่งเกิน 3 วัน, `zero` = ยังส่งแต่ระยะทาง 0
+   ทุกคัน ≥ 3 วัน, `gapDays` = วันที่ขาดในช่วงที่เลือก; `completeThrough` ไม่นับเจ้าที่ `stale`
+   (เดิม besttech หยุด 1 พ.ย. ทำให้หน้าเปิดมาที่ข้อมูลเก่า 3 สัปดาห์)
+8. **แก้ pipeline ที่ `lib/gps-distance.ts` ที่เดียว** — ทั้ง endpoint รายเดือนและช่วงวันที่ใช้ร่วมกัน
    ถ้าจะเพิ่ม endpoint ใหม่ ให้ส่ง `$match` ของตัวเองเข้าไป อย่า copy pipeline ออกไปไว้ที่อื่น
