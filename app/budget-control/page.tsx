@@ -7,13 +7,15 @@ import AgeSplitTab from "./AgeSplitTab"
 import CheckTab from "./CheckTab"
 import FleetBudgetTab from "./FleetBudgetTab"
 import PrBudgetTab from "./PrBudgetTab"
+import fleetBudget from "./fleet-budget-2569.json"
+import { CATEGORIES, fleetPivot, type FleetBudgetFile, type PlateCats } from "@/lib/budget-check"
 
 // ── Snapshot shape (written by mena-backend-services job `budget-control`) ──
 type Category = "ซ่อม" | "PM" | "ยาง"
 type Row = { group: string; category: Category; budget: number; wd: number; wd_yesterday: number; dd_open: number; pr_open: number; pr_approved: number; pr_pending: number }
 type Pending = { code: string; date: string; plate: string; group: string; category: Category; total: number; levels_done: number; requester: string; note: string }
 type OpenLine = { group: string; category: Category; plate: string; dd: string; pr: string; received: string; item: string; qty: number; open_qty: number; open_amount: number }
-type PlateRow = { plate: string; group: string; wd: number; dd_open: number; pr_open: number; pr_pending: number }
+type PlateRow = { plate: string; group: string; wd: number; dd_open: number; pr_open: number; pr_pending: number; fleet?: string | null; cat?: PlateCats["cat"] }
 type Snapshot = {
   branch: string; month: string; cut: string; computed_at: string; pace: number
   sources: { wd_at: string | null; pr_at: string | null; po_at: string | null; dd_at: string | null; budget_at: string | null; plates_from: string | null; daily_to?: string | null; budget_lines: number }
@@ -100,7 +102,7 @@ export default function BudgetControlPage() {
   const [data, setData] = useState<Snapshot | null>(null)
   const [state, setState] = useState<"loading" | "ok" | "error">("loading")
   const [error, setError] = useState("")
-  const [tab, setTab] = useState<"pivot" | "pending" | "dd" | "plate" | "age" | "fleet" | "prsum" | "check">("pivot")
+  const [tab, setTab] = useState<"pivot" | "pending" | "dd" | "plate" | "age" | "fleet" | "prsum" | "check" | "fleetpivot">("pivot")
   const [srcOpen, setSrcOpen] = useState(false)
   const [reload, setReload] = useState(0)
 
@@ -177,6 +179,7 @@ export default function BudgetControlPage() {
           <div role="tablist" aria-label="มุมมอง" className="inline-flex max-w-full flex-wrap gap-0.5 rounded-xl bg-gray-100 p-1 dark:bg-white/5">
             {([
               ["pivot", "ตามกลุ่ม"],
+              ["fleetpivot", "ตามฟลีท"],
               ["pending", `PR รออนุมัติ · ${data.pending_prs.length}`],
               ["prsum", "สรุปงบจาก PR"],
               ["check", "เช็กงบจากเลข PR"],
@@ -192,6 +195,7 @@ export default function BudgetControlPage() {
             ))}
           </div>
           {tab === "pivot" && <Pivot rows={data.rows} />}
+          {tab === "fleetpivot" && <FleetPivot plates={data.by_plate} month={data.month} />}
           {tab === "pending" && <PendingTable data={data} />}
           {tab === "prsum" && <PrBudgetTab month={data.month} cut={data.cut} rows={data.rows} pending={data.pending_prs} />}
           {tab === "check" && <CheckTab />}
@@ -387,6 +391,56 @@ function Pivot({ rows }: { rows: Row[] }) {
           })}
         </tbody>
       </table>
+    </div>
+  )
+}
+function FleetPivot({ plates, month }: { plates: PlateRow[]; month: string }) {
+  const rows = useMemo(() => fleetPivot(plates, fleetBudget as FleetBudgetFile, month), [plates, month])
+  const [open, setOpen] = useState<Record<string, boolean>>({})
+  if (!plates.some((p) => p.cat)) {
+    return <p className="rounded-xl border border-gray-200 bg-white p-4 text-[14px] text-gray-700 dark:border-white/8 dark:bg-[#0d0f18] dark:text-gray-300">ยอดรายฟลีทยังไม่พร้อม รอรอบคำนวณถัดไป (ทุกชั่วโมง 07:25–20:25)</p>
+  }
+  const cellOf = (r: (typeof rows)[number]) => CATEGORIES.reduce((a, c) => ({ budget: a.budget + r.cats[c].budget, wd: a.wd + r.cats[c].wd, dd: a.dd + r.cats[c].dd, pr: a.pr + r.cats[c].pr, pend: a.pend + r.cats[c].pend }), { budget: 0, wd: 0, dd: 0, pr: 0, pend: 0 })
+  const groups = [...new Set(rows.map((r) => r.groupId))]
+  return (
+    <div className="grid gap-2">
+      <p className="text-[13px] text-gray-500 dark:text-gray-400">รถบริษัทแยกตามฟลีทใน ATMS · งบจากแท็บงบรายฟลีท (ซ่อมปันตามอายุรถ PM กับยางปันตามจำนวนคัน) · ยอดใช้ตามทะเบียนของเดือน คอลัมน์และวิธีคิดเหมือนแท็บตามกลุ่ม</p>
+      <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white dark:border-white/8 dark:bg-[#0d0f18]">
+        <table className="w-full min-w-[1080px] border-collapse text-[14px]">
+          <thead>
+            <tr className="bg-gray-50 text-[12px] text-gray-600 dark:bg-white/3 dark:text-gray-400">
+              <th scope="col" className="px-3.5 py-2.5 text-left font-semibold">ฟลีท / ประเภท</th>
+              <th scope="col" className={TH}>งบ</th>
+              <th scope="col" className={TH}>ตัดจ่ายแล้ว (WD)</th>
+              <th scope="col" className={TH}>รับของแล้วรอเบิก (DD)</th>
+              <th scope="col" className={TH}>PR อนุมัติ</th>
+              <th scope="col" className={`${TH} bg-emerald-50/60 dark:bg-emerald-950/20`}>คงเหลือ</th>
+              <th scope="col" className={TH}>PR รออนุมัติ</th>
+              <th scope="col" className={TH}>ถ้า PR รอผ่าน</th>
+              <th scope="col" className={TH}>ใช้ไป</th>
+            </tr>
+          </thead>
+          <tbody>
+            {groups.map((g) => {
+              const gr = rows.filter((r) => r.groupId === g)
+              return (
+                <FragmentRows key={g}>
+                  {gr.map((r) => {
+                    const k = `${g}|${r.fleet}`
+                    return (
+                      <FragmentRows key={k}>
+                        <PivotLine label={r.fleet} c={cellOf(r)} kind="group" open={!!open[k]} onToggle={() => setOpen({ ...open, [k]: !open[k] })} />
+                        {open[k] && CATEGORIES.map((c) => <PivotLine key={c} label={CAT_LABEL[c]} c={r.cats[c]} kind="child" />)}
+                      </FragmentRows>
+                    )
+                  })}
+                  <PivotLine label={`รวม ${g} บริษัท`} c={gr.reduce((a, r) => { const x = cellOf(r); return { budget: a.budget + x.budget, wd: a.wd + x.wd, dd: a.dd + x.dd, pr: a.pr + x.pr, pend: a.pend + x.pend } }, { budget: 0, wd: 0, dd: 0, pr: 0, pend: 0 })} kind="total" />
+                </FragmentRows>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

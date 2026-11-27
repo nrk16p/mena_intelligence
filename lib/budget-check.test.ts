@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { checkPr, checkPrFleet, docKind, fleetBudgetFor, fleetLabel, hasFleetTotals, itemCategory, isStockPlate, normPlate, remarkLine, type PrDoc, type Snapshot } from "./budget-check"
+import { checkPr, checkPrFleet, docKind, fleetBudgetFor, fleetLabel, fleetPivot, hasFleetTotals, itemCategory, isStockPlate, normPlate, remarkLine, type PrDoc, type Snapshot } from "./budget-check"
 
 const snap = (over: Partial<Snapshot> = {}): Snapshot => ({
   month: "2026-11",
@@ -174,5 +174,34 @@ describe("review fixes", () => {
   it("hasFleetTotals is false for a snapshot written before per-plate totals existed", () => {
     expect(hasFleetTotals({ by_plate: [{ plate: "a", group: "ML|บริษัท" }] })).toBe(false)
     expect(hasFleetTotals({ by_plate: [{ plate: "a", group: "ML|บริษัท", pr_approved_cat: {} }] })).toBe(true)
+  })
+})
+
+describe("fleetPivot", () => {
+  const file = {
+    year: 2026,
+    groups: [
+      { id: "ML", trucks: 200, repair: Array(12).fill(1_000_000), pm: Array(12).fill(100_000), tyre: Array(12).fill(400_000),
+        fleets: [{ fleet: "Asia", trucks: 100, repair_share: 0.3 }, { fleet: "Scco ML", trucks: 97, repair_share: 0.68 }, { fleet: "อื่น ๆ", trucks: 3, repair_share: 0.02 }] },
+      { id: "MS", trucks: 10, repair: Array(12).fill(100_000), pm: Array(12).fill(0), tyre: Array(12).fill(0), fleets: [{ fleet: "Cpac MS", trucks: 10, repair_share: 1 }] },
+    ],
+  }
+  const cat = (wd: number, dd = 0, pr = 0, pend = 0) => ({ wd, dd_open: dd, pr_open: pr, pr_pending: pend })
+  it("sums company plates by ATMS fleet and joins the fleet budget", () => {
+    const rows = fleetPivot([
+      { plate: "a", group: "ML|บริษัท", fleet: "Asia", cat: { ซ่อม: cat(100, 10, 20, 5) } },
+      { plate: "b", group: "ML|บริษัท", fleet: "Asia", cat: { ซ่อม: cat(50), ยาง: cat(7) } },
+      { plate: "c", group: "ML|บริษัท", fleet: "Acon", cat: { ซ่อม: cat(9) } },
+      { plate: "d", group: "ML|ร่วม", fleet: "Asia", cat: { ซ่อม: cat(999) } },
+      { plate: "e", group: "ML|บริษัท", fleet: null, cat: { ซ่อม: cat(3) } },
+    ], file, "2026-11")
+    const asia = rows.find((r) => r.fleet === "Asia ML")!
+    expect(asia.cats.ซ่อม).toEqual({ budget: 300_000, wd: 150, dd: 10, pr: 20, pend: 5 })
+    expect(asia.cats.ยาง).toMatchObject({ budget: 200_000, wd: 7 })
+    expect(rows.find((r) => r.fleet === "อื่น ๆ ML")!.cats.ซ่อม).toMatchObject({ wd: 9 })
+    expect(rows.find((r) => r.fleet === "Scco ML")!.cats.ซ่อม).toMatchObject({ wd: 0 })
+    expect(rows.find((r) => r.fleet === "ไม่ระบุฟลีท")!.cats.ซ่อม).toMatchObject({ budget: 0, wd: 3 })
+    expect(rows.find((r) => r.fleet === "Cpac MS")!.cats.ซ่อม.budget).toBe(100_000)
+    expect(rows.map((r) => r.groupId)).toEqual(["ML", "ML", "ML", "ML", "MS"])
   })
 })

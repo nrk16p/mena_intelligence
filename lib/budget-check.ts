@@ -198,3 +198,43 @@ export function checkPrFleet(
   }
   return lines
 }
+
+// ---------- ตามฟลีท tab ----------
+export type FleetCell = { budget: number; wd: number; dd: number; pr: number; pend: number }
+export type PlateCats = { plate: string; group: string; fleet?: string | null; cat?: Partial<Record<Category, { wd: number; dd_open: number; pr_open: number; pr_pending: number }>> }
+export type FleetPivotRow = { groupId: string; fleet: string; cats: Record<Category, FleetCell> }
+const emptyFleetCell = (): FleetCell => ({ budget: 0, wd: 0, dd: 0, pr: 0, pend: 0 })
+
+/** Company plates summed by ATMS fleet ("Asia ML", "Cpac MS" …) with each fleet's own budget for the month.
+ *  Fleets with a budget but no activity yet still get a row. Plates with no known fleet go to "ไม่ระบุฟลีท". */
+export function fleetPivot(byPlate: PlateCats[], file: FleetBudgetFile, month: string): FleetPivotRow[] {
+  const out = new Map<string, FleetPivotRow>()
+  const row = (groupId: string, fleet: string) => {
+    const k = `${groupId}|${fleet}`
+    return out.get(k) ?? out.set(k, { groupId, fleet, cats: { ซ่อม: emptyFleetCell(), PM: emptyFleetCell(), ยาง: emptyFleetCell() } }).get(k)!
+  }
+  if (Number(month.slice(0, 4)) === file.year) {
+    for (const g of file.groups.filter((x) => x.id === "ML" || x.id === "MS")) {
+      for (const f of g.fleets) {
+        const b = fleetBudgetFor(file, g.id, f.fleet === "อื่น ๆ" ? "Acon" : f.fleet, month)
+        if (!b) continue
+        const r = row(g.id, fleetLabel(f.fleet, g.id))
+        for (const c of CATEGORIES) r.cats[c].budget += b[c] ?? 0
+      }
+    }
+  }
+  for (const p of byPlate) {
+    if (!p.group.endsWith("บริษัท")) continue
+    const groupId = p.group.split("|")[0]
+    const raw = p.fleet ?? ""
+    const name = !raw ? "ไม่ระบุฟลีท" : fleetLabel(groupId === "ML" && OTHER_ML.has(raw) ? "อื่น ๆ" : raw, groupId)
+    const r = row(groupId, name)
+    for (const c of CATEGORIES) {
+      const v = p.cat?.[c]
+      if (!v) continue
+      r.cats[c].wd += v.wd; r.cats[c].dd += v.dd_open; r.cats[c].pr += v.pr_open; r.cats[c].pend += v.pr_pending
+    }
+  }
+  const total = (r: FleetPivotRow) => CATEGORIES.reduce((s, c) => s + r.cats[c].budget, 0)
+  return [...out.values()].sort((a, b) => a.groupId.localeCompare(b.groupId) || total(b) - total(a) || a.fleet.localeCompare(b.fleet))
+}
