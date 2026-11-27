@@ -191,6 +191,10 @@ describe("fleetPivot", () => {
     ],
   }
   const cell = (group: string, fleet: string, category: "ซ่อม" | "PM" | "ยาง", wd: number, dd = 0, pr = 0, pend = 0) => ({ group, fleet, category, wd, dd_open: dd, pr_open: pr, pr_pending: pend })
+  it("buy leg = PR approved this month per fleet", () => {
+    const rows = fleetPivot([{ ...cell("ML|บริษัท", "Asia", "ซ่อม", 0, 0, 20), pr_approved: 70 }], file, "2026-11")
+    expect(rows.find((r) => r.fleet === "Asia ML")!.cats.ซ่อม).toMatchObject({ buy: 70, pr: 20 })
+  })
   it("sums company cells by ATMS fleet and joins the fleet budget", () => {
     const rows = fleetPivot([
       cell("ML|บริษัท", "Asia", "ซ่อม", 150, 10, 20, 5),
@@ -200,7 +204,7 @@ describe("fleetPivot", () => {
       cell("ML|บริษัท", "", "ซ่อม", 3),
     ], file, "2026-11")
     const asia = rows.find((r) => r.fleet === "Asia ML")!
-    expect(asia.cats.ซ่อม).toEqual({ budget: 300_000, wd: 150, dd: 10, pr: 20, pend: 5 })
+    expect(asia.cats.ซ่อม).toEqual({ budget: 300_000, wd: 150, dd: 10, pr: 20, pend: 5, buy: 0 })
     expect(asia.cats.ยาง).toMatchObject({ budget: 200_000, wd: 7 })
     expect(rows.find((r) => r.fleet === "Acon ML")!.cats.ซ่อม).toMatchObject({ budget: 20_000, wd: 9 })
     expect(rows.some((r) => r.fleet.startsWith("อื่น"))).toBe(false)

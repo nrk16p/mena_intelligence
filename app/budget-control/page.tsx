@@ -103,7 +103,7 @@ export default function BudgetControlPage() {
   const [data, setData] = useState<Snapshot | null>(null)
   const [state, setState] = useState<"loading" | "ok" | "error">("loading")
   const [error, setError] = useState("")
-  const [tab, setTab] = useState<"overview" | "pending" | "dd" | "plate" | "age" | "fleet" | "prsum" | "check">("overview")
+  const [tab, setTab] = useState<"overview" | "legs" | "pending" | "dd" | "plate" | "age" | "fleet" | "prsum" | "check">("overview")
   const [view, setView] = useState<"group" | "fleet">("group")
   const [srcOpen, setSrcOpen] = useState(false)
   const [reload, setReload] = useState(0)
@@ -190,7 +190,7 @@ export default function BudgetControlPage() {
           <nav aria-label="มุมมอง" className="overflow-x-auto border-b border-gray-200 dark:border-white/10">
             <div role="tablist" className="flex min-w-max items-end gap-6 px-1">
               {([
-                ["ภาพรวม", [["overview", "งบคงเหลือ", null]]],
+                ["ภาพรวม", [["overview", "งบคงเหลือ", null], ["legs", "ซื้อ · ใช้ · สต๊อก", null]]],
                 ["ขาซื้อ · PR", [["pending", "รออนุมัติ", { n: data.pending_prs.length, tone: "amber" }], ["prsum", "สรุปงบจาก PR", null], ["check", "เช็กงบจากเลข PR", null]]],
                 ["ขาใช้ · ของ / รถ", [["dd", "รับของแล้วรอเบิก", { n: data.dd_open_lines.length, tone: "gray" }], ["plate", "รายคัน", null]]],
                 ["ตั้งงบ", [["age", "ปันตามอายุรถ", null], ["fleet", "งบรายฟลีท", null]]],
@@ -225,6 +225,7 @@ export default function BudgetControlPage() {
           )}
           {tab === "overview" && view === "group" && <Pivot rows={data.rows} />}
           {tab === "overview" && view === "fleet" && <FleetPivot cells={data.by_fleet} month={data.month} />}
+          {tab === "legs" && <TwoLegs cells={data.by_fleet} month={data.month} />}
           {tab === "pending" && <PendingTable data={data} />}
           {tab === "prsum" && <PrBudgetTab month={data.month} cut={data.cut} rows={data.rows} pending={data.pending_prs} />}
           {tab === "check" && <CheckTab />}
@@ -464,6 +465,87 @@ function FleetPivot({ cells, month }: { cells: FleetCellIn[] | undefined; month:
                     )
                   })}
                   <PivotLine label={`รวม ${g} บริษัท`} c={gr.reduce((a, r) => { const x = cellOf(r); return { budget: a.budget + x.budget, wd: a.wd + x.wd, dd: a.dd + x.dd, pr: a.pr + x.pr, pend: a.pend + x.pend } }, { budget: 0, wd: 0, dd: 0, pr: 0, pend: 0 })} kind="total" />
+                </FragmentRows>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+/** สองขา: buy (PR approved this month) and use (WD) each against the same monthly budget, never added together;
+ *  stock = received (DD) but not yet issued to a truck. Per fleet, totals per group. */
+function TwoLegs({ cells, month }: { cells: FleetCellIn[] | undefined; month: string }) {
+  const rows = useMemo(() => fleetPivot(cells ?? [], fleetBudget as FleetBudgetFile, month), [cells, month])
+  const [open, setOpen] = useState<Record<string, boolean>>({})
+  if (!cells || !cells.some((c) => c.pr_approved !== undefined)) {
+    return <p className="rounded-xl border border-gray-200 bg-white p-4 text-[14px] text-gray-700 dark:border-white/8 dark:bg-[#0d0f18] dark:text-gray-300">ยอดซื้อรายฟลีทยังไม่พร้อม รอรอบคำนวณถัดไป (ทุกชั่วโมง 07:25–20:25)</p>
+  }
+  type C = { budget: number; buy: number; wd: number; dd: number }
+  const add = (a: C, b: C): C => ({ budget: a.budget + b.budget, buy: a.buy + b.buy, wd: a.wd + b.wd, dd: a.dd + b.dd })
+  const zero: C = { budget: 0, buy: 0, wd: 0, dd: 0 }
+  const ofRow = (r: (typeof rows)[number]) => CATEGORIES.reduce((a, c) => add(a, r.cats[c]), zero)
+  const groups = [...new Set(rows.map((r) => r.groupId))]
+  const left = (b: number, v: number) => (
+    <td className={`${TD} font-semibold ${b ? (b - v < 0 ? "text-red-700 dark:text-red-400" : "text-emerald-800 dark:text-emerald-300") : ""}`}>{b ? `${b - v < 0 ? "เกิน " : "เหลือ "}${fmt(Math.abs(b - v))}` : "—"}</td>
+  )
+  const pct = (b: number, v: number) => (b ? `${Math.round((v / b) * 100)}%` : "—")
+  const Line = ({ label, c, kind, k }: { label: string; c: C; kind: "group" | "child" | "total"; k?: string }) => (
+    <tr className={`${kind === "child" ? "border-t border-gray-100 dark:border-white/5" : "border-t-2 border-gray-200 dark:border-white/10"} ${kind === "group" ? "bg-gray-50 font-semibold dark:bg-white/3" : kind === "total" ? "bg-emerald-50/60 font-bold dark:bg-emerald-950/20" : ""}`}>
+      <th scope="row" className={`px-3.5 py-1.5 text-left ${kind === "child" ? "pl-11 font-normal text-gray-600 dark:text-gray-300" : ""}`}>
+        {kind === "group" && k ? (
+          <button type="button" onClick={() => setOpen({ ...open, [k]: !open[k] })} aria-expanded={!!open[k]} className="inline-flex min-h-[32px] items-center gap-1.5">
+            <ChevronRight size={14} aria-hidden="true" className={`text-gray-400 transition-transform motion-reduce:transition-none ${open[k] ? "rotate-90" : ""}`} />{label}
+          </button>
+        ) : label}
+      </th>
+      <td className={TD}>{c.budget ? fmt(c.budget) : "—"}</td>
+      <td className={`${TD} border-l border-gray-100 dark:border-white/5`}>{fmt(c.buy)} <span className="text-[12px] text-gray-500">{pct(c.budget, c.buy)}</span></td>
+      {left(c.budget, c.buy)}
+      <td className={`${TD} border-l border-gray-100 dark:border-white/5`}>{fmt(c.wd)} <span className="text-[12px] text-gray-500">{pct(c.budget, c.wd)}</span></td>
+      {left(c.budget, c.wd)}
+      <td className={`${TD} border-l border-gray-100 dark:border-white/5`}>{c.dd ? fmt(c.dd) : "—"}</td>
+    </tr>
+  )
+  return (
+    <div className="grid gap-2">
+      <p className="text-[13px] text-gray-600 dark:text-gray-400">
+        งบเดือนเดียวกันเทียบสองขา ไม่เอามาบวกกัน · <b className="text-amber-700 dark:text-amber-400">ซื้อ</b> = PR ที่อนุมัติในเดือน (PR → PO → DD) · <b className="text-emerald-700 dark:text-emerald-400">ใช้</b> = WD เบิกใส่รถ · <b>ของรอเบิก</b> = รับเข้าคลังแล้ว (DD) ยังไม่ได้ทำ WD ถ้าโตขึ้นเรื่อย ๆ แปลว่าสต๊อกบวม
+      </p>
+      <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white dark:border-white/8 dark:bg-[#0d0f18]">
+        <table className="w-full min-w-[980px] border-collapse text-[14px]">
+          <thead>
+            <tr className="bg-gray-50 text-[12px] text-gray-600 dark:bg-white/3 dark:text-gray-400">
+              <th scope="col" rowSpan={2} className="px-3.5 py-2.5 text-left font-semibold">ฟลีท / ประเภท</th>
+              <th scope="col" rowSpan={2} className={TH}>งบเดือน</th>
+              <th scope="colgroup" colSpan={2} className="border-l border-gray-200 px-3.5 pt-2.5 text-center font-semibold text-amber-800 dark:border-white/10 dark:text-amber-300">1. งบซื้อ · นับจาก PR</th>
+              <th scope="colgroup" colSpan={2} className="border-l border-gray-200 px-3.5 pt-2.5 text-center font-semibold text-emerald-800 dark:border-white/10 dark:text-emerald-300">2. งบใช้ · นับจาก WD</th>
+              <th scope="colgroup" className="border-l border-gray-200 px-3.5 pt-2.5 text-center font-semibold dark:border-white/10">3. สต๊อก</th>
+            </tr>
+            <tr className="bg-gray-50 text-[12px] text-gray-600 dark:bg-white/3 dark:text-gray-400">
+              <th scope="col" className={`${TH} border-l border-gray-200 dark:border-white/10`}>ซื้อแล้ว</th>
+              <th scope="col" className={TH}>เหลือ / เกิน</th>
+              <th scope="col" className={`${TH} border-l border-gray-200 dark:border-white/10`}>ใช้แล้ว</th>
+              <th scope="col" className={TH}>เหลือ / เกิน</th>
+              <th scope="col" className={`${TH} border-l border-gray-200 dark:border-white/10`}>ของรอเบิก (DD ค้าง)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {groups.map((g) => {
+              const gr = rows.filter((r) => r.groupId === g)
+              return (
+                <FragmentRows key={g}>
+                  {gr.map((r) => {
+                    const k = `${g}|${r.fleet}`
+                    return (
+                      <FragmentRows key={k}>
+                        <Line label={r.fleet} c={ofRow(r)} kind="group" k={k} />
+                        {open[k] && CATEGORIES.map((c) => <Line key={c} label={CAT_LABEL[c]} c={r.cats[c]} kind="child" />)}
+                      </FragmentRows>
+                    )
+                  })}
+                  <Line label={`รวม ${g} บริษัท`} c={gr.reduce((a, r) => add(a, ofRow(r)), zero)} kind="total" />
                 </FragmentRows>
               )
             })}

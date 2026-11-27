@@ -202,10 +202,10 @@ export function checkPrFleet(
 }
 
 // ---------- ตามฟลีท tab ----------
-export type FleetCell = { budget: number; wd: number; dd: number; pr: number; pend: number }
-export type FleetCellIn = { group: string; fleet: string; category: Category; wd: number; dd_open: number; pr_open: number; pr_pending: number }
+export type FleetCell = { budget: number; wd: number; dd: number; pr: number; pend: number; buy: number }
+export type FleetCellIn = { group: string; fleet: string; category: Category; wd: number; dd_open: number; pr_open: number; pr_pending: number; pr_approved?: number }
 export type FleetPivotRow = { groupId: string; fleet: string; cats: Record<Category, FleetCell> }
-const emptyFleetCell = (): FleetCell => ({ budget: 0, wd: 0, dd: 0, pr: 0, pend: 0 })
+const emptyFleetCell = (): FleetCell => ({ budget: 0, wd: 0, dd: 0, pr: 0, pend: 0, buy: 0 })
 
 /** Company money by ATMS fleet ("Asia ML", "Cpac MS" …) with each fleet's own budget for the month. `byFleet` is the
  *  snapshot's group × fleet × category cells (group on the day the money was booked). Fleets with a budget but no
@@ -232,7 +232,7 @@ export function fleetPivot(byFleet: FleetCellIn[], file: FleetBudgetFile, month:
     const name = !x.fleet ? "ไม่ระบุฟลีท" : fleetLabel(x.fleet, groupId)
     const c = row(groupId, name).cats[x.category]
     if (!c) continue
-    c.wd += x.wd; c.dd += x.dd_open; c.pr += x.pr_open; c.pend += x.pr_pending
+    c.wd += x.wd; c.dd += x.dd_open; c.pr += x.pr_open; c.pend += x.pr_pending; c.buy += x.pr_approved ?? 0
   }
   const total = (r: FleetPivotRow) => CATEGORIES.reduce((s, c) => s + r.cats[c].budget, 0)
   return [...out.values()].sort((a, b) => a.groupId.localeCompare(b.groupId) || total(b) - total(a) || a.fleet.localeCompare(b.fleet))
