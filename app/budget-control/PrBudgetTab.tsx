@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react"
 import { Check, Copy, Search } from "lucide-react"
+import { remarkLine } from "@/lib/budget-check"
 
 // สรุปงบจาก PR: per group × category, Available = Budget − Committed (PR/PO not received) − Actual (DD received),
 // plus the remark line to paste into each pending PR. Same snapshot as the rest of /budget-control.
@@ -13,21 +14,12 @@ type Props = { month: string; cut: string; rows: Row[]; pending: Pending[] }
 const CATS: Category[] = ["ซ่อม", "PM", "ยาง"]
 const CAT_LABEL: Record<Category, string> = { ซ่อม: "ซ่อม/อะไหล่", PM: "PM", ยาง: "ยาง" }
 const fmt = (n: number) => (n < 0 ? "−" : "") + Math.abs(Math.round(n)).toLocaleString("en-US")
-const plain = (n: number) => (n < 0 ? "-" : "") + Math.abs(Math.round(n)).toLocaleString("en-US")
 const be = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${String(Number(iso.slice(0, 4)) + 543).slice(2)}`
 const neg = (v: number) => (v < 0 ? "text-red-700 dark:text-red-400" : "")
 const CARD = "rounded-xl border border-gray-200 bg-white dark:border-white/8 dark:bg-[#0d0f18]"
 const TH = "px-3.5 py-2.5 text-right font-semibold"
 const TD = "px-3.5 py-2 text-right"
 const squash = (v: string) => v.replace(/\s/g, "").toLowerCase()
-
-/** งบ 11/69 ML ซ่อม (01/11/69–25/11/69) | คงเหลือ 1,234,567 | PR นี้ 45,000 | หลังอนุมัติเหลือ 1,189,567 */
-export function remarkLine(month: string, cut: string, fleet: string, cat: Category, before: number, pr: number) {
-  const yy = String(Number(month.slice(0, 4)) + 543).slice(2), mm = month.slice(5, 7)
-  const after = before - pr
-  return `งบ ${mm}/${yy} ${fleet} ${cat} (01/${mm}/${yy}–${be(cut)}) | คงเหลือ ${plain(before)} | PR นี้ ${plain(pr)} | หลังอนุมัติเหลือ ${plain(after)}`
-    + (after < 0 ? ` | เกินงบ ${plain(-after)} ต้องขออนุมัติเพิ่ม` : "")
-}
 
 export default function PrBudgetTab({ month, cut, rows, pending }: Props) {
   const { company, avail } = useMemo(() => {
