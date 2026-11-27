@@ -495,6 +495,7 @@ function FleetPivot({ cells, month, groupIds }: { cells: FleetCellIn[] | undefin
 function TwoLegs({ cells, month, groupIds }: { cells: FleetCellIn[] | undefined; month: string; groupIds: string[] }) {
   const rows = useMemo(() => fleetPivot(cells ?? [], fleetBudget as FleetBudgetFile, month, true, groupIds), [cells, month, groupIds])
   const [open, setOpen] = useState<Record<string, boolean>>({})
+  const [cat, setCat] = useState<"all" | Category>("all")
   // a month with no transactions yet has no cells at all: that is ready (budget only), not "missing"
   if (!cells || (cells.length > 0 && !cells.some((c) => c.pr_approved !== undefined))) {
     return <p className="rounded-xl border border-gray-200 bg-white p-4 text-[14px] text-gray-700 dark:border-white/8 dark:bg-[#0d0f18] dark:text-gray-300">ยอดซื้อรายฟลีทยังไม่พร้อม รอรอบคำนวณถัดไป (ทุกชั่วโมง 07:25–20:25)</p>
@@ -502,7 +503,8 @@ function TwoLegs({ cells, month, groupIds }: { cells: FleetCellIn[] | undefined;
   type C = { budget: number; buy: number; pend: number; wd: number; dd: number }
   const add = (a: C, b: C): C => ({ budget: a.budget + b.budget, buy: a.buy + b.buy, pend: a.pend + b.pend, wd: a.wd + b.wd, dd: a.dd + b.dd })
   const zero: C = { budget: 0, buy: 0, pend: 0, wd: 0, dd: 0 }
-  const ofRow = (r: (typeof rows)[number]) => CATEGORIES.reduce((a, c) => add(a, r.cats[c]), zero)
+  const cats = cat === "all" ? CATEGORIES : [cat]
+  const ofRow = (r: (typeof rows)[number]) => cats.reduce((a, c) => add(a, r.cats[c]), zero)
   const groups = [...new Set(rows.map((r) => r.groupId))]
   const left = (b: number, v: number) => (
     <td className={`${TD} font-semibold ${b ? (b - v < 0 ? "text-red-700 dark:text-red-400" : "text-emerald-800 dark:text-emerald-300") : ""}`}>{b ? `${b - v < 0 ? "เกิน " : "เหลือ "}${fmt(Math.abs(b - v))}` : "—"}</td>
@@ -511,7 +513,7 @@ function TwoLegs({ cells, month, groupIds }: { cells: FleetCellIn[] | undefined;
   const Line = ({ label, c, kind, k }: { label: string; c: C; kind: "group" | "child" | "total"; k?: string }) => (
     <tr className={`${kind === "child" ? "border-t border-gray-100 dark:border-white/5" : "border-t-2 border-gray-200 dark:border-white/10"} ${kind === "group" ? "bg-gray-50 font-semibold dark:bg-white/3" : kind === "total" ? "bg-emerald-50/60 font-bold dark:bg-emerald-950/20" : ""}`}>
       <th scope="row" className={`px-3.5 py-1.5 text-left ${kind === "child" ? "pl-11 font-normal text-gray-600 dark:text-gray-300" : ""}`}>
-        {kind === "group" && k ? (
+        {kind === "group" && k && cat === "all" ? (
           <button type="button" onClick={() => setOpen({ ...open, [k]: !open[k] })} aria-expanded={!!open[k]} className="inline-flex min-h-[32px] items-center gap-1.5">
             <ChevronRight size={14} aria-hidden="true" className={`text-gray-400 transition-transform motion-reduce:transition-none ${open[k] ? "rotate-90" : ""}`} />{label}
           </button>
@@ -529,6 +531,12 @@ function TwoLegs({ cells, month, groupIds }: { cells: FleetCellIn[] | undefined;
   )
   return (
     <div className="grid gap-2">
+      <div role="radiogroup" aria-label="ประเภท" className="inline-flex w-fit gap-0.5 rounded-xl bg-gray-100 p-1 dark:bg-white/5">
+        {([["all", "ทั้งหมด"], ...CATEGORIES.map((c) => [c, CAT_LABEL[c]] as const)] as const).map(([k, label]) => (
+          <button key={k} type="button" role="radio" aria-checked={cat === k} onClick={() => setCat(k as "all" | Category)}
+            className={`min-h-[34px] rounded-lg px-3.5 text-[13px] ${cat === k ? "bg-white font-semibold text-emerald-800 ring-1 ring-emerald-200 dark:bg-[#14161f] dark:text-emerald-300 dark:ring-emerald-800/50" : "text-gray-600 dark:text-gray-400"}`}>{label}</button>
+        ))}
+      </div>
       <p className="text-[13px] text-gray-600 dark:text-gray-400">
         งบเดือนเดียวกันเทียบสองขา ไม่เอามาบวกกัน · <b className="text-amber-700 dark:text-amber-400">ซื้อ</b> = PR ที่อนุมัติในเดือน (PR → PO → DD) · <b className="text-emerald-700 dark:text-emerald-400">ใช้</b> = WD เบิกใส่รถ · <b>ของรอเบิก</b> = รับเข้าคลังแล้ว (DD) ยังไม่ได้ทำ WD ถ้าโตขึ้นเรื่อย ๆ แปลว่าสต๊อกบวม
       </p>
@@ -562,7 +570,7 @@ function TwoLegs({ cells, month, groupIds }: { cells: FleetCellIn[] | undefined;
                     return (
                       <FragmentRows key={k}>
                         <Line label={r.fleet} c={ofRow(r)} kind="group" k={k} />
-                        {open[k] && CATEGORIES.map((c) => <Line key={c} label={CAT_LABEL[c]} c={r.cats[c]} kind="child" />)}
+                        {cat === "all" && open[k] && CATEGORIES.map((c) => <Line key={c} label={CAT_LABEL[c]} c={r.cats[c]} kind="child" />)}
                       </FragmentRows>
                     )
                   })}
