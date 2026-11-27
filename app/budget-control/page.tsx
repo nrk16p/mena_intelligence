@@ -482,7 +482,7 @@ function FleetPivot({ cells, month }: { cells: FleetCellIn[] | undefined; month:
 /** สองขา: buy (PR approved this month) and use (WD) each against the same monthly budget, never added together;
  *  stock = received (DD) but not yet issued to a truck. Per fleet, totals per group. */
 function TwoLegs({ cells, month }: { cells: FleetCellIn[] | undefined; month: string }) {
-  const rows = useMemo(() => fleetPivot(cells ?? [], fleetBudget as FleetBudgetFile, month), [cells, month])
+  const rows = useMemo(() => fleetPivot(cells ?? [], fleetBudget as FleetBudgetFile, month, true), [cells, month])
   const [open, setOpen] = useState<Record<string, boolean>>({})
   // a month with no transactions yet has no cells at all: that is ready (budget only), not "missing"
   if (!cells || (cells.length > 0 && !cells.some((c) => c.pr_approved !== undefined))) {
@@ -551,7 +551,7 @@ function TwoLegs({ cells, month }: { cells: FleetCellIn[] | undefined; month: st
                       </FragmentRows>
                     )
                   })}
-                  <Line label={`รวม ${g} บริษัท`} c={gr.reduce((a, r) => add(a, ofRow(r)), zero)} kind="total" />
+                  <Line label={g.endsWith("ร่วม") ? `รวม ${g} (ไม่มีงบ ดูยอดอย่างเดียว)` : `รวม ${g} บริษัท`} c={gr.reduce((a, r) => add(a, ofRow(r)), zero)} kind="total" />
                 </FragmentRows>
               )
             })}

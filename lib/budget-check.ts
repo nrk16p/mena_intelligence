@@ -210,7 +210,8 @@ const emptyFleetCell = (): FleetCell => ({ budget: 0, wd: 0, dd: 0, pr: 0, pend:
 /** Company money by ATMS fleet ("Asia ML", "Cpac MS" …) with each fleet's own budget for the month. `byFleet` is the
  *  snapshot's group × fleet × category cells (group on the day the money was booked). Fleets with a budget but no
  *  activity yet still get a row; money on plates with no ATMS fleet goes to "ไม่ระบุฟลีท". */
-export function fleetPivot(byFleet: FleetCellIn[], file: FleetBudgetFile, month: string): FleetPivotRow[] {
+/** With `partners`, partner trucks come too, as groups "ML ร่วม" / "MS ร่วม" (no budget of their own). */
+export function fleetPivot(byFleet: FleetCellIn[], file: FleetBudgetFile, month: string, partners = false): FleetPivotRow[] {
   const out = new Map<string, FleetPivotRow>()
   const row = (groupId: string, fleet: string) => {
     const k = `${groupId}|${fleet}`
@@ -227,13 +228,17 @@ export function fleetPivot(byFleet: FleetCellIn[], file: FleetBudgetFile, month:
     }
   }
   for (const x of byFleet) {
-    if (!x.group.endsWith("บริษัท")) continue
-    const groupId = x.group.split("|")[0]
-    const name = !x.fleet ? "ไม่ระบุฟลีท" : fleetLabel(x.fleet, groupId)
+    const partner = x.group.endsWith("ร่วม")
+    if (!x.group.endsWith("บริษัท") && !(partners && partner)) continue
+    const fleetId = x.group.split("|")[0]
+    const groupId = partner ? `${fleetId} ร่วม` : fleetId
+    const name = !x.fleet ? "ไม่ระบุฟลีท" : fleetLabel(x.fleet, fleetId)
     const c = row(groupId, name).cats[x.category]
     if (!c) continue
     c.wd += x.wd; c.dd += x.dd_open; c.pr += x.pr_open; c.pend += x.pr_pending; c.buy += x.pr_approved ?? 0
   }
   const total = (r: FleetPivotRow) => CATEGORIES.reduce((s, c) => s + r.cats[c].budget, 0)
-  return [...out.values()].sort((a, b) => a.groupId.localeCompare(b.groupId) || total(b) - total(a) || a.fleet.localeCompare(b.fleet))
+  const order = (g: string) => ["ML", "MS", "ML ร่วม", "MS ร่วม"].indexOf(g)
+  const used = (r: FleetPivotRow) => CATEGORIES.reduce((s, c) => s + r.cats[c].wd + r.cats[c].buy, 0)
+  return [...out.values()].sort((a, b) => order(a.groupId) - order(b.groupId) || total(b) - total(a) || used(b) - used(a) || a.fleet.localeCompare(b.fleet))
 }

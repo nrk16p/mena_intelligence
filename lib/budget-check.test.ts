@@ -191,6 +191,15 @@ describe("fleetPivot", () => {
     ],
   }
   const cell = (group: string, fleet: string, category: "ซ่อม" | "PM" | "ยาง", wd: number, dd = 0, pr = 0, pend = 0) => ({ group, fleet, category, wd, dd_open: dd, pr_open: pr, pr_pending: pend })
+  it("partners: separate ML ร่วม group with no budget, only when asked", () => {
+    const cells = [cell("ML|บริษัท", "Asia", "ซ่อม", 10), { ...cell("ML|ร่วม", "Asia", "ซ่อม", 99), pr_approved: 5 }]
+    expect(fleetPivot(cells, file, "2026-11").some((r) => r.groupId === "ML ร่วม")).toBe(false)
+    const rows = fleetPivot(cells, file, "2026-11", true)
+    const p = rows.find((r) => r.groupId === "ML ร่วม")!
+    expect(p.fleet).toBe("Asia ML")
+    expect(p.cats.ซ่อม).toMatchObject({ budget: 0, wd: 99, buy: 5 })
+    expect(rows[rows.length - 1].groupId).toBe("ML ร่วม")
+  })
   it("buy leg = PR approved this month per fleet", () => {
     const rows = fleetPivot([{ ...cell("ML|บริษัท", "Asia", "ซ่อม", 0, 0, 20), pr_approved: 70 }], file, "2026-11")
     expect(rows.find((r) => r.fleet === "Asia ML")!.cats.ซ่อม).toMatchObject({ buy: 70, pr: 20 })
