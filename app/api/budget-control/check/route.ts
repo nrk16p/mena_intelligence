@@ -67,7 +67,7 @@ export async function GET(req: NextRequest) {
         const rows = await atms.find({ ฟลีท: atmsFleet, ประเภทรถร่วม: "รถมีนา" }, { projection: { _id: 0, ทะเบียน: 1 } }).limit(1000).maxTimeMS(5000).toArray()
         const plates = new Set(rows.map((r) => normPlate(r["ทะเบียน"])))
         plates.add(pl)
-        const lines = checkPrFleet(pr, name, budget, plates, { by_plate: snap.by_plate ?? [], pending_prs: snap.pending_prs ?? [] },
+        const lines = checkPrFleet(pr, name, budget, plates, { by_plate: snap.by_plate ?? [], pending_prs: snap.pending_prs ?? [], cut: snap.cut },
           (snap.pending_prs ?? []) as unknown as { code: string; plate: string; split?: Record<string, number> }[])
         fleet = { name, lines, reason: lines.length ? null : "ใบนี้ไม่มีหมวดที่ตั้งงบรายฟลีทไว้" }
       }

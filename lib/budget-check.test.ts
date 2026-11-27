@@ -96,6 +96,10 @@ describe("checkPr", () => {
     })
     expect(checkPr(pr(), s, null).lines[0]).toMatchObject({ othersPending: 0, state: "ok" })
   })
+  it("the range runs to the day the balance was counted (snapshot cut), not the PR date", () => {
+    const r = checkPr(pr({ date: "2026-11-20" }), snap({ cut: "2026-11-27" }), null)
+    expect(r.lines[0].remark).toContain("(01/11/69–27/11/69)")
+  })
   it("one line per category, fuel left out", () => {
     const r = checkPr(pr({ total: 70_000, items: [{ group: "ระบบเกียร์", total: 40_000 }, { group: "ยางรถยนต์", total: 20_000 }, { group: "น้ำมันเชื้อเพลิง", total: 10_000 }] }), snap(), null)
     expect(r.lines.map((l) => [l.category, l.amount])).toEqual([["ซ่อม", 40_000], ["ยาง", 20_000]])
@@ -158,7 +162,7 @@ describe("per fleet", () => {
       pending_prs: [],
     }
     const pending = [{ code: "X1", plate: "สบ.71-0002", split: { ซ่อม: 40_000 } }, { code: "LBPR26110482", plate: "สบ.71-2876", split: { ซ่อม: 45_000 } }]
-    const lines = checkPrFleet(pr(), "Asia ML", { ซ่อม: 300_000 }, plates, s, pending)
+    const lines = checkPrFleet(pr(), "Asia ML", { ซ่อม: 300_000 }, plates, { ...s, cut: "2026-11-25" }, pending)
     expect(lines).toHaveLength(1)
     expect(lines[0]).toMatchObject({ budget: 300_000, used: 250_000, before: 50_000, after: 5_000, othersPending: 40_000, state: "ok_pending_over" })
     expect(lines[0].remark).toBe("งบ 11/69 Asia ML ซ่อม (01/11/69–25/11/69) | คงเหลือ 50,000 | PR นี้ 45,000 | หลังอนุมัติเหลือ 5,000")

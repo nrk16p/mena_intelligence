@@ -87,6 +87,9 @@ const BRANCH_DEPT = ["ศลบ", "ยานยนต์"]
 const notice = (code: NoticeCode, message: string, group: string | null = null): CheckResult => ({ group, lines: [], otherLeg: [], notice: { code, message } })
 const fmt = plain
 
+/** End of the range in the remark: the day the balance was counted to (snapshot cut, refreshed hourly), kept inside the month. */
+const asOf = (snap: { cut?: string }, month: string) => (snap.cut && snap.cut.startsWith(month) ? snap.cut : `${month}-${String(new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate()).padStart(2, "0")}`)
+
 export function checkPr(pr: PrDoc, snap: Snapshot | null, plateMap: PlateMapEntry): CheckResult {
   if (pr.approved) return notice("approved", "PR ใบนี้อนุมัติครบแล้ว ยอดนี้นับอยู่ในงบซื้อแล้ว ไม่ต้องวางหมายเหตุ")
   if (!BRANCH_DEPT.every((s) => pr.department.includes(s)))
@@ -129,7 +132,7 @@ export function checkPr(pr: PrDoc, snap: Snapshot | null, plateMap: PlateMapEntr
     const after = before - amount
     const othersPending = Math.max(row.pr_pending - (mine?.split?.[category] ?? 0), 0)
     const state: LineState = after < 0 ? "over" : after - othersPending < 0 ? "ok_pending_over" : "ok"
-    lines.push({ category, amount, budget: Math.round(row.budget), used, before, after, othersPending, state, remark: remarkLine(month, pr.date, fleet, category, before, amount) })
+    lines.push({ category, amount, budget: Math.round(row.budget), used, before, after, othersPending, state, remark: remarkLine(month, asOf(snap, month), fleet, category, before, amount) })
     otherLeg.push({ category, before: row.budget - row.wd })
   }
   const miss = missing.length ? { code: "no_budget_row" as const, message: `ยังไม่ได้ตั้งงบ ${missing.join(", ")} ของ ${fleet} เดือนนี้` } : null
@@ -169,7 +172,7 @@ export function checkPrFleet(
   fleet: string,
   budget: Partial<Record<Category, number>>,
   fleetPlates: Set<string>,
-  snap: Pick<Snapshot, "by_plate" | "pending_prs">,
+  snap: Pick<Snapshot, "by_plate" | "pending_prs"> & { cut?: string },
   pendingPlates: { code: string; plate: string; split?: Partial<Record<Category, number>> }[],
 ): CheckLine[] {
   const split = new Map<Category, number>()
@@ -193,7 +196,7 @@ export function checkPrFleet(
     const before = b - used
     const after = before - amount
     const state: LineState = after < 0 ? "over" : after - othersPending < 0 ? "ok_pending_over" : "ok"
-    lines.push({ category, amount, budget: b, used, before, after, othersPending, state, remark: remarkLine(month, pr.date, fleet, category, before, amount) })
+    lines.push({ category, amount, budget: b, used, before, after, othersPending, state, remark: remarkLine(month, asOf(snap, month), fleet, category, before, amount) })
   }
   return lines
 }
