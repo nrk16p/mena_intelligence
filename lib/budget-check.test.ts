@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { checkPr, docKind, itemCategory, isStockPlate, normPlate, remarkLine, type PrDoc, type Snapshot } from "./budget-check"
+import { checkPr, checkPrFleet, docKind, fleetBudgetFor, itemCategory, isStockPlate, normPlate, remarkLine, type PrDoc, type Snapshot } from "./budget-check"
 
 const snap = (over: Partial<Snapshot> = {}): Snapshot => ({
   month: "2026-11",
@@ -125,5 +125,35 @@ describe("checkPr", () => {
   it("every notice and line stays empty of numbers it cannot back", () => {
     const r = checkPr(pr({ approved: true }), snap(), null)
     expect(r.lines).toEqual([])
+  })
+})
+
+describe("per fleet", () => {
+  const file = {
+    year: 2026,
+    groups: [{ id: "ML", trucks: 200, repair: Array(12).fill(1_000_000), pm: Array(12).fill(100_000), tyre: Array(12).fill(400_000),
+      fleets: [{ fleet: "Asia", trucks: 100, repair_share: 0.3 }, { fleet: "Scco ML", trucks: 97, repair_share: 0.68 }, { fleet: "อื่น ๆ", trucks: 3, repair_share: 0.02 }] }],
+  }
+  it("fleetBudgetFor: repair by age share, PM and tyre by truck count; other ML fleets fall in อื่น ๆ", () => {
+    expect(fleetBudgetFor(file, "ML", "Asia", "2026-11")).toEqual({ ซ่อม: 300_000, PM: 50_000, ยาง: 200_000 })
+    expect(fleetBudgetFor(file, "ML", "Acon", "2026-11")?.ซ่อม).toBeCloseTo(20_000)
+    expect(fleetBudgetFor(file, "ML", "Fast", "2026-11")).toBeNull()
+    expect(fleetBudgetFor(file, "ML", "Asia", "2027-01")).toBeNull()
+  })
+  it("checkPrFleet: fleet used = PR approved on that fleet's plates; pending PRs of the fleet counted apart", () => {
+    const plates = new Set(["สบ.71-2876", "สบ.71-0002"])
+    const s = {
+      by_plate: [
+        { plate: "สบ.71-2876", group: "ML|บริษัท", pr_approved_cat: { ซ่อม: 200_000 } },
+        { plate: "สบ.71-0002", group: "ML|บริษัท", pr_approved_cat: { ซ่อม: 50_000, ยาง: 10_000 } },
+        { plate: "สบ.79-9999", group: "ML|บริษัท", pr_approved_cat: { ซ่อม: 999_000 } },
+      ],
+      pending_prs: [],
+    }
+    const pending = [{ code: "X1", plate: "สบ.71-0002", split: { ซ่อม: 40_000 } }, { code: "LBPR26110482", plate: "สบ.71-2876", split: { ซ่อม: 45_000 } }]
+    const lines = checkPrFleet(pr(), "Asia", { ซ่อม: 300_000 }, plates, s, pending)
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({ budget: 300_000, used: 250_000, before: 50_000, after: 5_000, othersPending: 40_000, state: "ok_pending_over" })
+    expect(lines[0].remark).toBe("งบ 11/69 Asia ซ่อม (01/11/69–25/11/69) | คงเหลือ 50,000 | PR นี้ 45,000 | หลังอนุมัติเหลือ 5,000")
   })
 })

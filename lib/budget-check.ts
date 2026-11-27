@@ -13,7 +13,7 @@ export type Snapshot = {
   sources?: { pr_at?: string | null; wd_at?: string | null }
   rows: SnapshotRow[]
   pending_prs: { code: string; split?: Partial<Record<Category, number>> }[]
-  by_plate: { plate: string; group: string }[]
+  by_plate: { plate: string; group: string; pr_approved_cat?: Partial<Record<Category, number>> }[]
 }
 export type PlateMapEntry = { fleet: string; owner: string } | null
 
@@ -133,4 +133,60 @@ export function checkPr(pr: PrDoc, snap: Snapshot | null, plateMap: PlateMapEntr
   }
   const miss = missing.length ? { code: "no_budget_row" as const, message: `ยังไม่ได้ตั้งงบ ${missing.join(", ")} ของ ${fleet} เดือนนี้` } : null
   return { group, lines, otherLeg, notice: miss }
+}
+
+// ---------- per fleet (งบรายฟลีท) ----------
+// Fleet budget comes from the "งบรายฟลีท" snapshot (repair split by truck age, PM and tyre by truck count);
+// used = PR approved this month on that fleet's plates (by_plate.pr_approved_cat in the budget-control snapshot).
+
+export type FleetBudgetFile = {
+  year: number
+  groups: { id: string; trucks: number; repair: number[]; pm: number[]; tyre: number[]; fleets: { fleet: string; trucks: number; repair_share: number }[] }[]
+}
+export const OTHER_ML = new Set(["ที.เอ็น.ซีเมนต์บล็อค", "Acon", "มหาทรัพย์ซีเมนต์", "จิรโชติ", "RP"])
+
+/** Monthly fleet budget per category, or null when the file has no such fleet or year. */
+export function fleetBudgetFor(file: FleetBudgetFile, groupId: string, atmsFleet: string, month: string): Partial<Record<Category, number>> | null {
+  if (Number(month.slice(0, 4)) !== file.year) return null
+  const g = file.groups.find((x) => x.id === groupId)
+  const name = groupId === "ML" && OTHER_ML.has(atmsFleet) ? "อื่น ๆ" : atmsFleet
+  const f = g?.fleets.find((x) => x.fleet === name)
+  if (!g || !f || !g.trucks) return null
+  const m = Number(month.slice(5, 7)) - 1
+  const byCount = f.trucks / g.trucks
+  return { ซ่อม: g.repair[m] * f.repair_share, PM: g.pm[m] * byCount, ยาง: g.tyre[m] * byCount }
+}
+
+/** Lines for one fleet: same maths as the group lines, with the fleet's own budget, approved total and pending PRs. */
+export function checkPrFleet(
+  pr: PrDoc,
+  fleet: string,
+  budget: Partial<Record<Category, number>>,
+  fleetPlates: Set<string>,
+  snap: Pick<Snapshot, "by_plate" | "pending_prs">,
+  pendingPlates: { code: string; plate: string; split?: Partial<Record<Category, number>> }[],
+): CheckLine[] {
+  const split = new Map<Category, number>()
+  if (!pr.items.length) split.set("ซ่อม", pr.total)
+  for (const i of pr.items) {
+    if (i.group === FUEL) continue
+    const c = itemCategory(i.group)
+    split.set(c, (split.get(c) ?? 0) + i.total)
+  }
+  const month = pr.date.slice(0, 7)
+  const lines: CheckLine[] = []
+  for (const category of CATEGORIES) {
+    const amount = split.get(category)
+    const b = budget[category]
+    if (!amount || !b || b <= 0) continue
+    const used = snap.by_plate.filter((r) => fleetPlates.has(normPlate(r.plate))).reduce((s, r) => s + (r.pr_approved_cat?.[category] ?? 0), 0)
+    const othersPending = pendingPlates
+      .filter((p) => p.code !== pr.code && fleetPlates.has(normPlate(p.plate)))
+      .reduce((s, p) => s + (p.split?.[category] ?? 0), 0)
+    const before = b - used
+    const after = before - amount
+    const state: LineState = after < 0 ? "over" : after - othersPending < 0 ? "ok_pending_over" : "ok"
+    lines.push({ category, amount, budget: b, used, before, after, othersPending, state, remark: remarkLine(month, pr.date, fleet, category, before, amount) })
+  }
+  return lines
 }

@@ -4,7 +4,8 @@ import { authOptions } from "@/lib/auth"
 import { getUserPermissions } from "@/lib/permissions"
 import clientPromise from "@/lib/mongo"
 import { AtmsError, readPr } from "@/lib/atms-doc"
-import { checkPr, docKind, normPlate, type PlateMapEntry, type Snapshot } from "@/lib/budget-check"
+import { checkPr, checkPrFleet, docKind, fleetBudgetFor, normPlate, OTHER_ML, type FleetBudgetFile, type PlateMapEntry, type Snapshot } from "@/lib/budget-check"
+import fleetBudget from "@/app/budget-control/fleet-budget-2569.json"
 
 // เช็กงบจากเลข PR: read one PR live from ATMS, compare with the budget-control snapshot (buy leg) and
 // return the remark line to paste into the PR. WD numbers are recognised but not checked yet.
@@ -49,6 +50,27 @@ export async function GET(req: NextRequest) {
       plateMap = m ? { fleet: String(m.fleet), owner: String(m.owner) } : null
     }
     const result = checkPr(pr, snap ? { ...snap, pending_prs: snap.pending_prs ?? [], by_plate: snap.by_plate ?? [], rows: snap.rows ?? [] } : null, plateMap)
+    // งบรายฟลีท: ATMS fleet of the plate (vehiclemaster), its company plates, the fleet's monthly budget
+    let fleet: { name: string; lines: ReturnType<typeof checkPrFleet>; reason: string | null } | null = null
+    if (snap && result.group?.endsWith("บริษัท")) {
+      const atms = (await clientPromise).db("atms").collection("vehiclemaster")
+      const vm = await atms.findOne({ ทะเบียน: { $in: [...new Set([pr.plate, pl])] } }, { projection: { _id: 0, ฟลีท: 1 }, maxTimeMS: 5000 })
+      const atmsFleet = vm ? String(vm["ฟลีท"] ?? "") : ""
+      const groupId = result.group.split("|")[0]
+      const name = groupId === "ML" && OTHER_ML.has(atmsFleet) ? "อื่น ๆ" : atmsFleet
+      const budget = atmsFleet ? fleetBudgetFor(fleetBudget as FleetBudgetFile, groupId, atmsFleet, month) : null
+      if (!budget) {
+        fleet = { name: name || "—", lines: [], reason: atmsFleet ? `ยังไม่มีงบรายฟลีทของ ${name} เดือนนี้` : `ไม่พบฟลีทของทะเบียน ${pr.plate} ใน ATMS` }
+      } else {
+        const names = groupId === "ML" && OTHER_ML.has(atmsFleet) ? [...OTHER_ML] : [atmsFleet]
+        const rows = await atms.find({ ฟลีท: { $in: names }, ประเภทรถร่วม: "รถมีนา" }, { projection: { _id: 0, ทะเบียน: 1 } }).limit(1000).maxTimeMS(5000).toArray()
+        const plates = new Set(rows.map((r) => normPlate(r["ทะเบียน"])))
+        plates.add(pl)
+        const lines = checkPrFleet(pr, name, budget, plates, { by_plate: snap.by_plate ?? [], pending_prs: snap.pending_prs ?? [] },
+          (snap.pending_prs ?? []) as unknown as { code: string; plate: string; split?: Record<string, number> }[])
+        fleet = { name, lines, reason: lines.length ? null : "ใบนี้ไม่มีหมวดที่ตั้งงบรายฟลีทไว้" }
+      }
+    }
     console.log(`budget-check ${doc.code}: ${result.notice?.code ?? result.lines.map((l) => l.state).join(",")} in ${Date.now() - started} ms`)
     return NextResponse.json({
       success: true,
@@ -57,6 +79,7 @@ export async function GET(req: NextRequest) {
       readAt,
       base: snap ? { month: snap.month, computedAt: snap.computed_at, cut: snap.cut, prAt: snap.sources?.pr_at ?? null } : null,
       ...result,
+      fleet,
     })
   } catch (error: unknown) {
     console.error("budget-check error:", error instanceof Error ? error.message : error)

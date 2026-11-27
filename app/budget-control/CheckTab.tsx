@@ -16,6 +16,7 @@ type Ok = {
   lines: CheckLine[]
   otherLeg: { category: Category; before: number }[]
   notice: { code: string; message: string } | null
+  fleet: { name: string; lines: CheckLine[]; reason: string | null } | null
 }
 type Card = { key: string; code: string; data?: Ok; error?: string }
 
@@ -80,7 +81,8 @@ export default function CheckTab() {
 
 function ResultCard({ card, onClose }: { card: Card; onClose: () => void }) {
   const d = card.data
-  const worst = d?.lines.some((l) => l.state === "over") ? "over" : d?.lines.some((l) => l.state === "ok_pending_over") ? "ok_pending_over" : d?.lines.length ? "ok" : null
+  const all = [...(d?.lines ?? []), ...(d?.fleet?.lines ?? [])]
+  const worst = all.some((l) => l.state === "over") ? "over" : all.some((l) => l.state === "ok_pending_over") ? "ok_pending_over" : all.length ? "ok" : null
   const border = worst === "over" ? "border-red-300 dark:border-red-800/60" : "border-gray-200 dark:border-white/8"
   return (
     <article className={`rounded-xl border bg-white p-4 sm:p-5 dark:bg-[#0d0f18] ${border}`}>
@@ -98,7 +100,7 @@ function ResultCard({ card, onClose }: { card: Card; onClose: () => void }) {
           )}
         </div>
         <div className="flex items-center gap-2">
-          {worst && <StatePill state={worst} lines={d!.lines} />}
+          {worst && <StatePill state={worst} lines={all} />}
           <button type="button" onClick={onClose} aria-label={`ปิดผลของ ${card.code}`}
             className="grid h-8 w-8 place-items-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-white/5">
             <X size={16} aria-hidden="true" />
@@ -130,12 +132,31 @@ function ResultCard({ card, onClose }: { card: Card; onClose: () => void }) {
           </div>
         </div>
       ))}
+
+      {d?.fleet && (
+        <section className="mt-5 border-t border-gray-100 pt-4 dark:border-white/5">
+          <h3 className="text-[14px] font-semibold text-gray-900 dark:text-white">งบรายฟลีท · {d.fleet.name}</h3>
+          <p className="text-[12px] text-gray-500 dark:text-gray-400">งบจากแท็บงบรายฟลีท (ซ่อมปันตามอายุรถ PM กับยางปันตามจำนวนคัน) เทียบกับ PR ที่อนุมัติแล้วของรถในฟลีทนี้</p>
+          {d.fleet.reason && <p className="mt-2 text-[13px] text-gray-700 dark:text-gray-300">{d.fleet.reason}</p>}
+          {d.fleet.lines.map((l) => (
+            <div key={l.category} className="mt-3 grid gap-3">
+              <Remark text={l.remark} over={l.state === "over"} />
+              <Bar line={l} />
+              {l.othersPending > 0 && (
+                <p className={`text-[13px] ${l.state === "ok_pending_over" ? "text-red-700 dark:text-red-400" : "text-gray-600 dark:text-gray-400"}`}>
+                  มีใบอื่นของฟลีทนี้รออนุมัติ {fmt(l.othersPending)} ถ้าอนุมัติครบ{l.after - l.othersPending < 0 ? `จะเกิน ${fmt(l.othersPending - l.after)}` : `จะเหลือ ${fmt(l.after - l.othersPending)}`}
+                </p>
+              )}
+            </div>
+          ))}
+        </section>
+      )}
     </article>
   )
 }
 
 function StatePill({ state, lines }: { state: "ok" | "ok_pending_over" | "over"; lines: CheckLine[] }) {
-  const over = lines.filter((l) => l.after < 0).reduce((s, l) => s - l.after, 0)
+  const over = Math.max(0, ...lines.map((l) => -l.after))
   const [text, cls] =
     state === "over" ? [`เกินงบ ${fmt(over)}`, "border-red-300 text-red-700 dark:border-red-800 dark:text-red-400"]
       : state === "ok_pending_over" ? ["ไม่เกิน แต่มีใบอื่นรอ", "border-amber-300 text-amber-800 dark:border-amber-800 dark:text-amber-300"]
