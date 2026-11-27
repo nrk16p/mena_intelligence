@@ -1,18 +1,18 @@
 {
  "year": 2026,
- "as_of": "2026-11-25",
+ "as_of": "2026-11-26",
  "source": {
   "truck_year_cost": "ม.ค. 66–พ.ค. 69 (40 เดือน)",
   "budget": "KPI 2026 ชีต Budget_2026",
-  "trucks": "ATMS 2026-11-25"
+  "trucks": "ATMS รายงานความพร้อมใช้รถ พ.ย. 69 (หัว รถบริษัท)"
  },
  "groups": [
   {
    "id": "ML",
    "label": "ML · Mixer 10 ล้อ",
    "branch": "ศลบ",
-   "trucks": 305,
-   "trend_priced": 0,
+   "trucks": 319,
+   "trend_priced": 1,
    "repair": [
     2531964.82,
     2800001.52,
@@ -59,22 +59,22 @@
     {
      "band": "0–5",
      "trucks": 83,
-     "share": 0.098058
+     "share": 0.091791
     },
     {
      "band": "6–10",
-     "trucks": 73,
-     "share": 0.226214
+     "trucks": 77,
+     "share": 0.222405
     },
     {
      "band": "11–15",
-     "trucks": 127,
-     "share": 0.580854
+     "trucks": 135,
+     "share": 0.58906
     },
     {
      "band": "16+",
-     "trucks": 22,
-     "share": 0.094874
+     "trucks": 24,
+     "share": 0.096744
     }
    ],
    "fleets": [
@@ -82,43 +82,43 @@
      "fleet": "Scco ML",
      "trucks": 84,
      "avg_age": 12.3,
-     "repair_share": 0.34894
+     "repair_share": 0.326639
     },
     {
      "fleet": "Asia",
      "trucks": 118,
      "avg_age": 7.7,
-     "repair_share": 0.314879
+     "repair_share": 0.294755
     },
     {
      "fleet": "Cpac ML",
      "trucks": 57,
      "avg_age": 7.4,
-     "repair_share": 0.160801
+     "repair_share": 0.150524
+    },
+    {
+     "fleet": "Kpac ML",
+     "trucks": 20,
+     "avg_age": 13.2,
+     "repair_share": 0.088025
     },
     {
      "fleet": "Fast",
      "trucks": 23,
      "avg_age": 9.7,
-     "repair_share": 0.090367
+     "repair_share": 0.084592
     },
     {
      "fleet": "UMO",
      "trucks": 14,
      "avg_age": 9.2,
-     "repair_share": 0.046198
-    },
-    {
-     "fleet": "Kpac ML",
-     "trucks": 6,
-     "avg_age": 16.8,
-     "repair_share": 0.025761
+     "repair_share": 0.043245
     },
     {
      "fleet": "อื่น ๆ",
      "trucks": 3,
      "avg_age": 17.0,
-     "repair_share": 0.013054
+     "repair_share": 0.01222
     }
    ]
   },
@@ -217,8 +217,8 @@
    "id": "TR-SCCC",
    "label": "Trailer SCCC ปูนผง",
    "branch": "สสบ",
-   "trucks": 88,
-   "trend_priced": 15,
+   "trucks": 30,
+   "trend_priced": 10,
    "repair": [
     457286.4,
     457286.4,
@@ -248,53 +248,47 @@
     48643.2
    ],
    "tyre": [
-    128978.22,
-    128978.22,
-    137198.77,
-    111042.46,
-    129725.54,
-    129725.54,
-    137198.77,
-    137198.77,
-    129725.54,
-    129725.54,
-    137198.77,
-    137198.77
+    95268.0,
+    95268.0,
+    101340.0,
+    82020.0,
+    95820.0,
+    95820.0,
+    101340.0,
+    101340.0,
+    95820.0,
+    95820.0,
+    101340.0,
+    101340.0
    ],
    "bands": [
     {
      "band": "0–5",
      "trucks": 1,
-     "share": 0.008192
+     "share": 0.014113
     },
     {
      "band": "6–10",
      "trucks": 5,
-     "share": 0.072298
+     "share": 0.124554
     },
     {
      "band": "11–15",
-     "trucks": 46,
-     "share": 0.661956
+     "trucks": 21,
+     "share": 0.757799
     },
     {
      "band": "16+",
-     "trucks": 36,
-     "share": 0.257554
+     "trucks": 3,
+     "share": 0.103534
     }
    ],
    "fleets": [
     {
      "fleet": "SCCC",
-     "trucks": 83,
-     "avg_age": 15.7,
-     "repair_share": 0.994629
-    },
-    {
-     "fleet": "งานทั่วไป ปูนผง",
-     "trucks": 5,
-     "avg_age": 21.2,
-     "repair_share": 0.005371
+     "trucks": 30,
+     "avg_age": 13.3,
+     "repair_share": 1.0
     }
    ]
   },
@@ -302,8 +296,8 @@
    "id": "TR-SC",
    "label": "Trailer Side curtain",
    "branch": "สสบ",
-   "trucks": 68,
-   "trend_priced": 49,
+   "trucks": 42,
+   "trend_priced": 33,
    "repair": [
     536500.0,
     522000.0,
@@ -333,46 +327,46 @@
     84825.0
    ],
    "tyre": [
-    99664.98,
-    99664.98,
-    106017.23,
-    85805.54,
-    100242.46,
-    100242.46,
-    106017.23,
-    106017.23,
-    100242.46,
-    100242.46,
-    106017.23,
-    106017.23
+    133375.2,
+    133375.2,
+    141876.0,
+    114828.0,
+    134148.0,
+    134148.0,
+    141876.0,
+    141876.0,
+    134148.0,
+    134148.0,
+    141876.0,
+    141876.0
    ],
    "bands": [
     {
      "band": "0–5",
-     "trucks": 40,
-     "share": 0.326938
+     "trucks": 31,
+     "share": 0.501618
     },
     {
      "band": "6–10",
-     "trucks": 4,
-     "share": 0.038773
+     "trucks": 0,
+     "share": 0.0
     },
     {
      "band": "11–15",
-     "trucks": 15,
-     "share": 0.502141
+     "trucks": 11,
+     "share": 0.498382
     },
     {
      "band": "16+",
-     "trucks": 9,
-     "share": 0.132148
+     "trucks": 0,
+     "share": 0.0
     }
    ],
    "fleets": [
     {
      "fleet": "งานทั่วไป",
-     "trucks": 68,
-     "avg_age": 7.0,
+     "trucks": 42,
+     "avg_age": 4.3,
      "repair_share": 1.0
     }
    ]
@@ -381,7 +375,7 @@
    "id": "TR-FEED",
    "label": "Trailer อาหารสัตว์",
    "branch": "สสบ",
-   "trucks": 49,
+   "trucks": 26,
    "trend_priced": 0,
    "repair": [
     204160.0,
@@ -428,7 +422,7 @@
    "bands": [
     {
      "band": "0–5",
-     "trucks": 49,
+     "trucks": 26,
      "share": 1.0
     },
     {
@@ -450,15 +444,15 @@
    "fleets": [
     {
      "fleet": "BTG",
-     "trucks": 29,
-     "avg_age": 3.8,
-     "repair_share": 0.703736
+     "trucks": 17,
+     "avg_age": 3.6,
+     "repair_share": 0.726881
     },
     {
      "fleet": "TFG",
-     "trucks": 20,
+     "trucks": 9,
      "avg_age": 3.0,
-     "repair_share": 0.296264
+     "repair_share": 0.273119
     }
    ]
   },
@@ -466,8 +460,8 @@
    "id": "BOX-9.5",
    "label": "รถตู้เย็น 9.5 ม.",
    "branch": "สสบ",
-   "trucks": 32,
-   "trend_priced": 12,
+   "trucks": 12,
+   "trend_priced": 2,
    "repair": [
     148000.0,
     148000.0,
@@ -513,7 +507,7 @@
    "bands": [
     {
      "band": "0–5",
-     "trucks": 32,
+     "trucks": 12,
      "share": 1.0
     },
     {
@@ -535,21 +529,15 @@
    "fleets": [
     {
      "fleet": "DHLCM",
-     "trucks": 19,
+     "trucks": 10,
      "avg_age": 4.0,
-     "repair_share": 0.659839
-    },
-    {
-     "fleet": "HAVI",
-     "trucks": 9,
-     "avg_age": 2.2,
-     "repair_share": 0.264852
+     "repair_share": 0.90218
     },
     {
      "fleet": "Kuehne",
-     "trucks": 4,
+     "trucks": 2,
      "avg_age": 2.0,
-     "repair_share": 0.075309
+     "repair_share": 0.09782
     }
    ]
   },
@@ -557,8 +545,8 @@
    "id": "BOX-7.5",
    "label": "รถตู้เย็น 7.5 ม.",
    "branch": "สสบ",
-   "trucks": 19,
-   "trend_priced": 9,
+   "trucks": 4,
+   "trend_priced": 0,
    "repair": [
     61600.0,
     61600.0,
@@ -604,7 +592,7 @@
    "bands": [
     {
      "band": "0–5",
-     "trucks": 19,
+     "trucks": 4,
      "share": 1.0
     },
     {
@@ -625,22 +613,10 @@
    ],
    "fleets": [
     {
-     "fleet": "HAVI",
-     "trucks": 10,
-     "avg_age": 2.4,
-     "repair_share": 0.526316
-    },
-    {
      "fleet": "Kuehne",
-     "trucks": 7,
+     "trucks": 4,
      "avg_age": 4.0,
-     "repair_share": 0.368421
-    },
-    {
-     "fleet": "TDM7.5-CC",
-     "trucks": 2,
-     "avg_age": 3.0,
-     "repair_share": 0.105263
+     "repair_share": 1.0
     }
    ]
   }
@@ -785,100 +761,6 @@
      "age": 15,
      "trucks": 2,
      "per_month": 303.67
-    }
-   ]
-  },
-  {
-   "type": "กล้วยหอม 2 เพลา",
-   "rows": [
-    {
-     "year": 2015,
-     "age": 11,
-     "trucks": 2,
-     "per_month": 2301.14
-    },
-    {
-     "year": 2013,
-     "age": 13,
-     "trucks": 1,
-     "per_month": 4542.63
-    },
-    {
-     "year": 2005,
-     "age": 21,
-     "trucks": 5,
-     "per_month": 914.24
-    },
-    {
-     "year": 2004,
-     "age": 22,
-     "trucks": 3,
-     "per_month": 1932.06
-    },
-    {
-     "year": 2003,
-     "age": 23,
-     "trucks": 7,
-     "per_month": 2126.72
-    },
-    {
-     "year": 1996,
-     "age": 30,
-     "trucks": 1,
-     "per_month": 1620.22
-    }
-   ]
-  },
-  {
-   "type": "กล้วยหอม 3 เพลา",
-   "rows": [
-    {
-     "year": 2021,
-     "age": 5,
-     "trucks": 1,
-     "per_month": 2503.33
-    },
-    {
-     "year": 2019,
-     "age": 7,
-     "trucks": 2,
-     "per_month": 1595.02
-    },
-    {
-     "year": 2017,
-     "age": 9,
-     "trucks": 1,
-     "per_month": 4735.15
-    },
-    {
-     "year": 2016,
-     "age": 10,
-     "trucks": 2,
-     "per_month": 111.02
-    },
-    {
-     "year": 2015,
-     "age": 11,
-     "trucks": 2,
-     "per_month": 9337.27
-    },
-    {
-     "year": 2014,
-     "age": 12,
-     "trucks": 9,
-     "per_month": 9374.35
-    },
-    {
-     "year": 2013,
-     "age": 13,
-     "trucks": 17,
-     "per_month": 9111.01
-    },
-    {
-     "year": 2006,
-     "age": 20,
-     "trucks": 19,
-     "per_month": 9416.36
     }
    ]
   },
@@ -1058,140 +940,6 @@
      "age": 5,
      "trucks": 2,
      "per_month": 788.33
-    }
-   ]
-  },
-  {
-   "type": "หาง Side Curtain 3 เพลา",
-   "rows": [
-    {
-     "year": 2016,
-     "age": 10,
-     "trucks": 1,
-     "per_month": 4577.92
-    },
-    {
-     "year": 2011,
-     "age": 15,
-     "trucks": 1,
-     "per_month": 8144.12
-    },
-    {
-     "year": 2010,
-     "age": 16,
-     "trucks": 3,
-     "per_month": 11778.05
-    },
-    {
-     "year": 2007,
-     "age": 19,
-     "trucks": 1,
-     "per_month": 8957.65
-    },
-    {
-     "year": 2005,
-     "age": 21,
-     "trucks": 1,
-     "per_month": 4864.39
-    },
-    {
-     "year": 2004,
-     "age": 22,
-     "trucks": 1,
-     "per_month": 7924.44
-    },
-    {
-     "year": 1989,
-     "age": 37,
-     "trucks": 1,
-     "per_month": 8284.52
-    }
-   ]
-  },
-  {
-   "type": "หาง Side Curtain 3 เพลา (น้ำหนักหาง<10000)",
-   "rows": [
-    {
-     "year": 2025,
-     "age": 1,
-     "trucks": 1,
-     "per_month": 2806.66
-    },
-    {
-     "year": 2024,
-     "age": 2,
-     "trucks": 10,
-     "per_month": 2530.51
-    },
-    {
-     "year": 2022,
-     "age": 4,
-     "trucks": 1,
-     "per_month": 8190.3
-    },
-    {
-     "year": 2020,
-     "age": 6,
-     "trucks": 1,
-     "per_month": 5508.69
-    },
-    {
-     "year": 2017,
-     "age": 9,
-     "trucks": 2,
-     "per_month": 6523.71
-    },
-    {
-     "year": 2015,
-     "age": 11,
-     "trucks": 2,
-     "per_month": 2928.26
-    },
-    {
-     "year": 2011,
-     "age": 15,
-     "trucks": 1,
-     "per_month": 5147.88
-    },
-    {
-     "year": 2009,
-     "age": 17,
-     "trucks": 1,
-     "per_month": 1162.18
-    },
-    {
-     "year": 2007,
-     "age": 19,
-     "trucks": 1,
-     "per_month": 9227.87
-    }
-   ]
-  },
-  {
-   "type": "หางเบาท์ 3 เพลา ขนอาหารสัตว์",
-   "rows": [
-    {
-     "year": 2023,
-     "age": 3,
-     "trucks": 6,
-     "per_month": 2514.55
-    }
-   ]
-  },
-  {
-   "type": "หางเบ้าท์ 2 เพลาขนอาหาร",
-   "rows": [
-    {
-     "year": 2023,
-     "age": 3,
-     "trucks": 6,
-     "per_month": 2567.18
-    },
-    {
-     "year": 2022,
-     "age": 4,
-     "trucks": 11,
-     "per_month": 4204.67
     }
    ]
   }

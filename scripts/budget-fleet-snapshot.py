@@ -8,17 +8,22 @@ PM and tyre budgets are split by truck count only.
 
 Inputs are files, nothing here touches a database:
   tyc.json  export of analytics.truck_year_cost
-  vm.json   export of atms.vehiclemaster (ทะเบียน, ฟลีท, สาขา, ประเภทยานพาหนะ, ปี, ประเภทรถร่วม)
-  xlsx      KPI 2026 ฝ่ายยานยนต์ workbook, sheet Budget_2026
+  vm.json     export of atms.vehiclemaster (ทะเบียน, ประเภทยานพาหนะ, ปี, ประเภทรถร่วม): model year, type, owner
+  avail.json  trucks of one month from the ATMS report vehicle.availability (หัว), pulled per fleet group + fleet:
+              [{"group": "โม่ใหญ่", "fleet": "Asia", "plate": "สบ.71-2035"}, ...]  group = the report's กลุ่มฟลีท
+  xlsx        KPI 2026 ฝ่ายยานยนต์ workbook, sheet Budget_2026
 
-  python3 scripts/budget-fleet-snapshot.py tyc.json vm.json "KPI 2026 - ฝ่ายยานยนต์ สระบุรี_ลาดกระบัง .xlsx" 2026-11-25
+Trucks = company heads (รถมีนา) that appear in the report that month, whether they worked or sat in the shop.
+Tails, partner trucks and placeholder plates are left out; a plate with several ATMS records counts once.
+
+  python3 scripts/budget-fleet-snapshot.py tyc.json vm.json avail.json "KPI 2026 - ฝ่ายยานยนต์ สระบุรี_ลาดกระบัง .xlsx" 2026-11-26 "พ.ย. 69"
 """
 import collections, json, re, sys
 import pandas as pd
 
 YEAR = 2026
-tyc_path, vm_path, xlsx, as_of = sys.argv[1:5]
-tyc = json.load(open(tyc_path)); vm = json.load(open(vm_path))
+tyc_path, vm_path, avail_path, xlsx, as_of, avail_month = sys.argv[1:7]
+tyc = json.load(open(tyc_path)); vm = json.load(open(vm_path)); avail = json.load(open(avail_path))
 
 # ── cost per truck per year by (type, model year) ──
 curve, fit = {}, {}
@@ -37,36 +42,39 @@ def cost(t, y):
     a, b, mean = fit[t]; v = a + b * (YEAR - y)
     return (v if v > 0 else mean), True
 
-# ── company trucks → budget group + fleet ──
-SKIP = {'รถขาย', 'รถว่าง', 'nan', 'None', ''}
+# ── company trucks → budget group + fleet, from the availability report ──
 OTHER_ML = {'ที.เอ็น.ซีเมนต์บล็อค', 'Acon', 'มหาทรัพย์ซีเมนต์', 'จิรโชติ', 'RP'}
+REPORT_GROUP = {'โม่ใหญ่': 'ML', 'โม่เล็ก': 'MS', 'SCCC': 'TR-SCCC', 'ตู้ผ้าใบ': 'TR-SC', 'BTG': 'TR-FEED', 'TFG': 'TR-FEED'}
+TYPE_ALIAS = {'ลากจูง OIL ADBLUE': 'ลากจูง Oil'}  # no repair history of its own yet; same tractor as Oil
+norm = lambda p: re.sub(r'\s', '', str(p or ''))
+base = lambda p: re.sub(r'\(\d+\)$', '', norm(p))
 # ATMS placeholders (JRC001-01-01, RP001-01-01, TPI.00-0000, สบ.00-0000 …) are not trucks.
-# A '(2)' suffix is another ATMS record of the same plate and still passes here.
 def is_real_plate(p):
-    s = re.sub(r'\s', '', str(p or ''))
-    return bool(re.fullmatch(r'[ก-ฮ]{1,3}\.\d{2}-\d{4}(\(\d+\))?', s)) and '.00-' not in s
+    s = base(p)
+    return bool(re.fullmatch(r'[ก-ฮ]{1,3}\.\d{2}-\d{4}', s)) and '.00-' not in s
 
-def group_of(v):
-    if not is_real_plate(v.get('ทะเบียน')): return None
-    if v.get('ประเภทรถร่วม') != 'รถมีนา' or str(v.get('ฟลีท')) in SKIP or not v.get('ปี'): return None
-    t, f, s = v.get('ประเภทยานพาหนะ') or '', v.get('ฟลีท'), v.get('สาขา')
-    if t not in fit: return None
-    if s == 'ลาดกระบัง' and t == 'Mixer 10 ล้อ': return 'ML', ('อื่น ๆ' if f in OTHER_ML else f)
-    if s == 'ลาดกระบัง' and t == 'Mixer 6 ล้อ': return 'MS', f
-    if 'ตู้เย็น 9.5' in t: return 'BOX-9.5', f
-    if 'ตู้เย็น 7.5' in t: return 'BOX-7.5', f
-    if s == 'สระบุรี':
-        if f == 'SCCC': return 'TR-SCCC', 'SCCC'
-        if f in ('BTG', 'TFG'): return 'TR-FEED', f
-        if f == 'งานทั่วไป(สระบุรี)': return ('TR-SCCC', 'งานทั่วไป ปูนผง') if 'กล้วยหอม' in t else ('TR-SC', 'งานทั่วไป')
-    return None
+vmi = {norm(v.get('ทะเบียน')): v for v in vm}
+def group_of(r, v):
+    g, f, t = r['group'], r['fleet'], v.get('ประเภทยานพาหนะ') or ''
+    if g in ('DHL', 'คูเน่'): return ('BOX-9.5' if 'ตู้เย็น 9.5' in t else 'BOX-7.5' if 'ตู้เย็น 7.5' in t else None), f
+    gid = REPORT_GROUP.get(g)
+    if gid == 'ML': return gid, ('อื่น ๆ' if f in OTHER_ML else f)
+    if gid == 'TR-SC': return gid, 'งานทั่วไป'
+    return gid, f
 
-trucks = []
-for v in vm:
-    g = group_of(v)
-    if g:
-        y = int(v['ปี']); w, trend = cost(v['ประเภทยานพาหนะ'], y)
-        trucks.append(dict(group=g[0], fleet=g[1], type=v['ประเภทยานพาหนะ'], age=YEAR - y, w=w, trend=trend))
+trucks, seen, left_out = [], set(), collections.Counter()
+for r in avail:
+    if not is_real_plate(r['plate']): left_out['placeholder'] += 1; continue
+    v = vmi.get(norm(r['plate'])) or vmi.get(base(r['plate'])) or {}
+    if v.get('ประเภทรถร่วม') != 'รถมีนา': left_out['partner / not company'] += 1; continue
+    gid, fleet = group_of(r, v)
+    t = TYPE_ALIAS.get(v.get('ประเภทยานพาหนะ'), v.get('ประเภทยานพาหนะ'))
+    if not gid or t not in fit or not v.get('ปี'): left_out[f'no group/type/year: {r["group"]} {t}'] += 1; continue
+    if (gid, base(r['plate'])) in seen: continue  # same truck, another ATMS record
+    seen.add((gid, base(r['plate'])))
+    y = int(v['ปี']); w, trend = cost(t, y)
+    trucks.append(dict(group=gid, fleet=fleet, type=t, age=YEAR - y, w=w, trend=trend))
+print('left out', dict(left_out))
 
 # ── budgets ──
 df = pd.read_excel(xlsx, sheet_name='Budget_2026')
@@ -112,7 +120,7 @@ for t in ['Mixer 10 ล้อ', 'Mixer 6 ล้อ'] + sorted({x['type'] for x i
     types.append(dict(type=t, rows=[dict(year=r['ปี'], age=YEAR - r['ปี'], trucks=r['count_ทะเบียน'],
                                          per_month=round(r['avg_cost_per_ทะเบียน'] / 40, 2)) for r in rs]))
 
-out = dict(year=YEAR, as_of=as_of, source=dict(truck_year_cost='ม.ค. 66–พ.ค. 69 (40 เดือน)', budget='KPI 2026 ชีต Budget_2026', trucks=f'ATMS {as_of}'),
+out = dict(year=YEAR, as_of=as_of, source=dict(truck_year_cost='ม.ค. 66–พ.ค. 69 (40 เดือน)', budget='KPI 2026 ชีต Budget_2026', trucks=f'ATMS รายงานความพร้อมใช้รถ {avail_month} (หัว รถบริษัท)'),
            groups=groups, types=types)
 json.dump(out, open('app/budget-control/fleet-budget-2569.json', 'w'), ensure_ascii=False, indent=1)
 print('groups', len(groups), 'trucks', len(trucks), 'types', len(types),

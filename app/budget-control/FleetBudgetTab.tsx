@@ -41,7 +41,7 @@ export default function FleetBudgetTab() {
   return (
     <div className="space-y-4">
       <p className="text-[13px] text-gray-600 dark:text-gray-400">
-        ตัวอย่าง ณ {asOf} · ซ่อม/อะไหล่ปันตามอายุรถ จากค่าซ่อมต่อคันในหน้า truck-year-cost · PM กับยางปันตามจำนวนคัน · งบจาก KPI 2026 · ยังไม่อัปเดตเอง
+        ตัวอย่าง ณ {asOf} · ซ่อม/อะไหล่ปันตามอายุรถ จากค่าซ่อมต่อคันในหน้า truck-year-cost · PM กับยางปันตามจำนวนคัน · งบจาก KPI 2026 · รถจากรายงานความพร้อมใช้รถ ATMS · ยังไม่อัปเดตเอง
       </p>
       <div className="flex flex-wrap items-center gap-2">
         <label className="sr-only" htmlFor="fb-month">เดือนของงบ</label>
@@ -176,7 +176,7 @@ function FleetTable({ groups, m }: { groups: Group[]; m: number }) {
         </tbody>
       </table>
       <p className="px-4 pb-4 pt-2 text-[12px] text-gray-500 dark:text-gray-400">
-        ยาง 620501 (ขนส่ง) แบ่ง SCCC กับ Side curtain ตามจำนวนคัน · รถตู้เย็นอยู่ฟลีท DIST แต่ใช้งบ สสบ · อื่น ๆ = TN ซีเมนต์บล็อค, Acon, มหาทรัพย์, จิรโชติ, RP · ไม่นับรถขาย รถว่าง รถร่วม
+        ยาง 620501 (ขนส่ง) แบ่ง SCCC กับ Side curtain ตามจำนวนคัน · รถตู้เย็นใช้งบ สสบ · อื่น ๆ = TN ซีเมนต์บล็อค, Acon · นับหัวรถบริษัททุกคันที่อยู่ในรายงานเดือนนั้น รวมคันที่จอดซ่อม ไม่นับหาง รถร่วม และทะเบียนหลอก
       </p>
     </section>
   )
