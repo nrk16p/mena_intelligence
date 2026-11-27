@@ -520,9 +520,9 @@ function TwoLegs({ cells, month }: { cells: FleetCellIn[] | undefined; month: st
             <tr className="bg-gray-50 text-[12px] text-gray-600 dark:bg-white/3 dark:text-gray-400">
               <th scope="col" rowSpan={2} className="px-3.5 py-2.5 text-left font-semibold">ฟลีท / ประเภท</th>
               <th scope="col" rowSpan={2} className={TH}>งบเดือน</th>
-              <th scope="colgroup" colSpan={2} className="border-l border-gray-200 px-3.5 pt-2.5 text-center font-semibold text-amber-800 dark:border-white/10 dark:text-amber-300">1. งบซื้อ · นับจาก PR</th>
-              <th scope="colgroup" colSpan={2} className="border-l border-gray-200 px-3.5 pt-2.5 text-center font-semibold text-emerald-800 dark:border-white/10 dark:text-emerald-300">2. งบใช้ · นับจาก WD</th>
-              <th scope="colgroup" className="border-l border-gray-200 px-3.5 pt-2.5 text-center font-semibold dark:border-white/10">3. สต๊อก</th>
+              <th scope="colgroup" colSpan={2} className="border-l border-gray-200 px-3.5 pt-2.5 text-center font-semibold text-amber-800 dark:border-white/10 dark:text-amber-300">งบซื้อ · นับจาก PR</th>
+              <th scope="colgroup" colSpan={2} className="border-l border-gray-200 px-3.5 pt-2.5 text-center font-semibold text-emerald-800 dark:border-white/10 dark:text-emerald-300">งบใช้ · นับจาก WD</th>
+              <th scope="colgroup" className="border-l border-gray-200 px-3.5 pt-2.5 text-center font-semibold dark:border-white/10">สต๊อก</th>
             </tr>
             <tr className="bg-gray-50 text-[12px] text-gray-600 dark:bg-white/3 dark:text-gray-400">
               <th scope="col" className={`${TH} border-l border-gray-200 dark:border-white/10`}>ซื้อแล้ว</th>

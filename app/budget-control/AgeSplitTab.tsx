@@ -144,7 +144,7 @@ function SourceLine({ doc, rows }: { doc: AgeSplitDoc; rows: AgeSplitRow[] }) {
   const nSrc = src.reduce((a, [, n]) => a + n, 0)
   return (
     <p className="text-[13px] text-gray-600 dark:text-gray-400">
-      ค่าซ่อม/อะไหล่ รถบริษัท{doc.window ? ` ย้อน 3 ปี ${monthLabel(doc.window.from)} – ${monthLabel(doc.window.to)}` : ""}
+      ค่าซ่อม/อะไหล่ รถบริษัท{doc.window ? ` ${monthLabel(doc.window.from)} – ${monthLabel(doc.window.to)}` : ""}
       {" · "}โม่จับคู่ลูกค้าได้ {total ? pct(known / total) : "—"}
       {src.length > 0 && <> · อายุรถจาก {src.map(([k, n]) => `${AGE_SOURCE[k] ?? k} ${Math.round((n / nSrc) * 100)}%`).join(", ")}</>}
       {" · "}ตัดถึง {dayLabel(doc.cut)}
@@ -196,7 +196,7 @@ function AgePivot({ rows, cut }: { rows: AgeSplitRow[]; cut: string }) {
         <thead>
           <tr className="bg-gray-50 text-[12px] text-gray-600 dark:bg-white/3 dark:text-gray-400">
             <th scope="col" className="px-3.5 py-2.5 text-left font-semibold">ฟลีท / ลูกค้า / อายุรถ</th>
-            <th scope="col" className={TH}>ค่าซ่อม 3 ปี</th>
+            <th scope="col" className={TH}>ค่าซ่อมย้อนหลัง</th>
             <th scope="col" className={TH}>สัดส่วน</th>
             <th scope="col" className={TH}>งบปันได้ทั้งปี</th>
             <th scope="col" className={TH}>งบถึง {ytd}</th>
@@ -254,7 +254,7 @@ function PerTruckChart({ rows }: { rows: AgeSplitRow[] }) {
   return (
     <section aria-label="ค่าซ่อมเฉลี่ยต่อคันต่อปี ตามอายุรถ" className="rounded-xl border border-gray-200 bg-white p-5 dark:border-white/8 dark:bg-[#0d0f18]">
       <h2 className="text-[15px] font-semibold text-gray-900 dark:text-white">ค่าซ่อมเฉลี่ยต่อคันต่อปี ตามอายุรถ</h2>
-      <p className="mb-3 text-[13px] text-gray-500 dark:text-gray-400">ค่าซ่อม 3 ปี ÷ คัน-เดือนที่วิ่ง × 12</p>
+      <p className="mb-3 text-[13px] text-gray-500 dark:text-gray-400">ค่าซ่อมย้อนหลัง ÷ คัน-เดือนที่วิ่ง × 12</p>
       <div className="h-64">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data} margin={{ top: 8, right: 16, bottom: 0, left: 8 }}>
