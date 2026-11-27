@@ -115,10 +115,16 @@
      "repair_share": 0.043245
     },
     {
-     "fleet": "อื่น ๆ",
-     "trucks": 3,
-     "avg_age": 17.0,
-     "repair_share": 0.01222
+     "fleet": "ที.เอ็น.ซีเมนต์บล็อค",
+     "trucks": 2,
+     "avg_age": 16.0,
+     "repair_share": 0.008253
+    },
+    {
+     "fleet": "Acon",
+     "trucks": 1,
+     "avg_age": 19.0,
+     "repair_share": 0.003967
     }
    ]
   },

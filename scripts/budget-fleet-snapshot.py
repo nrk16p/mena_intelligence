@@ -43,7 +43,6 @@ def cost(t, y):
     return (v if v > 0 else mean), True
 
 # ── company trucks → budget group + fleet, from the availability report ──
-OTHER_ML = {'ที.เอ็น.ซีเมนต์บล็อค', 'Acon', 'มหาทรัพย์ซีเมนต์', 'จิรโชติ', 'RP'}
 REPORT_GROUP = {'โม่ใหญ่': 'ML', 'โม่เล็ก': 'MS', 'SCCC': 'TR-SCCC', 'ตู้ผ้าใบ': 'TR-SC', 'BTG': 'TR-FEED', 'TFG': 'TR-FEED'}
 TYPE_ALIAS = {'ลากจูง OIL ADBLUE': 'ลากจูง Oil'}  # no repair history of its own yet; same tractor as Oil
 norm = lambda p: re.sub(r'\s', '', str(p or ''))
@@ -58,7 +57,6 @@ def group_of(r, v):
     g, f, t = r['group'], r['fleet'], v.get('ประเภทยานพาหนะ') or ''
     if g in ('DHL', 'คูเน่'): return ('BOX-9.5' if 'ตู้เย็น 9.5' in t else 'BOX-7.5' if 'ตู้เย็น 7.5' in t else None), f
     gid = REPORT_GROUP.get(g)
-    if gid == 'ML': return gid, ('อื่น ๆ' if f in OTHER_ML else f)
     if gid == 'TR-SC': return gid, 'งานทั่วไป'
     return gid, f
 

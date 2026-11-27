@@ -144,7 +144,6 @@ export type FleetBudgetFile = {
   year: number
   groups: { id: string; trucks: number; repair: number[]; pm: number[]; tyre: number[]; fleets: { fleet: string; trucks: number; repair_share: number }[] }[]
 }
-export const OTHER_ML = new Set(["ที.เอ็น.ซีเมนต์บล็อค", "Acon", "มหาทรัพย์ซีเมนต์", "จิรโชติ", "RP"])
 
 /** "Asia" + ML → "Asia ML"; names that already end in ML/MS stay as they are ("Scco ML", "Asia MS"). */
 export const fleetLabel = (name: string, groupId: string) => (/\s(ML|MS)$/.test(name) ? name : `${name} ${groupId}`)
@@ -153,7 +152,7 @@ export const fleetLabel = (name: string, groupId: string) => (/\s(ML|MS)$/.test(
 export function fleetBudgetFor(file: FleetBudgetFile, groupId: string, atmsFleet: string, month: string): Partial<Record<Category, number>> | null {
   if (Number(month.slice(0, 4)) !== file.year) return null
   const g = file.groups.find((x) => x.id === groupId)
-  const name = groupId === "ML" && OTHER_ML.has(atmsFleet) ? "อื่น ๆ" : atmsFleet
+  const name = atmsFleet
   const f = g?.fleets.find((x) => x.fleet === name)
   if (!g || !f || !g.trucks) return null
   const m = Number(month.slice(5, 7)) - 1
@@ -217,7 +216,7 @@ export function fleetPivot(byFleet: FleetCellIn[], file: FleetBudgetFile, month:
   if (Number(month.slice(0, 4)) === file.year) {
     for (const g of file.groups.filter((x) => x.id === "ML" || x.id === "MS")) {
       for (const f of g.fleets) {
-        const b = fleetBudgetFor(file, g.id, f.fleet === "อื่น ๆ" ? "Acon" : f.fleet, month)
+        const b = fleetBudgetFor(file, g.id, f.fleet, month)
         if (!b) continue
         const r = row(g.id, fleetLabel(f.fleet, g.id))
         for (const c of CATEGORIES) r.cats[c].budget += b[c] ?? 0
@@ -227,7 +226,7 @@ export function fleetPivot(byFleet: FleetCellIn[], file: FleetBudgetFile, month:
   for (const x of byFleet) {
     if (!x.group.endsWith("บริษัท")) continue
     const groupId = x.group.split("|")[0]
-    const name = !x.fleet ? "ไม่ระบุฟลีท" : fleetLabel(groupId === "ML" && OTHER_ML.has(x.fleet) ? "อื่น ๆ" : x.fleet, groupId)
+    const name = !x.fleet ? "ไม่ระบุฟลีท" : fleetLabel(x.fleet, groupId)
     const c = row(groupId, name).cats[x.category]
     if (!c) continue
     c.wd += x.wd; c.dd += x.dd_open; c.pr += x.pr_open; c.pend += x.pr_pending

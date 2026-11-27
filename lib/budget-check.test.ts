@@ -139,9 +139,9 @@ describe("per fleet", () => {
   const file = {
     year: 2026,
     groups: [{ id: "ML", trucks: 200, repair: Array(12).fill(1_000_000), pm: Array(12).fill(100_000), tyre: Array(12).fill(400_000),
-      fleets: [{ fleet: "Asia", trucks: 100, repair_share: 0.3 }, { fleet: "Scco ML", trucks: 97, repair_share: 0.68 }, { fleet: "อื่น ๆ", trucks: 3, repair_share: 0.02 }] }],
+      fleets: [{ fleet: "Asia", trucks: 100, repair_share: 0.3 }, { fleet: "Scco ML", trucks: 97, repair_share: 0.68 }, { fleet: "Acon", trucks: 3, repair_share: 0.02 }] }],
   }
-  it("fleetBudgetFor: repair by age share, PM and tyre by truck count; other ML fleets fall in อื่น ๆ", () => {
+  it("fleetBudgetFor: repair by age share, PM and tyre by truck count; each ATMS fleet on its own", () => {
     expect(fleetBudgetFor(file, "ML", "Asia", "2026-11")).toEqual({ ซ่อม: 300_000, PM: 50_000, ยาง: 200_000 })
     expect(fleetBudgetFor(file, "ML", "Acon", "2026-11")?.ซ่อม).toBeCloseTo(20_000)
     expect(fleetBudgetFor(file, "ML", "Fast", "2026-11")).toBeNull()
@@ -182,7 +182,7 @@ describe("fleetPivot", () => {
     year: 2026,
     groups: [
       { id: "ML", trucks: 200, repair: Array(12).fill(1_000_000), pm: Array(12).fill(100_000), tyre: Array(12).fill(400_000),
-        fleets: [{ fleet: "Asia", trucks: 100, repair_share: 0.3 }, { fleet: "Scco ML", trucks: 97, repair_share: 0.68 }, { fleet: "อื่น ๆ", trucks: 3, repair_share: 0.02 }] },
+        fleets: [{ fleet: "Asia", trucks: 100, repair_share: 0.3 }, { fleet: "Scco ML", trucks: 97, repair_share: 0.68 }, { fleet: "Acon", trucks: 3, repair_share: 0.02 }] },
       { id: "MS", trucks: 10, repair: Array(12).fill(100_000), pm: Array(12).fill(0), tyre: Array(12).fill(0), fleets: [{ fleet: "Cpac MS", trucks: 10, repair_share: 1 }] },
     ],
   }
@@ -198,7 +198,8 @@ describe("fleetPivot", () => {
     const asia = rows.find((r) => r.fleet === "Asia ML")!
     expect(asia.cats.ซ่อม).toEqual({ budget: 300_000, wd: 150, dd: 10, pr: 20, pend: 5 })
     expect(asia.cats.ยาง).toMatchObject({ budget: 200_000, wd: 7 })
-    expect(rows.find((r) => r.fleet === "อื่น ๆ ML")!.cats.ซ่อม).toMatchObject({ wd: 9 })
+    expect(rows.find((r) => r.fleet === "Acon ML")!.cats.ซ่อม).toMatchObject({ budget: 20_000, wd: 9 })
+    expect(rows.some((r) => r.fleet.startsWith("อื่น"))).toBe(false)
     expect(rows.find((r) => r.fleet === "Scco ML")!.cats.ซ่อม).toMatchObject({ wd: 0 })
     expect(rows.find((r) => r.fleet === "ไม่ระบุฟลีท")!.cats.ซ่อม).toMatchObject({ budget: 0, wd: 3 })
     expect(rows.find((r) => r.fleet === "Cpac MS")!.cats.ซ่อม.budget).toBe(100_000)

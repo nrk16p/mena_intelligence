@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth"
 import { getUserPermissions } from "@/lib/permissions"
 import clientPromise from "@/lib/mongo"
 import { AtmsError, readPr } from "@/lib/atms-doc"
-import { checkPr, checkPrFleet, docKind, fleetBudgetFor, fleetLabel, hasFleetTotals, normPlate, OTHER_ML, type FleetBudgetFile, type PlateMapEntry, type Snapshot } from "@/lib/budget-check"
+import { checkPr, checkPrFleet, docKind, fleetBudgetFor, fleetLabel, hasFleetTotals, normPlate, type FleetBudgetFile, type PlateMapEntry, type Snapshot } from "@/lib/budget-check"
 import fleetBudget from "@/app/budget-control/fleet-budget-2569.json"
 
 // เช็กงบจากเลข PR: read one PR live from ATMS, compare with the budget-control snapshot (buy leg) and
@@ -57,15 +57,14 @@ export async function GET(req: NextRequest) {
       const vm = await atms.findOne({ ทะเบียน: { $in: [...new Set([pr.plate, pl])] } }, { projection: { _id: 0, ฟลีท: 1 }, maxTimeMS: 5000 })
       const atmsFleet = vm ? String(vm["ฟลีท"] ?? "") : ""
       const groupId = result.group.split("|")[0]
-      const name = fleetLabel(groupId === "ML" && OTHER_ML.has(atmsFleet) ? "อื่น ๆ" : atmsFleet, groupId)
+      const name = fleetLabel(atmsFleet, groupId)
       const budget = atmsFleet ? fleetBudgetFor(fleetBudget as FleetBudgetFile, groupId, atmsFleet, month) : null
       if (!hasFleetTotals({ by_plate: snap.by_plate ?? [] })) {
         fleet = { name: atmsFleet ? name : "—", lines: [], reason: "ยอดงบรายฟลีทยังไม่พร้อม รอรอบคำนวณถัดไป (ทุกชั่วโมง 07:25–20:25)" }
       } else if (!budget) {
         fleet = { name: atmsFleet ? name : "—", lines: [], reason: atmsFleet ? `ยังไม่มีงบรายฟลีทของ ${name} เดือนนี้` : `ไม่พบฟลีทของทะเบียน ${pr.plate} ใน ATMS` }
       } else {
-        const names = groupId === "ML" && OTHER_ML.has(atmsFleet) ? [...OTHER_ML] : [atmsFleet]
-        const rows = await atms.find({ ฟลีท: { $in: names }, ประเภทรถร่วม: "รถมีนา" }, { projection: { _id: 0, ทะเบียน: 1 } }).limit(1000).maxTimeMS(5000).toArray()
+        const rows = await atms.find({ ฟลีท: atmsFleet, ประเภทรถร่วม: "รถมีนา" }, { projection: { _id: 0, ทะเบียน: 1 } }).limit(1000).maxTimeMS(5000).toArray()
         const plates = new Set(rows.map((r) => normPlate(r["ทะเบียน"])))
         plates.add(pl)
         const lines = checkPrFleet(pr, name, budget, plates, { by_plate: snap.by_plate ?? [], pending_prs: snap.pending_prs ?? [] },
